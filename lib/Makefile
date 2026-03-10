@@ -58,7 +58,8 @@ SUBDIR+=	../minix/lib/libacpi \
 .if (${MACHINE_ARCH} == "earm")
 SUBDIR+=	../minix/lib/libclkconf \
 		../minix/lib/libgpio \
-		../minix/lib/libi2cdriver
+		../minix/lib/libi2cdriver \
+		../external/bsd/libfdt
 .endif
 
 .if (${MKMAGIC} == "yes")

@@ -18,6 +18,9 @@ SRCS+=	clock.c cpulocals.c interrupt.c main.c proc.c system.c \
 LDADD+=	-ltimers -lsys -lexec 
 
 .if ${MACHINE_ARCH} == "earm"
+# LibFDT for kernel
+LDADD+= -lfdt
+CPPFLAGS+= -I${NETBSDSRCDIR}/external/bsd/libfdt/dist/include
 LINKERSCRIPT= ${.CURDIR}/arch/${MACHINE_ARCH}/bsp/${BOARD_SOC_VENDOR}/${BOARD_SOC_NAME}/kernel.lds
 .else
 LINKERSCRIPT= ${.CURDIR}/arch/${MACHINE_ARCH}/kernel.lds

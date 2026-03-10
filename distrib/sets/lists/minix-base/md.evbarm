@@ -55,3 +55,9 @@
 ./usr/share/beaglebone/weather/style.css                minix-base
 ./usr/share/beaglebone/weather/weatherstation.js        minix-base
 ./usr/share/beaglebone/weather/weatherstation.lua       minix-base
+./usr/include/fdt.h                                     minix-base
+./usr/include/libfdt.h                                  minix-base
+./usr/include/libfdt_env.h                              minix-base
+./usr/include/libfdt_internal.h                         minix-base
+./usr/lib/libfdt.a                                      minix-base
+./usr/lib/libfdt_pic.a                                  minix-base
