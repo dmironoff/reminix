@@ -17,7 +17,11 @@ SRCS+=	clock.c cpulocals.c interrupt.c main.c proc.c system.c \
 
 LDADD+=	-ltimers -lsys -lexec 
 
+.if ${MACHINE_ARCH} == "earm"
+LINKERSCRIPT= ${.CURDIR}/arch/${MACHINE_ARCH}/bsp/${BOARD_SOC_VENDOR}/${BOARD_SOC_NAME}/kernel.lds
+.else
 LINKERSCRIPT= ${.CURDIR}/arch/${MACHINE_ARCH}/kernel.lds
+.endif
 
 .if ${HAVE_GOLD:U} != ""
 CFLAGS+= -fno-common
@@ -39,6 +43,11 @@ CPPFLAGS+= -I${.OBJDIR}/..
 CPPFLAGS+= -I${.CURDIR}/arch/${MACHINE_ARCH}
 CPPFLAGS+= -I${.CURDIR}/arch/${MACHINE_ARCH}/include
 CPPFLAGS+= -I${.CURDIR}/arch/${MACHINE_ARCH}/bsp/include
+.if ${MACHINE_ARCH} == "earm"
+CPPFLAGS+= -I${NETBSDSRCDIR}/minix/include/arch/${MACHINE_ARCH}/${BOARD_SOC_VENDOR}/${BOARD_SOC_NAME}
+CPPFLAGS+= -I${.CURDIR}/arch/${MACHINE_ARCH}/bsp/${BOARD_SOC_VENDOR}/${BOARD_SOC_NAME}/include
+.endif
+
 CPPFLAGS+= -I${NETBSDSRCDIR}/minix/include/arch/${MACHINE_ARCH}/include
 
 .include "system/Makefile.inc"

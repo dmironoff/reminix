@@ -17,6 +17,7 @@
 #include "bsp_serial.h"
 #include "glo.h"
 #include <machine/multiboot.h>
+#include "modules_memory_map.h"
 
 #if USE_SYSDEBUG
 #define MULTIBOOT_VERBOSE 1
@@ -177,12 +178,7 @@ int overlaps(multiboot_module_t *mod, int n, int cmp_mod)
 	return 0;
 }
 
-/* XXX: hard-coded stuff for modules */
-#define MB_MODS_NR NR_BOOT_MODULES
-#define MB_MODS_BASE  0x82000000
-#define MB_MODS_ALIGN 0x00800000 /* 8 MB */
-#define MB_MMAP_START 0x80000000
-#define MB_MMAP_SIZE  0x10000000 /* 256 MB */
+
 
 multiboot_module_t mb_modlist[MB_MODS_NR];
 multiboot_memory_map_t mb_memmap;
