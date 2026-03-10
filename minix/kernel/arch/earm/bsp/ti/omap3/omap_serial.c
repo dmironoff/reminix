@@ -45,11 +45,8 @@ static kern_phys_map serial_phys_map;
 void
 bsp_ser_init(void)
 {
-	if (BOARD_IS_BBXM(machine.board_id)) {
-		omap_serial.base = OMAP3_DM37XX_DEBUG_UART_BASE;
-	} else if (BOARD_IS_BB(machine.board_id)) {
-		omap_serial.base = OMAP3_AM335X_DEBUG_UART_BASE;
-	}
+    omap_serial.base = OMAP3_DM37XX_DEBUG_UART_BASE;
+
 	omap_serial.size = 0x1000;	/* 4k */
 
 	kern_phys_map_ptr(omap_serial.base, omap_serial.size,

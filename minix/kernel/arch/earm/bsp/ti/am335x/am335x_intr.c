@@ -11,7 +11,7 @@
 #include "arch_proto.h"
 #include "hw_intr.h"
 
-#include "omap_intr_registers.h"
+#include "am335x_intr_registers.h"
 static struct omap_intr
 {
 	vir_bytes base;
@@ -23,15 +23,9 @@ static kern_phys_map intr_phys_map;
 int
 intr_init(const int auto_eoi)
 {
-	if (BOARD_IS_BBXM(machine.board_id)) {
-		omap_intr.base = OMAP3_DM37XX_INTR_BASE;
-	} else if (BOARD_IS_BB(machine.board_id)) {
-		omap_intr.base = OMAP3_AM335X_INTR_BASE;
-	} else {
-		panic
-		    ("Can not do the interrupt setup. machine (0x%08x) is unknown\n",
-		    machine.board_id);
-	};
+
+    omap_intr.base = OMAP3_AM335X_INTR_BASE;
+
 	omap_intr.size = 0x1000;	/* 4K */
 
 	kern_phys_map_ptr(omap_intr.base, omap_intr.size,

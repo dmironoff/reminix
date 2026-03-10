@@ -10,8 +10,8 @@
 #include <stdio.h>
 #include "arch_proto.h"
 #include "bsp_timer.h"
-#include "omap_timer_registers.h"
-#include "omap_intr_registers.h"
+#include "am335x_timer_registers.h"
+#include "am335x_intr_registers.h"
 #include "bsp_intr.h"
 
 /* interrupt handler hook */
@@ -53,26 +53,26 @@ struct omap_timer_registers
 };
 
 static struct omap_timer_registers regs_v1 = {
-	.TIDR = OMAP3_TIMER_TIDR,
-	.TIOCP_CFG = OMAP3_TIMER_TIOCP_CFG,
-	.TISTAT = OMAP3_TIMER_TISTAT,
-	.TISR = OMAP3_TIMER_TISR,
-	.TIER = OMAP3_TIMER_TIER,
-	.TWER = OMAP3_TIMER_TWER,
-	.TCLR = OMAP3_TIMER_TCLR,
-	.TCRR = OMAP3_TIMER_TCRR,
-	.TLDR = OMAP3_TIMER_TLDR,
-	.TTGR = OMAP3_TIMER_TTGR,
-	.TWPS = OMAP3_TIMER_TWPS,
-	.TMAR = OMAP3_TIMER_TMAR,
-	.TCAR1 = OMAP3_TIMER_TCAR1,
-	.TSICR = OMAP3_TIMER_TSICR,
-	.TCAR2 = OMAP3_TIMER_TCAR2,
-	.TPIR = OMAP3_TIMER_TPIR,
-	.TNIR = OMAP3_TIMER_TNIR,
-	.TCVR = OMAP3_TIMER_TCVR,
-	.TOCR = OMAP3_TIMER_TOCR,
-	.TOWR = OMAP3_TIMER_TOWR,
+        .TIDR = OMAP3_TIMER_TIDR,
+        .TIOCP_CFG = OMAP3_TIMER_TIOCP_CFG,
+        .TISTAT = OMAP3_TIMER_TISTAT,
+        .TISR = OMAP3_TIMER_TISR,
+        .TIER = OMAP3_TIMER_TIER,
+        .TWER = OMAP3_TIMER_TWER,
+        .TCLR = OMAP3_TIMER_TCLR,
+        .TCRR = OMAP3_TIMER_TCRR,
+        .TLDR = OMAP3_TIMER_TLDR,
+        .TTGR = OMAP3_TIMER_TTGR,
+        .TWPS = OMAP3_TIMER_TWPS,
+        .TMAR = OMAP3_TIMER_TMAR,
+        .TCAR1 = OMAP3_TIMER_TCAR1,
+        .TSICR = OMAP3_TIMER_TSICR,
+        .TCAR2 = OMAP3_TIMER_TCAR2,
+        .TPIR = OMAP3_TIMER_TPIR,
+        .TNIR = OMAP3_TIMER_TNIR,
+        .TCVR = OMAP3_TIMER_TCVR,
+        .TOCR = OMAP3_TIMER_TOCR,
+        .TOWR = OMAP3_TIMER_TOWR,
 };
 
 /* AM335X has a different ip block for the non 
@@ -100,18 +100,6 @@ static struct omap_timer_registers regs_v2 = {
 	.TOWR = -1		/* UNDEF */
 };
 
-static struct omap_timer dm37xx_timer = {
-	.base = OMAP3_GPTIMER1_BASE,
-	.irq_nr = OMAP3_GPT1_IRQ,
-	.regs = &regs_v1
-};
-
-/* free running timer */
-static struct omap_timer dm37xx_fr_timer = {
-	.base = OMAP3_GPTIMER10_BASE,
-	.irq_nr = OMAP3_GPT10_IRQ,
-	.regs = &regs_v1
-};
 
 /* normal timer */
 static struct omap_timer am335x_timer = {
@@ -159,13 +147,9 @@ kern_phys_fr_user_mapped(vir_bytes id, phys_bytes address)
 {
 	/* the only thing we need to do at this stage is to set the address */
 	/* in the kerninfo struct */
-	if (BOARD_IS_BBXM(machine.board_id)) {
-		arm_frclock.tcrr = address + OMAP3_TIMER_TCRR;
-		arm_frclock.hz = 1625000;
-	} else if (BOARD_IS_BB(machine.board_id)) {
-		arm_frclock.tcrr = address + AM335X_TIMER_TCRR;
-		arm_frclock.hz = 1500000;
-	}
+	arm_frclock.tcrr = address + AM335X_TIMER_TCRR;
+	arm_frclock.hz = 1500000;
+
 	return 0;
 }
 
@@ -175,34 +159,8 @@ omap3_frclock_init(void)
 	u32_t tisr;
 
 	/* enable the clock */
-	if (BOARD_IS_BBXM(machine.board_id)) {
-		fr_timer = &dm37xx_fr_timer;
 
-		kern_phys_map_ptr(fr_timer->base, ARM_PAGE_SIZE,
-		    VMMF_UNCACHED | VMMF_WRITE, &fr_timer_phys_map,
-		    (vir_bytes) & fr_timer->base);
-
-		/* the timer is also mapped in user space hence the this */
-		/* second mapping and callback to set kerninfo frclock_tcrr */
-		kern_req_phys_map(fr_timer->base, ARM_PAGE_SIZE,
-		    VMMF_UNCACHED | VMMF_USER,
-		    &fr_timer_user_phys_map, kern_phys_fr_user_mapped, 0);
-
-		/* Stop timer */
-		mmio_clear(fr_timer->base + fr_timer->regs->TCLR,
-		    OMAP3_TCLR_ST);
-
-		/* Use functional clock source for GPTIMER10 */
-		mmio_set(OMAP3_CM_CLKSEL_CORE, OMAP3_CLKSEL_GPT10);
-
-		/* Scale timer down to 13/8 = 1.625 Mhz to roughly get
-		 * microsecond ticks */
-		/* The scale is computed as 2^(PTV+1). So if PTV == 2, we get
-		 * 2^3 = 8. */
-		mmio_set(fr_timer->base + fr_timer->regs->TCLR,
-		    (2 << OMAP3_TCLR_PTV));
-	} else if (BOARD_IS_BB(machine.board_id)) {
-		fr_timer = &am335x_fr_timer;
+	fr_timer = &am335x_fr_timer;
 		kern_phys_map_ptr(fr_timer->base, ARM_PAGE_SIZE,
 		    VMMF_UNCACHED | VMMF_WRITE,
 		    &fr_timer_phys_map, (vir_bytes) & fr_timer->base);
@@ -236,7 +194,7 @@ omap3_frclock_init(void)
 		/* 24Mhz / 16 = 1.5 Mhz */
 		mmio_set(fr_timer->base + fr_timer->regs->TCLR,
 		    (3 << OMAP3_TCLR_PTV));
-	}
+
 
 	/* Start and auto-reload at 0 */
 	mmio_write(fr_timer->base + fr_timer->regs->TLDR, 0x0);
@@ -268,17 +226,7 @@ bsp_timer_init(unsigned freq)
 {
 	/* we only support 1ms resolution */
 	u32_t tisr;
-	if (BOARD_IS_BBXM(machine.board_id)) {
-		timer = &dm37xx_timer;
-		kern_phys_map_ptr(timer->base, ARM_PAGE_SIZE,
-		    VMMF_UNCACHED | VMMF_WRITE,
-		    &timer_phys_map, (vir_bytes) & timer->base);
-		/* Stop timer */
-		mmio_clear(timer->base + timer->regs->TCLR, OMAP3_TCLR_ST);
 
-		/* Use 32 KHz clock source for GPTIMER1 */
-		mmio_clear(OMAP3_CM_CLKSEL_WKUP, OMAP3_CLKSEL_GPT1);
-	} else if (BOARD_IS_BB(machine.board_id)) {
 		timer = &am335x_timer;
 		kern_phys_map_ptr(timer->base, ARM_PAGE_SIZE,
 		    VMMF_UNCACHED | VMMF_WRITE,
@@ -303,7 +251,7 @@ bsp_timer_init(unsigned freq)
 
 		/* Stop timer */
 		mmio_clear(timer->base + timer->regs->TCLR, OMAP3_TCLR_ST);
-	}
+
 
 	/* Use 1-ms tick mode for GPTIMER1 TRM 16.2.4.2.1 */
 	mmio_write(timer->base + timer->regs->TPIR, 232000);

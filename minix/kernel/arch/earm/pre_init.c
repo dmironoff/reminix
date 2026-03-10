@@ -346,26 +346,9 @@ void get_parameters(kinfo_t *cbi, char *bootargs)
  */
 #define POORMANS_FAILURE_NOTIFICATION  asm volatile("svc #00\n")
 
+
 /* use the passed cmdline argument to determine the machine id */
-void set_machine_id(char *cmdline)
-{
 
-	char boardname[20];
-	memset(boardname,'\0',20);
-	if (find_value(cmdline,"board_name=",boardname,20)){
-		/* we expect the bootloader to pass a board_name as argument
-		 * this however did not happen and given we still are in early
-		 * boot we can't use the serial. We therefore generate an interrupt
-		 * and hope the bootloader will do something nice with it */
-		POORMANS_FAILURE_NOTIFICATION;
-	}  
-	machine.board_id = get_board_id_by_short_name(boardname);
-
-	if (machine.board_id ==0){
-		/* same thing as above there is no safe escape */
-		POORMANS_FAILURE_NOTIFICATION;
-	}
-}
 
 kinfo_t *pre_init(int argc, char **argv)
 {
@@ -386,7 +369,7 @@ kinfo_t *pre_init(int argc, char **argv)
 	}
 
 	bootargs = argv[1];
-	set_machine_id(bootargs);
+
 	bsp_ser_init();
 	/* Get our own copy boot params pointed to by ebx.
 	 * Here we find out whether we should do serial output.
