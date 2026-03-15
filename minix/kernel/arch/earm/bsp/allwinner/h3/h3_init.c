@@ -12,7 +12,7 @@ bsp_init(void)
 	bsp_padconf_init();
 
 	/* map memory for rtc */
-	omap3_rtc_init();
+	h3_rtc_init();
 
 	/* map memory for reset control */
 	bsp_reset_init();

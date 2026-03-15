@@ -38,7 +38,9 @@ int init_local_timer(unsigned freq)
 	} else if (BOARD_IS_BB(machine.board_id)) {
 		tsc_per_ms[0] = 15000;
 	} else {
-		panic("Can not do the clock setup. machine (0x%08x) is unknown\n",machine.board_id);
+      /* #TODO убрать хардкод */
+        tsc_per_ms[0] = 24000;
+		//panic("Can not do the clock setup. machine (0x%08x) is unknown\n",machine.board_id);
 	};
 
 	tsc_per_tick[0] = tsc_per_ms[0] * 1000 / system_hz;

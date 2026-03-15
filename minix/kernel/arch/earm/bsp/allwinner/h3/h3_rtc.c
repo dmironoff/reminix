@@ -1,8 +1,7 @@
 /*
- * This is a mini driver for the AM335X Real Time Clock. The majority of the
- * work is done in user space in readclock, but for power-off the clock needs
- * to be put into run mode at the last possible moment in arch_reset.c. This
- * driver just implements mapping the memory and re-starting the clock.
+ * Это маленький простейший драйвер для RTC процессора H3
+ * Более полный драйвер реализован в пользовательском пространстве как
+ * drivers/clock/readclock
  */
 
 #include <assert.h>
@@ -19,40 +18,36 @@
 #include "arch_proto.h"
 #include "h3_rtc.h"
 
-#define RTC_SS_BASE 0x44e3e000
-#define RTC_SS_SIZE 0x1000
-#define RTC_CTRL_REG 0x40
-#define RTC_CTRL_RTC_STOP_BIT 0
-
-struct omap_rtc
+struct h3_rtc
 {
 	vir_bytes base;
 	vir_bytes size;
 };
 
-static struct omap_rtc omap_rtc = {
-	.base = RTC_SS_BASE,
-	.size = RTC_SS_SIZE
+static struct h3_rtc h3_rtc = {
+	.base = H3_RTC_BASE,
+	.size = H3_RTC_SIZE
 };
 
 static kern_phys_map rtc_phys_map;
 
 void
-omap3_rtc_init(void)
+h3_rtc_init(void)
 {
-	if (BOARD_IS_BB(machine.board_id)) {
-		kern_phys_map_ptr(omap_rtc.base, omap_rtc.size,
+		kern_phys_map_ptr(h3_rtc.base, h3_rtc.size,
 		    VMMF_UNCACHED | VMMF_WRITE, &rtc_phys_map,
-		    (vir_bytes) & omap_rtc.base);
-	}
+		    (vir_bytes) & h3_rtc.base);
+
 }
 
 void
-omap3_rtc_run(void)
+h3_rtc_run(void)
 {
-	if (BOARD_IS_BB(machine.board_id)) {
-		/* Setting the stop bit starts the RTC running */
-		mmio_set((omap_rtc.base + RTC_CTRL_REG),
-		    (1 << RTC_CTRL_RTC_STOP_BIT));
-	}
+/*
+ * Я не нашёл в описании чипа наличия контрольного регистра запускающего часы
+ * Предполагаю, что это происходит переключением на внешний источник тактирования
+ * но на Orange PI pc plus его нет, так что пока я не буду с этим морочиться
+ * да и источника питания на этой плате тоже нет, а значит часы реального времени
+ * останавливаются при выключении питания
+ */
 }

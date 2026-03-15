@@ -1,5 +1,6 @@
 .idea
 *.img
+*.iso
 cscope.*
 *.swap
 .*.sw[po]

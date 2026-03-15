@@ -44,6 +44,7 @@ void arch_proc_reset(struct proc *pr)
 	assert(pr->p_nr < NR_PROCS);
 
 	/* Clear process state. */
+
 	memset(&pr->p_reg, 0, sizeof(pr->p_reg));
 	if(iskerneln(pr->p_nr)) {
 		pr->p_reg.psr = INIT_TASK_PSR;
@@ -209,6 +210,8 @@ void __switch_address_space(struct proc *p, struct proc **__ptproc)
 	 */
 	if (new_ttbr == orig_ttbr)
 	    return;
+
+    clean_cache_range((vir_bytes) p->p_seg.p_ttbr_v, ((vir_bytes) p->p_seg.p_ttbr_v) + 16384);
 
 	write_ttbr0(new_ttbr);
 

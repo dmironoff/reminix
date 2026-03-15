@@ -27,7 +27,7 @@ static inline void dmb(void)
 /* Data synchronization barrier */
 static inline void dsb(void)
 {
-	asm volatile("dsb" : : : "memory");
+	asm volatile("dsb sy" : : : "memory");
 }
 
 /* Instruction synchronization barrier */
@@ -103,6 +103,7 @@ static inline u32_t ipow2(u32_t t)
  * type = 2 == INVALIDATE
  */
 static inline void dcache_maint(int type){
+#ifdef ARCH_ARM_CORTEX_A8
 	u32_t cache_level ;
 	u32_t clidr;
 	u32_t ctype;
@@ -150,7 +151,46 @@ static inline void dcache_maint(int type){
 	}
 	dsb();
 	isb();
+#endif
 
+#ifdef ARCH_ARM_CORTEX_A7
+    u32_t clidr = 0;
+    u32_t level_count = 0;
+
+    asm volatile ("mrc p15, 1, %[clidr], c0, c0, 1" : [clidr]"=r"(clidr));
+    level_count = (clidr >> 23) & 0x07;
+
+    if (level_count = 0) {
+        return;
+    }
+
+    for (u32_t level; level < level_count; level++) {
+        u32_t  ccsidr = 0;
+        u32_t line_size, ways, sets, way_shift;
+        u32_t csselr = level << 1;
+
+        asm volatile ("mcr p15, 2, %[csselr], c0, c0, 0" : : [csselr]"r"(csselr));
+        asm volatile ("isb");
+
+        asm volatile ("mrc p15, 1, %[ccsidr], c0, c0, 0" : [ccsidr]"=r"(ccsidr));
+
+        line_size = (ccsidr & 0x07) + 4;
+        ways = ((ccsidr >> 3) & 0x3ff);
+        sets = ((ccsidr >> 13) & 0x7fff);
+        way_shift = __builtin_clz(ways);
+
+        for (int way = (int) ways; way >= 0; way--) {
+            for (int set = (int) sets; set >= 0; set--) {
+                u32_t command = (way << way_shift) | (set << line_size) | (level << 1);
+                asm volatile ("mcr p15, 0, %[command], c7, c14, 2" : : [command]"r"(command));
+            }
+        }
+    }
+
+    asm volatile ("dsb sy");
+    asm volatile ("isb");
+
+#endif
 }
 static inline void dcache_clean(void){
 	dcache_maint(1);
@@ -226,9 +266,11 @@ static inline void write_ttbr0(u32_t bar)
 	   but other pieces of the kernel code expect ttbr to be the 
 	   base address of the l1 page table. We therefore add the
 	   flags here and remove them in the read_ttbr0 */
-	u32_t v  =  (bar  & ARM_TTBR_ADDR_MASK ) | ARM_TTBR_FLAGS_CACHED;
+	u32_t v  =  (bar  & ARM_TTBR_ADDR_MASK ) | ARM_TTBR_FLAGS_CACHED; // ARM_TTBR_FLAGS_CACHED
 	asm volatile("mcr p15, 0, %[bar], c2, c0, 0 @ Write TTBR0\n\t"
 			: : [bar] "r" (v));
+    asm volatile ("dsb sy");
+    asm volatile ("isb");
 
 	refresh_tlb();
 }
@@ -459,5 +501,54 @@ static inline void write_cpsr(u32_t status)
 	asm volatile("msr cpsr_c, %[status] @ write CPSR"
 			: : [status] "r" (status));
 }
+
+
+/*
+ * корректное отключение MMU
+ * на некоторых платформах загрузчик инициализирует mmu
+ * перед передачей управления системе
+ * нам нужно выключить все нахер перед загрузкой своих таблиц
+ */
+static inline void disable_mmu(void) {
+#ifdef ARCH_ARM_CORTEX_A7
+    u32_t sctlr = 0;
+    asm volatile("mrc p15, 0, %[ctl], c1, c0, 0 @ Read SCTLR\n\t"
+            : [ctl] "=r" (sctlr));
+    sctlr &= (~((u32_t)((1 << 12) | (1 << 2) | 1)));
+    int v = 0;
+    dsb();
+    isb();
+    asm volatile("mcr p15, 0, %[v], c8, c7, 0 @ Invalidate TLB": : [v]"r"(v));
+    asm volatile("mcr p15, 0, %[v], c7, c5, 0 @ Invalidate Instruction Cache": : [v]"r"(v));
+    dsb();
+    isb();
+    asm volatile("mcr p15, 0, %[ctl], c1, c0, 0 @ Write SCTLR\n\t"
+            : : [ctl] "r" (sctlr));
+    dsb();
+    isb();
+    asm volatile("mcr p15, 0, %[v], c8, c7, 0 @ Invalidate TLB": : [v]"r"(v));
+    asm volatile("mcr p15, 0, %[v], c7, c5, 0 @ Invalidate Instruction Cache": : [v]"r"(v));
+    dsb();
+    isb();
+#endif
+}
+
+/*
+ * Принудительное сохранение кеша данных в оперативную память
+ */
+static inline void clean_cache_range(vir_bytes start, vir_bytes end) {
+
+#ifdef ARCH_ARM_CORTEX_A7
+#define ARM_CACHE_LINE_SIZE 64
+    start &= (~(ARM_CACHE_LINE_SIZE - 1));
+    while (start < end) {
+        asm volatile ("mcr p15, 0, %0, c7, c10, 1" : : "r" ((u32_t)start) : "memory");
+        start += ARM_CACHE_LINE_SIZE;
+    }
+    asm volatile ("dsb sy");
+    asm volatile ("isb");
+#endif
+}
+
 
 #endif /* _ARM_CPUFUNC_H */

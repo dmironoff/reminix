@@ -143,9 +143,7 @@ void kmain(kinfo_t *local_cbi)
 
   assert(sizeof(kinfo.boot_procs) == sizeof(image));
   memcpy(kinfo.boot_procs, image, sizeof(kinfo.boot_procs));
-
   cstart();
-
   BKL_LOCK();
  
    DEBUGEXTRA(("main()\n"));
@@ -196,59 +194,57 @@ void kmain(kinfo_t *local_cbi)
 	schedulable_proc = (iskerneln(proc_nr) || isrootsysn(proc_nr) ||
 		proc_nr == VM_PROC_NR);
 	if(schedulable_proc) {
-	    /* Assign privilege structure. Force a static privilege id. */
-            (void) get_priv(rp, static_priv_id(proc_nr));
+        /* Assign privilege structure. Force a static privilege id. */
+        (void) get_priv(rp, static_priv_id(proc_nr));
 
-            /* Privileges for kernel tasks. */
-	    if(proc_nr == VM_PROC_NR) {
-                priv(rp)->s_flags = VM_F;
-                priv(rp)->s_trap_mask = SRV_T;
-		ipc_to_m = SRV_M;
-		kcalls = SRV_KC;
-                priv(rp)->s_sig_mgr = SELF;
-                rp->p_priority = SRV_Q;
-                rp->p_quantum_size_ms = SRV_QT;
-	    }
-	    else if(iskerneln(proc_nr)) {
-                /* Privilege flags. */
-                priv(rp)->s_flags = (proc_nr == IDLE ? IDL_F : TSK_F);
-                /* Init flags. */
-                priv(rp)->s_init_flags = TSK_I;
-                /* Allowed traps. */
-                priv(rp)->s_trap_mask = (proc_nr == CLOCK 
-                    || proc_nr == SYSTEM  ? CSK_T : TSK_T);
-                ipc_to_m = TSK_M;                  /* allowed targets */
-                kcalls = TSK_KC;                   /* allowed kernel calls */
-            }
+        /* Privileges for kernel tasks. */
+        if (proc_nr == VM_PROC_NR) {
+            priv(rp)->s_flags = VM_F;
+            priv(rp)->s_trap_mask = SRV_T;
+            ipc_to_m = SRV_M;
+            kcalls = SRV_KC;
+            priv(rp)->s_sig_mgr = SELF;
+            rp->p_priority = SRV_Q;
+            rp->p_quantum_size_ms = SRV_QT;
+        } else if (iskerneln(proc_nr)) {
+            /* Privilege flags. */
+            priv(rp)->s_flags = (proc_nr == IDLE ? IDL_F : TSK_F);
+            /* Init flags. */
+            priv(rp)->s_init_flags = TSK_I;
+            /* Allowed traps. */
+            priv(rp)->s_trap_mask = (proc_nr == CLOCK
+                                     || proc_nr == SYSTEM ? CSK_T : TSK_T);
+            ipc_to_m = TSK_M;                  /* allowed targets */
+            kcalls = TSK_KC;                   /* allowed kernel calls */
+        } else {
             /* Privileges for the root system process. */
-            else {
-	    	assert(isrootsysn(proc_nr));
-                priv(rp)->s_flags= RSYS_F;        /* privilege flags */
-                priv(rp)->s_init_flags = SRV_I;   /* init flags */
-                priv(rp)->s_trap_mask= SRV_T;     /* allowed traps */
-                ipc_to_m = SRV_M;                 /* allowed targets */
-                kcalls = SRV_KC;                  /* allowed kernel calls */
-                priv(rp)->s_sig_mgr = SRV_SM;     /* signal manager */
-                rp->p_priority = SRV_Q;	          /* priority queue */
-                rp->p_quantum_size_ms = SRV_QT;   /* quantum size */
-            }
+            assert(isrootsysn(proc_nr));
+            priv(rp)->s_flags = RSYS_F;        /* privilege flags */
+            priv(rp)->s_init_flags = SRV_I;   /* init flags */
+            priv(rp)->s_trap_mask = SRV_T;     /* allowed traps */
+            ipc_to_m = SRV_M;                 /* allowed targets */
+            kcalls = SRV_KC;                  /* allowed kernel calls */
+            priv(rp)->s_sig_mgr = SRV_SM;     /* signal manager */
+            rp->p_priority = SRV_Q;              /* priority queue */
+            rp->p_quantum_size_ms = SRV_QT;   /* quantum size */
+        }
 
-            /* Fill in target mask. */
-            memset(&map, 0, sizeof(map));
+        /* Fill in target mask. */
+        memset(&map, 0, sizeof(map));
 
-            if (ipc_to_m == ALL_M) {
-                for(j = 0; j < NR_SYS_PROCS; j++)
-                    set_sys_bit(map, j);
-            }
+        if (ipc_to_m == ALL_M) {
+            for (j = 0; j < NR_SYS_PROCS; j++)
+                set_sys_bit(map, j);
+        }
 
-            fill_sendto_mask(rp, &map);
+        fill_sendto_mask(rp, &map);
 
-            /* Fill in kernel call mask. */
-            for(j = 0; j < SYS_CALL_MASK_SIZE; j++) {
-                priv(rp)->s_k_call_mask[j] = (kcalls == NO_C ? 0 : (~0));
-            }
-	}
-	else {
+        /* Fill in kernel call mask. */
+        for (j = 0; j < SYS_CALL_MASK_SIZE; j++) {
+            priv(rp)->s_k_call_mask[j] = (kcalls == NO_C ? 0 : (~0));
+        }
+
+    } else {
 	    /* Don't let the process run for now. */
             RTS_SET(rp, RTS_NO_PRIV | RTS_NO_QUANTUM);
 	}
@@ -258,7 +254,8 @@ void kmain(kinfo_t *local_cbi)
 
 	/* scheduling functions depend on proc_ptr pointing somewhere. */
 	if(!get_cpulocal_var(proc_ptr))
-		get_cpulocal_var(proc_ptr) = rp;
+        get_cpulocal_var(proc_ptr) = rp;
+
 
 	/* Process isn't scheduled until VM has set up a pagetable for it. */
 	if(rp->p_nr != VM_PROC_NR && rp->p_nr >= 0) {
@@ -291,8 +288,10 @@ void kmain(kinfo_t *local_cbi)
 
   /* System and processes initialization */
   memory_init();
+
   DEBUGEXTRA(("system_init()... "));
   system_init();
+
   DEBUGEXTRA(("done\n"));
 
   /* The bootstrap phase is over, so we can add the physical
@@ -407,8 +406,10 @@ void cstart(void)
  */
   register char *value;				/* value in key=value pair */
 
-  /* low-level initialization */
+
+    /* low-level initialization */
   prot_init();
+
 
   /* determine verbosity */
   if ((value = env_get(VERBOSEBOOTVARNAME)))
@@ -416,6 +417,7 @@ void cstart(void)
 
   /* Initialize clock variables. */
   init_clock();
+
 
   /* Get memory parameters. */
   value = env_get("ac_layout");
@@ -471,7 +473,10 @@ void cstart(void)
 
   intr_init(0);
 
-  arch_init();
+
+    arch_init();
+
+
 }
 
 /*===========================================================================*

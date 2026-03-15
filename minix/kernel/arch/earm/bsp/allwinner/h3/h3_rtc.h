@@ -1,7 +1,11 @@
-#ifndef __OMAP_RTC_H
-#define __OMAP_RTC_H
+#ifndef __H3_RTC_H
+#define __H3_RTC_H
 
-void omap3_rtc_init(void);
-void omap3_rtc_run(void);
+#define H3_RTC_BASE 0x01F00000
+#define H3_RTC_SIZE 0x1000
 
-#endif /* __OMAP_RTC_H */
+
+void h3_rtc_init(void);
+void h3_rtc_run(void);
+
+#endif /* __H3_RTC_H */

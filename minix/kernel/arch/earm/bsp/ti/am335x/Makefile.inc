@@ -4,6 +4,8 @@
 
 .PATH: ${.CURDIR}/arch/${MACHINE_ARCH}/bsp/ti/am335x
 
+CPPFLAGS+= -DARCH_ARM_CORTEX_A8=1
+
 .for unpaged_obj in am335x_serial.o am335x_rtc.o am335x_reset.o
 BSP_OBJS_UNPAGED += ${unpaged_obj}
 .endfor

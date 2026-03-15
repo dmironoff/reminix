@@ -96,6 +96,8 @@ int main(void)
   int result, who_e, rcv_sts;
   int caller_slot;
 
+  printf("VM IS STARTED\n");
+
   /* Initialize system so that all processes are runnable the first time. */
   if (is_first_time()) {
 	init_vm();

@@ -20,54 +20,33 @@ then
 fi
 
 : ${ARCH=evbearm-el}
-: ${SOC_VENDOR=ti}
-: ${SOC_NAME=am335x}
-: ${BOARD_VENDOR=beaglebone}
-: ${BOARD_NAME=black}
-: ${UBOOT_CONFIG=}
-: ${UBOOT_}
+: ${SOC_VENDOR=allwinner}
+: ${SOC_NAME=h3}
+: ${BOARD_VENDOR=orangepi}
+: ${BOARD_NAME=pcplus}
+
+: ${UBOOT_CROSS_COMPILE=arm-linux-gnueabi-}
+: ${UBOOT_CONFIG=orangepi_pc_plus_defconfig}
+# DEVICE_TREE=am335x-boneblack-custom
+# : ${UBOOT_FDT=am335x-boneblack}
+: ${UBOOT_CONFIGS=""}
 
 : ${OBJ=../obj.${ARCH}.${BOARD_VENDOR}.${BOARD_NAME}}
 : ${TOOLCHAIN_TRIPLET=arm-elf32-minix-}
 : ${BUILDSH=build.sh}
 
 : ${SETS="minix-base minix-comp minix-games minix-man minix-tests tests"}
-: ${IMG=minix_arm_sd.img}
+: ${IMG=minix_arm_${BOARD_VENDOR}_${BOARD_NAME}_sd.img}
 
 # ARM definitions:
-: ${BUILDVARS=-V MKGCCCMDS=yes -V BOARD_SOC_VENDOR=${SOC_VENDOR} -V BOARD_SOC_NAME=${SOC_NAME} -V MKLLVM=no}
+: ${BUILDVARS=-V MKGCCCMDS=yes -V BOARD_VENDOR=${BOARD_VENDOR} -V BOARD_NAME=${BOARD_NAME} -V BOARD_SOC_VENDOR=${SOC_VENDOR} -V BOARD_SOC_NAME=${SOC_NAME} -V MKLLVM=no}
 # These BUILDVARS are for building with LLVM:
 #: ${BUILDVARS=-V MKLIBCXX=no -V MKKYUA=no -V MKATF=no -V MKLLVMCMDS=no}
 : ${FAT_SIZE=$((    10*(2**20) / 512))} # This is in sectors
 
-# Beagleboard-xm
-#: ${U_BOOT_BIN_DIR=build/omap3_beagle/}
-#: ${CONSOLE=tty02}
-
-# BeagleBone (and black)
-: ${U_BOOT_BIN_DIR=build/am335x_evm/}
-: ${CONSOLE=tty00}
-
-#
-# We host u-boot binaries.
-#
-: ${MLO=MLO}
-: ${UBOOT=u-boot.img}
-U_BOOT_GIT_VERSION=cb5178f12787c690cb1c888d88733137e5a47b15
-
 if [ ! -f ${BUILDSH} ]
 then
 	echo "Please invoke me from the root source dir, where ${BUILDSH} is."
-	exit 1
-fi
-
-if [ -n "$BASE_URL" ]
-then
-	#we no longer download u-boot but do a checkout
-	#BASE_URL used to be the base url for u-boot
-	#Downloads
-	echo "Warning:** Setting BASE_URL (u-boot) is no longer possible use U_BOOT_BIN_DIR"
-	echo "Look in ${RELEASETOOLSDIR}/arm_sdimage.sh for suggested values"
 	exit 1
 fi
 
@@ -113,9 +92,23 @@ echo "Creating specification files..."
 create_input_spec
 create_protos "usr home"
 
-# Download the stage 1 bootloader and u-boot
+echo "Building latest U-BOOT from git"
+
+# Download the u-boot
 #
-${RELEASETOOLSDIR}/fetch_u-boot.sh -o ${RELEASETOOLSDIR}/u-boot -n $U_BOOT_GIT_VERSION
+${RELEASETOOLSDIR}/fetch_u-boot.sh -o ${OBJ}/u-boot
+
+if [ ! -z "$UBOOT_CONFIGS" ]
+then
+# build u-boot
+${RELEASETOOLSDIR}/make_uboot.sh -d ${OBJ}/u-boot -c ${UBOOT_CONFIG}  -t ${UBOOT_CROSS_COMPILE}
+else
+# build u-boot
+${RELEASETOOLSDIR}/make_uboot.sh -d ${OBJ}/u-boot -c ${UBOOT_CONFIG}  -t ${UBOOT_CROSS_COMPILE}
+#      -e <<EOF
+#      ${UBOOT_CONFIGS}
+#EOF
+fi
 
 # Clean image
 if [ -f ${IMG} ]	# IMG might be a block device
@@ -149,8 +142,6 @@ _HOME_SIZE=$(${CROSS_TOOLS}/nbmkfs.mfs -d ${HOMESIZEARG} -I $((${HOME_START}*512
 _HOME_SIZE=$(($_HOME_SIZE / 512))
 echo " * BOOT"
 rm -rf ${ROOT_DIR}/*
-cp ${RELEASETOOLSDIR}/u-boot/${U_BOOT_BIN_DIR}/MLO ${ROOT_DIR}/
-cp ${RELEASETOOLSDIR}/u-boot/${U_BOOT_BIN_DIR}/u-boot.img ${ROOT_DIR}/
 
 # Create a uEnv.txt file
 # -n default to network boot
@@ -158,7 +149,11 @@ cp ${RELEASETOOLSDIR}/u-boot/${U_BOOT_BIN_DIR}/u-boot.img ${ROOT_DIR}/
 # -c set console e.g. tty02 or tty00
 # -v set verbosity e.g. 0 to 3
 #${RELEASETOOLSDIR}/gen_uEnv.txt.sh -c ${CONSOLE} -n -p bb/ > ${WORK_DIR}/uEnv.txt
-${RELEASETOOLSDIR}/gen_uEnv.txt.sh -c ${CONSOLE}  > ${ROOT_DIR}/uEnv.txt
+${RELEASETOOLSDIR}/arm/orangepi/pcplus/gen_uEnv.txt.sh -c tty00  > ${ROOT_DIR}/uEnv.txt
+
+${OBJ}/u-boot/tools/mkenvimage -s 0x10000 -o ${ROOT_DIR}/uboot.env ${ROOT_DIR}/uEnv.txt
+
+rm ${ROOT_DIR}/uEnv.txt
 
 # Do some last processing of the kernel and servers and then put them on the FAT
 # partition.
@@ -174,9 +169,7 @@ do
 done
 cat >${WORK_DIR}/boot.mtree <<EOF
 . type=dir
-./MLO type=file
-./u-boot.img type=file
-./uEnv.txt type=file
+./uboot.env type=file
 ./kernel.bin type=file
 ./ds.elf type=file
 ./rs.elf type=file
@@ -210,6 +203,9 @@ ${CROSS_TOOLS}/nbpartition -f -m ${IMG} ${FAT_START} \
 #
 echo "Merging file systems"
 dd if=${WORK_DIR}/fat.img of=${IMG} seek=$FAT_START conv=notrunc
+
+echo "Writing u-boot"
+dd if=${OBJ}/u-boot/u-boot-sunxi-with-spl.bin of=${IMG} bs=1k seek=8 conv=notrunc
 
 echo "Disk image at `pwd`/${IMG}"
 echo "To boot this image on kvm:"

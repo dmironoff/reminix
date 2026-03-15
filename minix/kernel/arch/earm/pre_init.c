@@ -353,9 +353,15 @@ void get_parameters(kinfo_t *cbi, char *bootargs)
 kinfo_t *pre_init(int argc, char **argv)
 {
 	char *bootargs;
+    extern char _kern_phys_base;
 	/* This is the main "c" entry point into the kernel. It gets called
 	   from head.S */
-	   
+
+    disable_mmu(); // Отключаем MMU и кеши, на случай если uboot его включил
+    // Если MMU уже или всё ещё отключён, то ничего не случится
+    dcache_clean(); /* Очищаем все кеши, просто вталкиваем в оперативку что закешировал процессор */
+
+
 	/* Clear BSS */
 	memset(&_edata, 0, (u32_t)&_end - (u32_t)&_edata);
         memset(&_kern_unpaged_edata, 0, (u32_t)&_kern_unpaged_end - (u32_t)&_kern_unpaged_edata);
@@ -371,21 +377,29 @@ kinfo_t *pre_init(int argc, char **argv)
 	bootargs = argv[1];
 
 	bsp_ser_init();
-	/* Get our own copy boot params pointed to by ebx.
-	 * Here we find out whether we should do serial output.
-	 */
+
+
+
+    /* Get our own copy boot params pointed to by ebx.
+ * Here we find out whether we should do serial output.
+ */
 	get_parameters(&kinfo, bootargs);
 
 	/* Make and load a pagetable that will map the kernel
 	 * to where it should be; but first a 1:1 mapping so
 	 * this code stays where it should be.
 	 */
-	dcache_clean(); /* clean the caches */
+
 	pg_clear();
+
 	pg_identity(&kinfo);
+
 	kinfo.freepde_start = pg_mapkernel();
+
 	pg_load();
+
 	vm_enable_paging();
+
 
 	/* Done, return boot info so it can be passed to kmain(). */
 	return &kinfo;

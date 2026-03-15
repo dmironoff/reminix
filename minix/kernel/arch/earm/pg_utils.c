@@ -1,3 +1,14 @@
+/*
+ * Источники информации:
+[1] ARM Cortex-A7 MPCore Technical Reference Manual — описание команд MVA.
+[2] ARM Architecture Reference Manual ARMv7-A — правила работы DCCMVAC.
+[3] Linux-Sunxi: Allwinner H3 Architecture — работа с памятью в SoC Allwinner.
+[4] ARM CoreLink GIC-400 Technical Reference Manual — вопросы когерентности.
+[5] ARMv7-A TLB Maintenance — необходимость инвалидации TLB.
+ */
+
+
+
 #include <minix/cpufeature.h>
 
 #include <minix/type.h>
@@ -10,8 +21,10 @@
 #include <string.h>
 #include <minix/type.h>
 
+#include "bsp_serial.h"
+
 /* These are set/computed in kernel.lds. */
-extern char _kern_vir_base, _kern_phys_base, _kern_size;
+extern char _kern_vir_base, _kern_phys_base, _kern_size, _end;
 
 /* Retrieve the absolute values to something we can use. */
 static phys_bytes kern_vir_start = (phys_bytes) &_kern_vir_base;
@@ -20,6 +33,8 @@ static phys_bytes kern_kernlen = (phys_bytes) &_kern_size;
 
 /* page directory we can use to map things */
 static u32_t pagedir[4096]  __aligned(16384);
+
+static u32_t vm_enabled = 0;
 
 void print_memmap(kinfo_t *cbi)
 {
@@ -164,37 +179,44 @@ void pg_identity(kinfo_t *cbi)
 	 * as non-cacheable. Make sure we know what it is.
 	 */
 	assert(cbi->mem_high_phys);
-
+#define MMU_DDR_FLAGS    0x1140E // Кэшируемая RAM
+#define MMU_DEVICE_FLAGS 0x00406 // Регистры (UART, CCU, GIC)
         /* Set up an identity mapping page directory */
 	 for(i = 0; i < ARM_VM_DIR_ENTRIES; i++) {
-		u32_t flags = ARM_VM_SECTION
+		/*u32_t flags = ARM_VM_SECTION
 			| ARM_VM_SECTION_USER
 			| ARM_VM_SECTION_DOMAIN;
+*/
 
 		phys = i * ARM_SECTION_SIZE;
 		/* mark mormal memory as cacheable. TODO: fix hard coded values */
 		if (phys >= PHYS_MEM_BEGIN && phys <= PHYS_MEM_END) {
-			pagedir[i] =  phys | flags | ARM_VM_SECTION_CACHED;
+//			pagedir[i] =  phys | flags | ARM_VM_SECTION_CACHED;
+            pagedir[i] =  (phys & ARM_VM_SECTION_MASK ) | MMU_DDR_FLAGS;
+		} else if (phys < PHYS_MEM_BEGIN) {
+//			pagedir[i] =  phys | flags | ARM_VM_SECTION_DEVICE;
+            pagedir[i] =  (phys & ARM_VM_SECTION_MASK ) | MMU_DEVICE_FLAGS;
 		} else {
-			pagedir[i] =  phys | flags | ARM_VM_SECTION_DEVICE;
-		}
+            pagedir[i] = 0; // Page fault
         }
+     }
 }
 
 int pg_mapkernel(void)
 {
 	int pde;
 	u32_t mapped = 0, kern_phys = kern_phys_start;
-
+#define MMU_KERNEL_FLAGS 0x1540E
 	assert(!(kern_vir_start % ARM_SECTION_SIZE));
 	assert(!(kern_phys_start % ARM_SECTION_SIZE));
 	pde = kern_vir_start / ARM_SECTION_SIZE; /* start pde */
 	while(mapped < kern_kernlen) {
 		pagedir[pde] = (kern_phys & ARM_VM_SECTION_MASK) 
-			| ARM_VM_SECTION
-			| ARM_VM_SECTION_SUPER
-			| ARM_VM_SECTION_DOMAIN
-			| ARM_VM_SECTION_CACHED;
+		//	| ARM_VM_SECTION
+		//	| ARM_VM_SECTION_SUPER
+		//	| ARM_VM_SECTION_DOMAIN
+		//	| ARM_VM_SECTION_CACHED;
+            | MMU_KERNEL_FLAGS;
 		mapped += ARM_SECTION_SIZE;
 		kern_phys += ARM_SECTION_SIZE;
 		pde++;
@@ -202,10 +224,24 @@ int pg_mapkernel(void)
 	return pde;	/* free pde */
 }
 
+void print_pagedir (void) {
+    printf("Pagedirectory addr: 0x%08x \n", (u32_t) &pagedir);
+    for(int i = 0; i < ARM_VM_DIR_ENTRIES; i++) {
+        printf("Page %d: 0x%08x\n", i, pagedir[i]);
+    }
+}
+
 void vm_enable_paging(void)
 {
 	u32_t sctlr;
 	u32_t actlr;
+
+#ifdef ARCH_ARM_CORTEX_A7
+    /*Включим когерентность кешей для Cortex A7*/
+    actlr = read_actlr();
+    actlr |= (1 << 6); // Bit SMP enable
+    write_actlr(actlr);
+#endif
 
 	write_ttbcr(0);
 
@@ -213,6 +249,8 @@ void vm_enable_paging(void)
 	write_dacr(0x55555555);
 
 	sctlr = read_sctlr();
+
+    sctlr &= (~((u32_t) (1 << 1))); // Alignment check. 1 = ошибка при невыровненном доступе.
 
 	/* Enable MMU */
 	sctlr |= CPU_CONTROL_MMU_ENABLE;
@@ -224,26 +262,36 @@ void vm_enable_paging(void)
 	sctlr &= ~CPU_CONTROL_AF_ENABLE;
 
 	/* Enable instruction ,data cache and branch prediction */
-	sctlr |= CPU_CONTROL_DC_ENABLE;
+	sctlr &= ~CPU_CONTROL_DC_ENABLE;
 	sctlr |= CPU_CONTROL_IC_ENABLE;
 	sctlr |= CPU_CONTROL_BPRD_ENABLE;
 
 	/* Enable barriers */
 	sctlr |= CPU_CONTROL_32BD_ENABLE;
 
+#ifdef ARCH_ARM_CORTEX_A8
 	/* Enable L2 cache (cortex-a8) */
 	#define CORTEX_A8_L2EN   (0x02)
 	actlr = read_actlr();
 	actlr |= CORTEX_A8_L2EN;
 	write_actlr(actlr);
+#endif
+
+    clean_cache_range((vir_bytes) &pagedir, ((vir_bytes) &pagedir) + 16384);
+
+    refresh_tlb();
 
 	write_sctlr(sctlr);
+
+    vm_enabled = 1;
 }
 
 phys_bytes pg_load(void)
 {
 	phys_bytes phpagedir = vir2phys(pagedir);
+    clean_cache_range((vir_bytes) &pagedir, ((vir_bytes) &pagedir) + 16384);
 	write_ttbr0(phpagedir);
+    
 	return phpagedir;
 }
 
@@ -294,8 +342,8 @@ void pg_map(phys_bytes phys, vir_bytes vaddr, vir_bytes vaddr_end,
 			phys_bytes ph;
 			pt = alloc_pagetable(&ph);
 			pagedir[pde] = (ph & ARM_VM_PDE_MASK)
-					| ARM_VM_PAGEDIR
-					| ARM_VM_PDE_DOMAIN;
+					| ARM_VM_PAGEDIR;
+					//| ARM_VM_PDE_DOMAIN;
 			mapped_pde = pde;
 		}
 		assert(pt);
@@ -308,6 +356,8 @@ void pg_map(phys_bytes phys, vir_bytes vaddr, vir_bytes vaddr_end,
 			phys += ARM_PAGE_SIZE;
 		}
 	}
+    clean_cache_range((vir_bytes) &pagedir, ((vir_bytes) &pagedir) + 16384);
+    clean_cache_range((vir_bytes) &pt, ((vir_bytes) &pt) + 1024);
 }
 
 void pg_info(reg_t *pagedir_ph, u32_t **pagedir_v)

@@ -47,6 +47,8 @@ int main(void)
   int result;                 			/* result to return */
   int s;
 
+  printf("RS Started\n");
+
   /* SEF local startup. */
   sef_local_startup();
   

@@ -18,6 +18,7 @@
 
 struct tss_s tss[CONFIG_MAX_CPUS];
 extern int exc_vector_table;
+extern void print_pagedir(void);
 
 int prot_init_done = 0;
 
@@ -76,7 +77,8 @@ int booting_cpu = 0;
 
 void prot_init(void)
 {
-	/* tell the HW where we stored our vector table */
+
+    /* tell the HW where we stored our vector table */
 	write_vbar((reg_t)&exc_vector_table);
 
 	/* Set up a new post-relocate bootstrap pagetable so that
@@ -122,13 +124,14 @@ void arch_boot_proc(struct boot_image *ip, struct proc *rp)
 
 	mod = bootmod(rp->p_nr);
 
+
+
 	/* Important special case: we put VM in the bootstrap pagetable
 	 * so it can run.
 	 */
 
 	if(rp->p_nr == VM_PROC_NR) {
 		struct exec_info execi;
-
 		memset(&execi, 0, sizeof(execi));
 
 		/* exec parameters */
@@ -151,7 +154,6 @@ void arch_boot_proc(struct boot_image *ip, struct proc *rp)
 		/* parse VM ELF binary and alloc/map it into bootstrap pagetable */
 		if(libexec_load_elf(&execi) != OK)
 			panic("VM loading failed");
-
 		/* Setup a ps_strings struct on the stack, pointing to the
 		 * following argv, envp. */
 		sp = (char *)execi.stack_high;
@@ -173,8 +175,10 @@ void arch_boot_proc(struct boot_image *ip, struct proc *rp)
 			execi.stack_high - sizeof(struct ps_strings),
 			ip->proc_name);
 
+
 		/* Free VM blob that was just copied into existence. */
 		add_memmap(&kinfo, mod->mod_start, mod->mod_end-mod->mod_start);
+
 		mod->mod_end = mod->mod_start = 0;
 
 		/* Remember them */

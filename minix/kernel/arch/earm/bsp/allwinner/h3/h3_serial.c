@@ -1,3 +1,12 @@
+/*
+ * Простенький драйвер UART для вывода информации во время старта системы
+ * до загрузки MMU и старта драйвера tty
+ * Мы работаем на стандартных настройках чипа
+ * ОН работает на скорости 115200 8 бит 1 стопбит
+ *
+ */
+
+
 #include <assert.h>
 #include <sys/types.h>
 #include <machine/cpu.h>
@@ -13,71 +22,53 @@
 
 #include "h3_serial.h"
 
-struct omap_serial
+struct h3_serial
 {
 	vir_bytes base;
 	vir_bytes size;
 };
 
-static struct omap_serial omap_serial = {
+static struct h3_serial h3_serial = {
 	.base = 0,
 };
 
 static kern_phys_map serial_phys_map;
 
-/* 
- * In kernel serial for the omap. The serial driver, like most other
- * drivers, needs to be started early and even before the MMU is turned on.
- * We start by directly accessing the hardware memory address. Later on
- * when the MMU is turned on we still use a 1:1 mapping for these addresses.
- *
- * Pretty soon we are going to remap these addresses at a later stage. And this
- * requires us to use a dynamic base address. The idea is to receive a callback
- * from VM with the new address to use.
- *
- * We also try on the BeagleBone port to keep the differences between the
- * drivers to a minimum by initializing a struct here and not using (too many)
- * constants in the code.
- *
- * The serial driver also gets used in the "pre_init" stage before the kernel is loaded
- * in high memory, so keep in mind there are two copies of this code in the kernel.
- */
 void
 bsp_ser_init(void)
 {
-	if (BOARD_IS_BBXM(machine.board_id)) {
-		omap_serial.base = OMAP3_DM37XX_DEBUG_UART_BASE;
-	} else if (BOARD_IS_BB(machine.board_id)) {
-		omap_serial.base = OMAP3_AM335X_DEBUG_UART_BASE;
-	}
-	omap_serial.size = 0x1000;	/* 4k */
+    h3_serial.base = H3_UART0_BASE;
+	h3_serial.size = H3_UART_SIZE;
 
-	kern_phys_map_ptr(omap_serial.base, omap_serial.size,
+	kern_phys_map_ptr(h3_serial.base, h3_serial.size,
 	    VMMF_UNCACHED | VMMF_WRITE, &serial_phys_map,
-	    (vir_bytes) & omap_serial.base);
-	assert(omap_serial.base);
+	    (vir_bytes) & h3_serial.base);
+
+    assert(h3_serial.base);
 }
 
 void
 bsp_ser_putc(char c)
 {
 	int i;
-	assert(omap_serial.base);
+	assert(h3_serial.base);
 
-	/* Wait until FIFO's empty */
+	/* Ждём пока регистр передачи будет чистым */
 	for (i = 0; i < 100000; i++) {
-		if (mmio_read(omap_serial.base + OMAP3_LSR) & OMAP3_LSR_THRE) {
+		if (mmio_read(h3_serial.base + H3_UART_LSR) & H3_UART_LSR_THRE) {
 			break;
 		}
 	}
 
-	/* Write character */
-	mmio_write(omap_serial.base + OMAP3_THR, c);
+	/* Отправляем */
+	mmio_write(h3_serial.base + H3_UART_THR, c);
 
-	/* And wait again until FIFO's empty to prevent TTY from overwriting */
+	/* И снова ждём отправки что бы избежать перезаписывания данных
+	 * в случае если какая-то другая часть системы будет туда отправлять данные
+	 * например у нас уже стартанул драйвер tty
+	 * а ядру нужно срочно отправить какую-то дичь на прямую */
 	for (i = 0; i < 100000; i++) {
-		if (mmio_read(omap_serial.base +
-			OMAP3_LSR) & (OMAP3_LSR_THRE | OMAP3_LSR_TEMT)) {
+		if (mmio_read(h3_serial.base + H3_UART_LSR) & (H3_UART_LSR_THRE | H3_UART_LSR_TEMT)) {
 			break;
 		}
 	}

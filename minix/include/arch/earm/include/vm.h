@@ -64,7 +64,7 @@ arm/vm.h
 #define ARM_VM_SECTION_PRESENT		(1 << 1)  /* Section is present */
 #define ARM_VM_SECTION_B		(1 << 2)  /* B Bit */
 #define ARM_VM_SECTION_C		(1 << 3)  /* C Bit */
-#define ARM_VM_SECTION_DOMAIN		(0xF << 5) /* Domain Number */
+#define ARM_VM_SECTION_DOMAIN		(0xF << 5) /* Был 0xF Domain Number */
 #define ARM_VM_SECTION_SUPER		(0x1 << 10) /* Super access only AP[1:0] */
 #define ARM_VM_SECTION_USER		(0x3 << 10) /* Super/User access AP[1:0] */
 #define ARM_VM_SECTION_TEX0		(1 << 12) /* TEX[0] */

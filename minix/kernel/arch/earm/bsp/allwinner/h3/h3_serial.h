@@ -1,27 +1,35 @@
-#ifndef _OMAP_SERIAL_H
-#define _OMAP_SERIAL_H
+#ifndef _H3_SERIAL_H
+#define _H3_SERIAL_H
 
-/* UART register map */
-#define OMAP3_DM37XX_DEBUG_UART_BASE 0x49020000 /* UART3 physical address */
-#define OMAP3_AM335X_DEBUG_UART_BASE 0x44E09000 /* UART0? physical address */
+/*
+ * Здесь у нас находятся только базовые регистры для UART0
+ * Он на этой плате выведен в отдельный трёхпиной разъём
+ * И на схеме указан как debug uart
+ *
+ *
+ */
 
-/* UART registers */
-#define OMAP3_THR 0x000 /* Transmit holding register */
-#define OMAP3_LSR 0x014 /* Line status register */
-#define OMAP3_SSR 0x044 /* Supplementary status register */
+#define H3_UART0_BASE 0x01C28000
+#define H3_UART_SIZE 0x1000
 
-/* Line status register fields */
-#define OMAP3_LSR_TEMT    0x40 /* Transmitter empty */
-#define OMAP3_LSR_THRE    0x20 /* Transmit-hold-register empty */
+#define H3_UART_RBR 0x00
+#define H3_UART_THR 0x00
+#define H3_UART_DLL 0x00
+#define H3_UART_DLH 0x04
+#define H3_UART_IER 0x04
+#define H3_UART_IIR 0x08
+#define H3_UART_FCR 0x08
+#define H3_UART_LCR 0x0C
+#define H3_UART_MCR 0x10
+#define H3_UART_LSR 0x14
+#define H3_UART_MSR 0x18
+#define H3_UART_SCH 0x1C
+#define H3_UART_USR 0x7C
+#define H3_UART_TFL 0x80
+#define H3_UART_RFL 0x84
+#define H3_UART_HALT 0xA4
 
-/* Supplementary status register fields */
-#define OMAP3_SSR_TX_FIFO_FULL (1 << 0) /* Transmit FIFO full */
+#define H3_UART_LSR_THRE (1 << 5)
+#define H3_UART_LSR_TEMT (1 << 6)
 
-#ifndef __ASSEMBLY__
-
-void omap3_ser_init(void);
-void omap3_ser_putc(char c);
-
-#endif /* __ASSEMBLY__ */
-
-#endif /* _OMAP_SERIAL_H */
+#endif /* _H3_SERIAL_H */

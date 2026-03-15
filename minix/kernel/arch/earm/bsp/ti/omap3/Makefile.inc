@@ -4,6 +4,8 @@
 
 .PATH: ${.CURDIR}/arch/${MACHINE_ARCH}/bsp/ti/omap3
 
+CPPFLAGS+= -DARCH_ARM_CORTEX_A8=1
+
 .for unpaged_obj in omap_serial.o omap_reset.o
 BSP_OBJS_UNPAGED += ${unpaged_obj}
 .endfor

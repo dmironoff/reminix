@@ -71,7 +71,9 @@ int libexec_copy_memcpy(struct exec_info *execi,
 
 int libexec_clear_memset(struct exec_info *execi, vir_bytes vaddr, size_t len)
 {
+
 	memset((char *) vaddr, 0, len);
+
 	return OK;
 }
 

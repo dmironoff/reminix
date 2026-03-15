@@ -35,8 +35,36 @@ void panic(const char *fmt, ...)
 	printf("\n");
   }
 
-  printf("kernel on CPU %d: ", cpuid);
+  printf("kernel think working on CPU %d: ", cpuid);
   util_stacktrace();
+
+
+#ifdef ARCH_ARM_CORTEX_A7
+    u32_t realcpuid = 0;
+    asm volatile ("mrc p15, 0, %[realcpuid], c0, c0, 5 " : [realcpuid]"=r"(realcpuid));
+    realcpuid &= ((1 << 2) | 1);
+
+    printf("Realy CPU is %d \n", realcpuid);
+#endif
+
+#ifdef __arm__
+   u32_t dfsr, dfar, ttbcr, ttbr0, actlr, sctlr;
+   asm volatile ("mrc p15, 0, %[dfsr], c5, c0, 0" : [dfsr]"=r"(dfsr));
+   asm volatile ("mrc p15, 0, %[dfar], c6, c0, 0" : [dfar]"=r"(dfar));
+   asm volatile("mrc p15, 0, %[ctl], c1, c0, 0 @ Read SCTLR\n\t" : [ctl] "=r" (sctlr));
+   asm volatile("mrc p15, 0, %[bar], c2, c0, 0 @ Read TTBR0\n\t" : [bar] "=r" (ttbr0));
+   asm volatile("mrc p15, 0, %[ctl], c1, c0, 1 @ Read ACTLR\n\t": [ctl] "=r" (actlr));
+   asm volatile("mrc p15, 0, %[bcr], c2, c0, 2 @ Read TTBCR\n\t": [bcr] "=r" (ttbcr));
+   printf("DFSR: 0x%08x \n", dfsr);
+   printf("DFAR: 0x%08x \n", dfar);
+   printf("SCTLR: 0x%08x \n", sctlr);
+   printf("ACTLR: 0x%08x \n", actlr);
+   printf("TTBCR: 0x%08x \n", ttbcr);
+   printf("TTBR0: 0x%08x \n", ttbr0);
+#endif
+
+
+
 
 #if 0
   if(get_cpulocal_var(proc_ptr)) {
