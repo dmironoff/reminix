@@ -1,0 +1,94 @@
+/dts-v1/;
+
+#include "sun8i-h3-orangepi-pc-plus.dts"
+
+/ {
+
+	chosen {
+		stdout-path = "";
+		bootargs = "";
+	};
+
+	miniximages {
+
+    		  ds {
+            			description = "ds";
+                  addr = <0x82000000>;
+                  size = <0x00800000>;
+            };
+
+    		  init {
+            			description = "init";
+                  addr = <0x87800000>;
+                  size = <0x00800000>;
+            };
+
+    		  kernel {
+            			description = "Minix kernel";
+                  addr = <0x80200000>;
+                  size = <154744>;
+                  virt_addr = <0xF0400000>;
+            };
+
+    		  memory {
+            			description = "memory";
+                  addr = <0x84800000>;
+                  size = <2771312>;
+            };
+
+    		  mfs {
+            			description = "mfs";
+                  addr = <0x87000000>;
+                  size = <108684>;
+            };
+
+    		  mib {
+            			description = "mib";
+                  addr = <0x85800000>;
+                  size = <82600>;
+            };
+
+    		  pfs {
+            			description = "pfs";
+                  addr = <0x86800000>;
+                  size = <56512>;
+            };
+
+    		  pm {
+            			description = "pm";
+                  addr = <0x83000000>;
+                  size = <81024>;
+            };
+
+    		  rs {
+            			description = "rs";
+                  addr = <0x82800000>;
+                  size = <113152>;
+            };
+
+    		  sched {
+            			description = "sched";
+                  addr = <0x83800000>;
+                  size = <44708>;
+            };
+
+    		  tty {
+            			description = "tty";
+                  addr = <0x85000000>;
+                  size = <63636>;
+            };
+
+    		  vfs {
+            			description = "vfs";
+                  addr = <0x84000000>;
+                  size = <182184>;
+            };
+
+    		  vm {
+            			description = "vm";
+                  addr = <0x86000000>;
+                  size = <217449>;
+            };
+
+   };
+};

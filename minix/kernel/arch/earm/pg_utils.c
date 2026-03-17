@@ -291,7 +291,7 @@ phys_bytes pg_load(void)
 	phys_bytes phpagedir = vir2phys(pagedir);
     clean_cache_range((vir_bytes) &pagedir, ((vir_bytes) &pagedir) + 16384);
 	write_ttbr0(phpagedir);
-    
+
 	return phpagedir;
 }
 

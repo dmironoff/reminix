@@ -10,6 +10,13 @@ _BSD_OWN_MK_=1
 
 .if defined(__MINIX)
 
+MKWATCHDOG?=no
+MKACPI?=no
+MKPAE?=no
+MKAPIC?=no
+MKPCI?=no
+MKDEBUGREG?=no
+
 # Some Minix deviations from NetBSD
 LDSTATIC?=	-static
 MKDYNAMICROOT?=	no
@@ -1077,7 +1084,11 @@ MACHINE_GNU_PLATFORM?=${MACHINE_GNU_ARCH}--netbsd
 
 .if defined(__MINIX)
 # We have a simpler toolchain naming scheme
+.if ${MACHINE_GNU_ARCH} == "aarch64"
+MACHINE_GNU_PLATFORM:=${MACHINE_GNU_ARCH}-minix-elf
+.else
 MACHINE_GNU_PLATFORM:=${MACHINE_GNU_ARCH}-elf32-minix
+.endif
 
 # We need to check for HAVE_GOLD after LD has been set
 .  if ${_HAVE_GOLD:U} == ""

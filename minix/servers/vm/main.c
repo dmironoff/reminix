@@ -97,6 +97,7 @@ int main(void)
   int caller_slot;
 
   printf("VM IS STARTED\n");
+  panic("SYSTEM STOP - VM IS LOADED AND ITS OK");
 
   /* Initialize system so that all processes are runnable the first time. */
   if (is_first_time()) {

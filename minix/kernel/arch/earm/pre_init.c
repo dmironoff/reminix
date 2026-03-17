@@ -1,3 +1,5 @@
+__asm__(".arch armv7-a\n\t.arch_extension virt");
+
 #define UNPAGED 1	/* for proper kmain() prototype */
 
 #include "kernel/kernel.h"
@@ -45,6 +47,9 @@ extern u32_t _end;
 /* kernel unpaged bss */
 extern char _kern_unpaged_edata;
 extern char _kern_unpaged_end;
+
+/* Адрес fdt blob который нам передаст u-boot*/
+u32_t fdt_addr = 0;
 
 /**
  *
@@ -352,10 +357,43 @@ void get_parameters(kinfo_t *cbi, char *bootargs)
 
 kinfo_t *pre_init(int argc, char **argv)
 {
-	char *bootargs;
+	char *bootargs = "console=tty00 rootdevname=c0d0p1 verbose=0 hz=1000 board_name=HUITA";
     extern char _kern_phys_base;
+
 	/* This is the main "c" entry point into the kernel. It gets called
 	   from head.S */
+
+    /* Так мы теперь используем протокол загрузки linux из u-boot
+     * и поэтому сохраним адрес fdt в отдельную переменную
+     * */
+    if (fdt_addr == 0) {
+        asm volatile ("mov %0, r2" : "=r"(fdt_addr));
+    }
+
+    /*
+     *  На всякий случай поменяем режим работы процессора,
+     *  А то у u-boot при загрузке через протокол linux какой-то зоопарк
+     *  в котором я не разобрался, но может это я просто тупой. Хуй с ним
+     *  просто переключим режим если он не SVC
+     */
+    u32_t cpsr = read_cpsr(); // Младшие 5 бит регистра это mode
+    if ((cpsr & 0x1f) == ARM_CPU_MODE_HYP) {
+        // Если мы какого-то хуя в режиме гипервизора,
+        // то нужна специальная конструкция что бы прыгнуть в SVC
+        cpsr &= (~0x1f);
+        cpsr |= ARM_CPU_MODE_SVC;
+        asm volatile ("msr spsr_hyp, %0" : : "r"(cpsr));
+        asm volatile ("msr elr_hyp, %0" : : "r"(pre_init));
+        asm volatile ("eret");
+    } else if ((cpsr & 0x1f) != ARM_CPU_MODE_SVC) {
+        // Если нас каким-то штормом пронесло мимо SVC, то это наша последняя надежда уйти туда
+        cpsr &= (~0x1f);
+        cpsr |= ARM_CPU_MODE_SVC;
+        asm volatile ("msr cpsr_c, %0" : : "r"(cpsr));
+    } else {
+        // А тут аще какая то хуита получилась с режимом работы
+        POORMANS_FAILURE_NOTIFICATION; // Падаем с отладочным выводом загрузчика, ну мы на это надеемся
+    }
 
     disable_mmu(); // Отключаем MMU и кеши, на случай если uboot его включил
     // Если MMU уже или всё ещё отключён, то ничего не случится
@@ -370,14 +408,16 @@ kinfo_t *pre_init(int argc, char **argv)
          * is the program name (load address) and the rest are
 	 * arguments. by convention the second argument is the
 	 *  command line */
-	if (argc != 2) {
-		POORMANS_FAILURE_NOTIFICATION;
-	}
 
-	bootargs = argv[1];
+    /*
+     * У нас больше нет аргументов передаваемых как обычной программе
+     * теперь они зашиты в fdt
+     */
+    //if (argc != 2) {
+	//	POORMANS_FAILURE_NOTIFICATION;
+	//}
 
 	bsp_ser_init();
-
 
 
     /* Get our own copy boot params pointed to by ebx.
@@ -394,12 +434,12 @@ kinfo_t *pre_init(int argc, char **argv)
 
 	pg_identity(&kinfo);
 
+
 	kinfo.freepde_start = pg_mapkernel();
 
 	pg_load();
 
 	vm_enable_paging();
-
 
 	/* Done, return boot info so it can be passed to kmain(). */
 	return &kinfo;

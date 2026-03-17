@@ -1,6 +1,11 @@
 #ifndef _ARM_CPUFUNC_H
 #define _ARM_CPUFUNC_H
 
+#define ARM_CPU_MODE_SVC 0x13
+#define ARM_CPU_MODE_HYP 0x1A
+#define ARM_CPU_MODE_MON 0x16
+#define ARM_CPU_MODE_USR 0x10
+
 #if 0
 /* check interrupt state */
 static inline void check_int(unsigned int state, int line)

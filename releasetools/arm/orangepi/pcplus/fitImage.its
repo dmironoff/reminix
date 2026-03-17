@@ -1,0 +1,228 @@
+/dts-v1/;
+
+/ {
+	description = "Minix fitImage";
+	#address-cells = <1>;
+
+	images {
+
+		  kernel {
+             description = "Minix kernel";
+             data = /incbin/("kernel.bin");
+             type = "kernel";
+             arch = "arm";
+             compression = "none";
+             os = "linux";
+             load = <0x42000000>;
+             entry = <0x42000000>;
+             			hash {
+             				algo = "crc32";
+                };
+          };
+
+		   fdt {
+    			description = "Device and images Tree";
+    			data = /incbin/("devices.dtb"); // Include your DTB file
+    			type = "flat_dt";
+    			arch = "arm";
+    			compression = "none";
+    			hash {
+    				algo = "crc32";
+    			};
+
+          };
+
+		  ds {
+        			description = "Module ds";
+        			data = /incbin/("ds");
+        			type = "standalone";
+        			arch = "arm";
+        			compression = "none";
+                    os = "linux";
+                    load = <0x43000000>;
+                    entry = <0x43000000>;
+        			hash {
+        				algo = "crc32";
+        			};
+
+          };
+
+          rs {
+                			description = "Module rs";
+                			data = /incbin/("rs");
+                			type = "standalone";
+                			arch = "arm";
+                			compression = "none";
+                            os = "linux";
+                            load = <0x43800000>;
+                            entry = <0x43800000>;
+                			hash {
+                				algo = "crc32";
+                			};
+
+          };
+
+           pm {
+                 			description = "Module pm";
+                 			data = /incbin/("pm");
+                 			type = "standalone";
+                 			arch = "arm";
+                 			compression = "none";
+                             os = "linux";
+                             load = <0x44000000>;
+                             entry = <0x44000000>;
+                 			hash {
+                 				algo = "crc32";
+                 			};
+
+           };
+            sched {
+                  			description = "Module sched";
+                  			data = /incbin/("sched");
+                  			type = "standalone";
+                  			arch = "arm";
+                  			compression = "none";
+                              os = "linux";
+                              load = <0x44800000>;
+                              entry = <0x44800000>;
+                  			hash {
+                  				algo = "crc32";
+                  			};
+
+           };
+
+
+            vfs {
+                            			description = "Module vfs";
+                            			data = /incbin/("vfs");
+                            			type = "standalone";
+                            			arch = "arm";
+                            			compression = "none";
+                                        os = "linux";
+                                        load = <0x45000000>;
+                                        entry = <0x45000000>;
+                            			hash {
+                            				algo = "crc32";
+                            			};
+
+            };
+
+            memory {
+                    			description = "Module memory";
+                    			data = /incbin/("memory");
+                    			type = "standalone";
+                    			arch = "arm";
+                    			compression = "none";
+                                os = "linux";
+                                load = <0x45800000>;
+                                entry = <0x45800000>;
+                    			hash {
+                    				algo = "crc32";
+                    			};
+
+            };
+
+            tty {
+                    			description = "Module tty";
+                    			data = /incbin/("tty");
+                    			type = "standalone";
+                    			arch = "arm";
+                    			compression = "none";
+                                os = "linux";
+                                load = <0x46000000>;
+                                entry = <0x46000000>;
+                    			hash {
+                    				algo = "crc32";
+                    			};
+
+            };
+
+            mib {
+                    			description = "Module mib";
+                    			data = /incbin/("mib");
+                    			type = "standalone";
+                    			arch = "arm";
+                    			compression = "none";
+                                os = "linux";
+                                load = <0x46800000>;
+                                entry = <0x46800000>;
+                    			hash {
+                    				algo = "crc32";
+                    			};
+
+            };
+
+            vm {
+                    			description = "Module vm";
+                    			data = /incbin/("vm");
+                    			type = "standalone";
+                    			arch = "arm";
+                    			compression = "none";
+                                os = "linux";
+                                load = <0x47000000>;
+                                entry = <0x47000000>;
+                    			hash {
+                    				algo = "crc32";
+                    			};
+
+            };
+
+           pfs {
+                   			description = "Module pfs";
+                   			data = /incbin/("pfs");
+                   			type = "standalone";
+                   			arch = "arm";
+                   			compression = "none";
+                               os = "linux";
+                               load = <0x47800000>;
+                               entry = <0x47800000>;
+                   			hash {
+                   				algo = "crc32";
+                   			};
+
+           };
+
+           mfs {
+                   			description = "Module mfs";
+                   			data = /incbin/("mfs");
+                   			type = "standalone";
+                   			arch = "arm";
+                   			compression = "none";
+                               os = "linux";
+                               load = <0x48000000>;
+                               entry = <0x48000000>;
+                   			hash {
+                   				algo = "crc32";
+                   			};
+
+           };
+
+
+		  init {
+        			description = "Module init";
+        			data = /incbin/("init");
+        			type = "standalone";
+        			arch = "arm";
+        			compression = "none";
+                    os = "linux";
+                    load = <0x48800000>;
+                    entry = <0x48800000>;
+        			hash {
+        				algo = "crc32";
+        			};
+
+          };
+
+
+	};
+
+	configurations {
+		default = "config";
+		config {
+			description = "Minix fitImage";
+			kernel = "kernel";
+			fdt = "fdt";
+			loadables= "ds", "init", "kernel", "memory", "mfs", "mib", "pfs", "pm", "rs", "sched", "tty", "vfs", "vm";
+		};
+	};
+};

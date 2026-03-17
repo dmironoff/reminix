@@ -6,17 +6,6 @@ set -e
 # be replaced by the proper NetBSD infrastructure.
 #
 
-
-#для компилирования dts нужно сначала создать pre файл, что бы gcc раскрыл там все инклады
-# gcc -E -nostdinc -I./include -I./src/arm/ -undef -D__DTS__ -x assembler-with-cpp ./src/arm/am335x-boneblack.dts > dts.pre
-# а уже потом прогнать файл через компилятор dts
-# dtc -I dts -O dtb -i ./include -i ./src/arm -o my_board.dtb dts.pre
-
-#Для сборки fitImage мы используем утилиту из u-boot
-#mkimage -f fitImage.its fitMinix
-
-
-
 #
 # Source settings if present
 #
@@ -30,27 +19,27 @@ then
 	. ${SETTINGS_MINIX}
 fi
 
-: ${ARCH=evbearm-el}
-: ${SOC_VENDOR=allwinner}
-: ${SOC_NAME=h3}
-: ${BOARD_VENDOR=orangepi}
-: ${BOARD_NAME=pcplus}
+: ${ARCH=evbarm64-el}
+: ${SOC_VENDOR=broadcom}
+: ${SOC_NAME=bcm2837bo}
+: ${BOARD_VENDOR=raspberry}
+: ${BOARD_NAME=pi3bplus}
 
-: ${UBOOT_CROSS_COMPILE=arm-linux-gnueabi-}
+: ${UBOOT_CROSS_COMPILE=aarch64-linux-gnu-}
 : ${UBOOT_CONFIG=orangepi_pc_plus_defconfig}
 # DEVICE_TREE=am335x-boneblack-custom
 # : ${UBOOT_FDT=am335x-boneblack}
 : ${UBOOT_CONFIGS=""}
 
 : ${OBJ=../obj.${ARCH}.${BOARD_VENDOR}.${BOARD_NAME}}
-: ${TOOLCHAIN_TRIPLET=arm-elf32-minix-}
+: ${TOOLCHAIN_TRIPLET=arm-elf64-minix-}
 : ${BUILDSH=build.sh}
 
-: ${SETS="minix-base minix-comp minix-games minix-man minix-tests tests"}
+: ${SETS="minix-base"}
 : ${IMG=minix_arm_${BOARD_VENDOR}_${BOARD_NAME}_sd.img}
 
 # ARM definitions:
-: ${BUILDVARS=-V MKGCCCMDS=yes -V BOARD_VENDOR=${BOARD_VENDOR} -V BOARD_NAME=${BOARD_NAME} -V BOARD_SOC_VENDOR=${SOC_VENDOR} -V BOARD_SOC_NAME=${SOC_NAME} -V MKLLVM=no}
+: ${BUILDVARS=-V MKGCCCMDS=yes -V HAVE_GOLD=no -V BOARD_VENDOR=${BOARD_VENDOR} -V BOARD_NAME=${BOARD_NAME} -V BOARD_SOC_VENDOR=${SOC_VENDOR} -V BOARD_SOC_NAME=${SOC_NAME} -V MKLLVM=no}
 # These BUILDVARS are for building with LLVM:
 #: ${BUILDVARS=-V MKLIBCXX=no -V MKKYUA=no -V MKATF=no -V MKLLVMCMDS=no}
 : ${FAT_SIZE=$((    10*(2**20) / 512))} # This is in sectors
@@ -174,29 +163,26 @@ for f in servers/vm/vm servers/rs/rs servers/pm/pm servers/sched/sched \
 	servers/vfs/vfs servers/ds/ds servers/mib/mib fs/pfs/pfs fs/mfs/mfs \
 	../sbin/init/init drivers/tty/tty/tty drivers/storage/memory/memory
 do
-    fn=`basename $f`
+    fn=`basename $f`.elf
     cp ${OBJ}/minix/${f} ${ROOT_DIR}/${fn}
     ${CROSS_PREFIX}strip -s ${ROOT_DIR}/${fn}
 done
-
-cp ${RELEASETOOLSDIR}/arm/orangepi/pcplus/fitImage.its  ${ROOT_DIR}/
-
-gcc -E -nostdinc -I${RELEASETOOLSDIR}../external/gpl2/devicetree-source/include/ \
-    -I${RELEASETOOLSDIR}../external/gpl2/devicetree-source/src/arm/ \
-    -undef -D__DTS__ -x assembler-with-cpp \
-    ${RELEASETOOLSDIR}arm/orangepi/pcplus/devices.dts > ${OBJ}/devices.pre.dts
-
-dtc -I dts -O dtb \
-    -i ${RELEASETOOLSDIR}../external/gpl2/devicetree-source/include/ \
-    -i ${RELEASETOOLSDIR}../external/gpl2/devicetree-source/src/arm/ \
-    -o ${ROOT_DIR}/devices.dtb ${OBJ}/devices.pre.dts
-
-${OBJ}/u-boot/tools/mkimage -f ${ROOT_DIR}/fitImage.its ${ROOT_DIR}/fitMinix
-
 cat >${WORK_DIR}/boot.mtree <<EOF
 . type=dir
 ./uboot.env type=file
-./fitMinix type=file
+./kernel.bin type=file
+./ds.elf type=file
+./rs.elf type=file
+./pm.elf type=file
+./sched.elf type=file
+./vfs.elf type=file
+./memory.elf type=file
+./tty.elf type=file
+./mib.elf type=file
+./vm.elf type=file
+./pfs.elf type=file
+./mfs.elf type=file
+./init.elf type=file
 EOF
 
 #
