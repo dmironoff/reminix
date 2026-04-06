@@ -18,6 +18,7 @@
 #include <minix/portio.h>
 #include "const.h"
 #include "priv.h"
+#include "kernel/proc_context.h"
 
 struct proc {
   struct stackframe_s p_reg;	/* process' registers saved in stack frame */
@@ -33,7 +34,6 @@ struct proc {
 				   FIXME remove this */
   struct proc *p_scheduler;	/* who should get out of quantum msg */
   unsigned p_cpu;		/* what CPU is the process running on */
-#ifdef CONFIG_SMP
   bitchunk_t p_cpu_mask[BITMAP_CHUNKS(CONFIG_MAX_CPUS)]; /* what CPUs is the
 							    process allowed to
 							    run on */
@@ -42,7 +42,6 @@ struct proc {
 				to be fresed the next kernel touches this
 				processes memory
 				 */
-#endif
 
   /* Accounting statistics that get passed to the process' scheduler */
   struct {
@@ -130,6 +129,12 @@ struct proc {
    * do_ipc() arguments that are still to be executed
    */
   struct { reg_t r1, r2, r3; } p_defer;
+
+  proc_context_id_t     context_id; // Новая фенечка, мы во всех процах реализуем кеширование контекста
+                            // arm, aarch64 - ASID
+                            // amd64 - PCID
+                            // risc-v - ASID
+                            // i586 - вроде нет, но возможен в некоторых вариантах архитектуры
 
 #if DEBUG_TRACE
   int p_schedules;

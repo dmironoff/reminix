@@ -103,4 +103,10 @@
 #define NDEV_HWADDR_MAX	6	/* max network hardware address length */
 #define NDEV_IOV_MAX	8	/* max number of elements in I/O vector */
 
+/* Параметр для структур SMP */
+#define CONFIG_MAX_CPUS	4
+
+/* Количество потоков для одного процесса */
+#define PROC_MAX_THREADS    25
+
 #endif /* _CONFIG_H */

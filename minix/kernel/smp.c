@@ -3,6 +3,7 @@
 #include "smp.h"
 #include "interrupt.h"
 #include "clock.h"
+#include "arch_proc_context.h"
 
 unsigned ncpus;
 unsigned ht_per_core;

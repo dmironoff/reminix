@@ -10,6 +10,7 @@
 #include <machine/archtypes.h>
 #include <machine/signal.h>
 #include <machine/frame.h>
+#include <kernel/bootstrap_kernel_information.h>
 
 /* Struct declarations. */
 struct proc;
@@ -49,7 +50,7 @@ void fpu_sigcontext(struct proc *, struct sigframe_sigcontext *fr, struct
 #ifndef UNPAGED
 #define kmain __k_unpaged_kmain
 #endif
-void kmain(kinfo_t *cbi);
+void kmain(bootstrap_kernel_information_t  *bki);
 void prepare_shutdown(int how);
 __dead void minix_shutdown(int how);
 void bsp_finish_booting(void);

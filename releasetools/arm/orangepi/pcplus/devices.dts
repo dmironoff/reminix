@@ -5,89 +5,86 @@
 / {
 
 	chosen {
-		stdout-path = "";
 		bootargs = "";
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0x40000000 0x40000000>;
 	};
 
 	miniximages {
 
     		  ds {
-            			description = "ds";
+				  type = "server";
                   addr = <0x82000000>;
                   size = <0x00800000>;
             };
 
     		  init {
-            			description = "init";
+				  type = "init";
                   addr = <0x87800000>;
                   size = <0x00800000>;
             };
 
-    		  kernel {
-            			description = "Minix kernel";
-                  addr = <0x80200000>;
-                  size = <154744>;
-                  virt_addr = <0xF0400000>;
-            };
-
     		  memory {
-            			description = "memory";
+				  type = "driver";
                   addr = <0x84800000>;
-                  size = <2771312>;
+				  size = <0x00800000>;
             };
 
     		  mfs {
-            			description = "mfs";
+				  type = "filesystem";
                   addr = <0x87000000>;
-                  size = <108684>;
+				  size = <0x00800000>;
             };
 
     		  mib {
-            			description = "mib";
+				  type = "server";
                   addr = <0x85800000>;
-                  size = <82600>;
+				  size = <0x00800000>;
             };
 
     		  pfs {
-            			description = "pfs";
+            			description = "filesystem";
                   addr = <0x86800000>;
-                  size = <56512>;
+				  size = <0x00800000>;
             };
 
     		  pm {
-            			description = "pm";
+				  type = "server";
                   addr = <0x83000000>;
-                  size = <81024>;
+				  size = <0x00800000>;
             };
 
     		  rs {
-            			description = "rs";
+				  type = "server";
                   addr = <0x82800000>;
-                  size = <113152>;
+				  size = <0x00800000>;
             };
 
     		  sched {
-            			description = "sched";
+				  type = "server";
                   addr = <0x83800000>;
-                  size = <44708>;
+				  size = <0x00800000>;
             };
 
     		  tty {
-            			description = "tty";
+				  type = "driver";
                   addr = <0x85000000>;
-                  size = <63636>;
+				  size = <0x00800000>;
             };
 
     		  vfs {
-            			description = "vfs";
+				  type = "server";
                   addr = <0x84000000>;
-                  size = <182184>;
+				  size = <0x00800000>;
             };
 
     		  vm {
-            			description = "vm";
+				  type = "server";
                   addr = <0x86000000>;
-                  size = <217449>;
+				  size = <0x00800000>;
             };
 
    };

@@ -45,19 +45,9 @@
 #include "kernel/proc.h"		/* process table */
 #include "kernel/cpulocals.h"		/* CPU-local variables */
 #include "kernel/debug.h"		/* debugging, MUST be last kernel header */
+#include "kernel/proc_context.h" /* ASID / PCID arch independ support */
 
-#ifndef CONFIG_SMP
-/* We only support 1 cpu now */
-#define CONFIG_MAX_CPUS	1
-#define cpuid		0
-/* this is always true on an uniprocessor */
-#define cpu_is_bsp(x) 1
 
-#else
-
-#include "kernel/smp.h"
-
-#endif
 
 #endif /* __ASSEMBLY__ */
 

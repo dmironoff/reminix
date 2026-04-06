@@ -11,6 +11,7 @@
 #include "arch_proto.h"
 #include "hw_intr.h"
 #include "gic.h"
+#include "bsp_ipi.h"
 
 /*
  * Опять таки эта информация должна получатьс из FDT
@@ -46,3 +47,12 @@ bsp_irq_mask(const int irq)
 {
     gic400_mask(irq);
 }
+
+void bsp_send_ipi(uint32_t cpu, uint32_t ipi_nr) {
+
+}
+
+void bsp_send_ipi_all_others(uint32_t ipi_nr) {
+
+}
+

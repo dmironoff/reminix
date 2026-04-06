@@ -15,12 +15,12 @@
 #error "MINIX_CPUSTATES value is out of sync with NetBSD's!"
 #endif
 
-#include "kernel/spinlock.h"
+#include "spinlock.h"
 
-#ifdef CONFIG_SMP
-#include "kernel/smp.h"
-#error CONFIG_SMP is unsupported on ARM
-#endif
+
+#include "kernel/resmp.h"
+
+
 
 #include "bsp_timer.h"
 #include "bsp_intr.h"
@@ -33,15 +33,8 @@ int init_local_timer(unsigned freq)
 {
 	bsp_timer_init(freq);
 
-	if (BOARD_IS_BBXM(machine.board_id)) {
-		tsc_per_ms[0] = 16250;
-	} else if (BOARD_IS_BB(machine.board_id)) {
-		tsc_per_ms[0] = 15000;
-	} else {
-      /* #TODO убрать хардкод */
-        tsc_per_ms[0] = 24000;
-		//panic("Can not do the clock setup. machine (0x%08x) is unknown\n",machine.board_id);
-	};
+    tsc_per_ms[0] = bsp_timer_tsc_per_ms();
+
 
 	tsc_per_tick[0] = tsc_per_ms[0] * 1000 / system_hz;
 
@@ -60,9 +53,7 @@ void arch_timer_int_handler(void)
 
 void cycles_accounting_init(void)
 {
-#ifdef CONFIG_SMP
-	unsigned cpu = cpuid;
-#endif
+	unsigned cpu = cpunr;
 
 	read_tsc_64(get_cpu_var_ptr(cpu, tsc_ctr_switch));
 
@@ -160,9 +151,8 @@ void context_stop(struct proc * p)
 void context_stop_idle(void)
 {
 	int is_idle;
-#ifdef CONFIG_SMP
-	unsigned cpu = cpuid;
-#endif
+	unsigned cpu = cpunr;
+
 
 	is_idle = get_cpu_var(cpu, cpu_is_idle);
 	get_cpu_var(cpu, cpu_is_idle) = 0;
@@ -188,12 +178,12 @@ int register_local_timer_handler(const irq_handler_t handler)
 
 u64_t ms_2_cpu_time(unsigned ms)
 {
-	return (u64_t)tsc_per_ms[cpuid] * ms;
+	return (u64_t)tsc_per_ms[cpunr] * ms;
 }
 
 unsigned cpu_time_2_ms(u64_t cpu_time)
 {
-	return (unsigned long)(cpu_time / tsc_per_ms[cpuid]);
+	return (unsigned long)(cpu_time / tsc_per_ms[cpunr]);
 }
 
 short cpu_load(void)
@@ -202,9 +192,7 @@ short cpu_load(void)
 	u64_t tsc_delta, idle_delta, busy;
 	struct proc *idle;
 	short load;
-#ifdef CONFIG_SMP
-	unsigned cpu = cpuid;
-#endif
+	unsigned cpu = cpunr;
 
 	u64_t *last_tsc, *last_idle;
 

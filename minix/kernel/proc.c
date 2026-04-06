@@ -160,14 +160,12 @@ void proc_init(void)
 
 static void switch_address_space_idle(void)
 {
-#ifdef CONFIG_SMP
 	/*
 	 * currently we bet that VM is always alive and its pages available so
 	 * when the CPU wakes up the kernel is mapped and no surprises happen.
 	 * This is only a problem if more than 1 cpus are available
 	 */
 	switch_address_space(proc_addr(VM_PROC_NR));
-#endif
 }
 
 /*===========================================================================*
@@ -189,13 +187,11 @@ static void idle(void)
 
 	switch_address_space_idle();
 
-#ifdef CONFIG_SMP
 	get_cpulocal_var(cpu_is_idle) = 1;
 	/* we don't need to keep time on APs as it is handled on the BSP */
-	if (cpuid != bsp_cpu_id)
+	if (cpu_is_bsp(cpunr))
 		stop_local_timer();
 	else
-#endif
 	{
 		/*
 		 * If the timer has expired while in kernel we must
@@ -302,9 +298,7 @@ void switch_to_user(void)
 	 * to be scheduled again.
 	 */
 	struct proc * p;
-#ifdef CONFIG_SMP
 	int tlb_must_refresh = 0;
-#endif
 
 	p = get_cpulocal_var(proc_ptr);
 	/*
@@ -342,10 +336,8 @@ not_runnable_pick_new:
 	/* update the global variable */
 	get_cpulocal_var(proc_ptr) = p;
 
-#ifdef CONFIG_SMP
 	if (p->p_misc_flags & MF_FLUSH_TLB && get_cpulocal_var(ptproc) == p)
 		tlb_must_refresh = 1;
-#endif
 	switch_address_space(p);
 
 check_misc_flags:
@@ -429,7 +421,7 @@ check_misc_flags:
 
 	TRACE(VF_SCHEDULING, printf("cpu %d starting %s / %d "
 				"pc 0x%08x\n",
-		cpuid, p->p_name, p->p_endpoint, p->p_reg.pc););
+		cpunr, p->p_name, p->p_endpoint, p->p_reg.pc););
 #if DEBUG_TRACE
 	p->p_schedules++;
 #endif
@@ -455,13 +447,12 @@ check_misc_flags:
 #elif defined(__arm__)
 	assert(p->p_seg.p_ttbr != 0);
 #endif
-#ifdef CONFIG_SMP
+
 	if (p->p_misc_flags & MF_FLUSH_TLB) {
 		if (tlb_must_refresh)
-			refresh_tlb();
+            arch_proc_context_id_flush(p->context_id);
 		p->p_misc_flags &= ~MF_FLUSH_TLB;
 	}
-#endif
 	
 	restart_local_timer();
 	

@@ -21,6 +21,9 @@
 #include "ccnt.h"
 #include "bsp_init.h"
 #include "bsp_serial.h"
+#include "kernel/resmp.h"
+#include "kernel/proc_context.h"
+#include "arch_proc_context.h"
 
 #include "glo.h"
 
@@ -86,7 +89,7 @@ int restore_fpu(struct proc *pr)
 void cpu_identify(void)
 {
 	u32_t midr;
-	unsigned cpu = cpuid;
+	unsigned cpu = cpunr;
 
 	asm volatile("mrc p15, 0, %[midr], c0, c0, 0 @ read MIDR\n\t"
 		     : [midr] "=r" (midr));
@@ -106,13 +109,11 @@ void arch_init(void)
 	k_stacks = (void*) &k_stacks_start;
 	assert(!((vir_bytes) k_stacks % K_STACK_SIZE));
 
-#ifndef CONFIG_SMP
 	/*
 	 * use stack 0 and cpu id 0 on a single processor machine, SMP
 	 * configuration does this in smp_init() for all cpus at once
 	 */
-	tss_init(0, get_k_stack_top(0));
-#endif
+	tss_init(bsp_cpu_nr, get_k_stack_top(bsp_cpu_nr));
 
 
         /* enable user space access to cycle counter */
@@ -155,11 +156,8 @@ struct proc * arch_finish_switch_to_user(void)
 	char * stk;
 	struct proc * p;
 
-#ifdef CONFIG_SMP
-	stk = (char *)tss[cpuid].sp0;
-#else
-	stk = (char *)tss[0].sp0;
-#endif
+	stk = (char *)tss[cpunr].sp0;
+
 	svc_stack = (reg_t)stk;
 	/* set pointer to the process to run on the stack */
 	p = get_cpulocal_var(proc_ptr);
@@ -211,9 +209,22 @@ void __switch_address_space(struct proc *p, struct proc **__ptproc)
 	if (new_ttbr == orig_ttbr)
 	    return;
 
+    // Чекаем процесс, если что то назначем ему новый идентификатор ASID
+    arch_proc_check_context_id(p);
+    // Шлёпаемся в безопасный asid ядра
+    arch_proc_context_set_kernel();
+
+    // Очень крутое решение - сбрасывать кеш адресов памяти с таблицей страниц процесса
     clean_cache_range((vir_bytes) p->p_seg.p_ttbr_v, ((vir_bytes) p->p_seg.p_ttbr_v) + 16384);
 
+    // Пишем адрес корня таблицы страниц процесса
 	write_ttbr0(new_ttbr);
+
+    // Установливаем реальный asid id процесса
+    arch_proc_context_set(p->context_id);
+
+    // Запоминаем его для процессора
+    get_cpulocal_var(context_id) = p->context_id;
 
 	*__ptproc = p;
 

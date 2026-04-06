@@ -6,6 +6,10 @@
 #define ARM_CPU_MODE_MON 0x16
 #define ARM_CPU_MODE_USR 0x10
 
+#include <minix/cpufeature.h>
+#include "arch_configs.h"
+#include "vm.h"
+
 #if 0
 /* check interrupt state */
 static inline void check_int(unsigned int state, int line)
@@ -47,6 +51,11 @@ static inline void barrier(void)
 	isb();
 }
 
+static inline void arch_barrier(void)
+{
+    dsb();
+    isb();
+}
 
 /* Read CLIDR, Cache Level ID Register */
 static inline u32_t read_clidr(void){
@@ -544,16 +553,123 @@ static inline void disable_mmu(void) {
 static inline void clean_cache_range(vir_bytes start, vir_bytes end) {
 
 #ifdef ARCH_ARM_CORTEX_A7
-#define ARM_CACHE_LINE_SIZE 64
-    start &= (~(ARM_CACHE_LINE_SIZE - 1));
+    start &= (~(ARCH_CACHE_LINE_SIZE - 1));
     while (start < end) {
         asm volatile ("mcr p15, 0, %0, c7, c10, 1" : : "r" ((u32_t)start) : "memory");
-        start += ARM_CACHE_LINE_SIZE;
+        start += ARCH_CACHE_LINE_SIZE;
     }
     asm volatile ("dsb sy");
     asm volatile ("isb");
 #endif
 }
 
+static inline void arm_irq_disable(void) {
+    asm volatile("cpsid if" ::: "memory");
+}
+
+static inline void arm_irq_enable(void) {
+    asm volatile("cpsie if" ::: "memory");
+}
+
+static inline uint32_t arch_get_current_cpuid() {
+#ifdef ARCH_ARM_CORTEX_A7
+    uint32_t mpidr;
+    asm volatile ("MRC p15, 0, %[val], c0, c0, 5": [val]"=r"(mpidr));
+    return mpidr && 0xFF;
+#else
+    return 0;
+#endif
+}
+
+static inline void arch_cpucore_sleep (void) {
+    asm volatile("wfi");
+}
+
+static inline void arch_cpucore_wakeup (void) {
+    asm volatile("sev");
+}
+
+/* ================================================================
+ * TLB invalidation
+ * ================================================================ */
+
+/* TLBIALL — инвалидировать весь non-global TLB (локально) */
+static inline void tlbi_all_local(void)
+{
+    asm volatile(
+            "mcr p15, 0, %0, c8, c7, 0 \n"
+            "dsb                         \n"
+            "isb                         \n"
+            :: "r"(0) : "memory"
+            );
+}
+
+/* TLBIASID — инвалидировать по ASID (локально) */
+static inline void tlbi_asid_local(uint32_t asid)
+{
+    asm volatile(
+            "mcr p15, 0, %0, c8, c7, 2 \n"
+            "dsb                         \n"
+            "isb                         \n"
+            :: "r"((uint32_t)asid & 0xFF) : "memory"
+            );
+}
+
+/* TLBIMVA — инвалидировать по VA+ASID (локально) */
+static inline void tlbi_mva_asid_local(uint32_t mva, uint32_t asid)
+{
+    uint32_t val = (mva & ~0xFFFu) | (asid & 0xFF);
+    asm volatile(
+            "mcr p15, 0, %0, c8, c7, 1 \n"
+            "dsb                         \n"
+            :: "r"(val) : "memory"
+            );
+}
+
+/* TLBIALLIS — инвалидировать весь TLB, Inner Shareable (все ядра) */
+static inline void tlbi_all_is(void)
+{
+    asm volatile(
+            "mcr p15, 0, %0, c8, c3, 0 \n"
+            "dsb                         \n"
+            "isb                         \n"
+            :: "r"(0) : "memory"
+            );
+}
+
+/* TLBIASIDIS — инвалидировать по ASID, Inner Shareable (все ядра) */
+static inline void tlbi_asid_is(uint32_t asid)
+{
+    asm volatile(
+            "mcr p15, 0, %0, c8, c3, 2 \n"
+            "dsb                         \n"
+            "isb                         \n"
+            :: "r"((uint32_t)asid & 0xFF) : "memory"
+            );
+}
+
+/* TLBIMVAIS — инвалидировать по VA+ASID, Inner Shareable */
+static inline void tlbi_mva_asid_is(uint32_t mva, uint32_t asid)
+{
+    uint32_t val = (mva & ~0xFFFu) | (asid & 0xFF);
+    asm volatile(
+            "mcr p15, 0, %0, c8, c3, 1 \n"
+            "dsb                         \n"
+            :: "r"(val) : "memory"
+            );
+}
+
+static inline void write_asid(uint32_t asid) {
+    uint8_t val = (uint8_t) (asid & 0xFF);
+    asm volatile ("mcr p15, 0, %[val], c13, c0, 1 \n"
+                  "dsb \n"
+                  "isb \n" ::[val]"r"(val));
+}
+
+static inline uint32_t read_mmfr0(void) {
+    uint32_t result = 0;
+    asm volatile("mrc p15, 0, %0, c0, c1, 4" : "=r"(result));
+    return result;
+}
 
 #endif /* _ARM_CPUFUNC_H */

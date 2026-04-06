@@ -28,7 +28,7 @@ static uint32_t tick_interval = 0;
 /*
  * Регистрируем свой обработчик прерывания для таймера
  */
-int
+
 bsp_register_timer_handler(const irq_handler_t handler)
 {
 	/* Initialize the CLOCK's interrupt hook. */
@@ -71,6 +71,13 @@ bsp_timer_int_handler(void)
 {
     /* Что бы сбросить линию прерывания на процессоре нам нужно переустановить интервал */
     set_next_tick(tick_interval);
+}
+
+/*
+ * Ещё одна информационная функция, которая зависит от реализации процессора
+ */
+uint32_t bsp_timer_tsc_per_ms(void) {
+    return 24000;
 }
 
 /* Читаем 64 разрядное значение таймера */

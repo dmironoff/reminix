@@ -21,7 +21,7 @@
           };
 
 		   fdt {
-    			description = "Device and images Tree";
+    			description = "Device Tree";
     			data = /incbin/("devices.dtb"); // Include your DTB file
     			type = "flat_dt";
     			arch = "arm";
@@ -33,9 +33,9 @@
           };
 
 		  ds {
-        			description = "Module ds";
+        			description = "ds";
         			data = /incbin/("ds");
-        			type = "standalone";
+        			type = "loadable";
         			arch = "arm";
         			compression = "none";
                     os = "linux";
@@ -48,9 +48,9 @@
           };
 
           rs {
-                			description = "Module rs";
+                			description = "rs";
                 			data = /incbin/("rs");
-                			type = "standalone";
+                			type = "loadable";
                 			arch = "arm";
                 			compression = "none";
                             os = "linux";
@@ -63,9 +63,9 @@
           };
 
            pm {
-                 			description = "Module pm";
+                 			description = "pm";
                  			data = /incbin/("pm");
-                 			type = "standalone";
+                 			type = "loadable";
                  			arch = "arm";
                  			compression = "none";
                              os = "linux";
@@ -77,9 +77,9 @@
 
            };
             sched {
-                  			description = "Module sched";
+                  			description = "sched";
                   			data = /incbin/("sched");
-                  			type = "standalone";
+                  			type = "loadable";
                   			arch = "arm";
                   			compression = "none";
                               os = "linux";
@@ -93,9 +93,9 @@
 
 
             vfs {
-                            			description = "Module vfs";
+                            			description = "vfs";
                             			data = /incbin/("vfs");
-                            			type = "standalone";
+                            			type = "loadable";
                             			arch = "arm";
                             			compression = "none";
                                         os = "linux";
@@ -108,9 +108,9 @@
             };
 
             memory {
-                    			description = "Module memory";
+                    			description = "memory";
                     			data = /incbin/("memory");
-                    			type = "standalone";
+                    			type = "loadable";
                     			arch = "arm";
                     			compression = "none";
                                 os = "linux";
@@ -123,9 +123,9 @@
             };
 
             tty {
-                    			description = "Module tty";
+                    			description = "tty";
                     			data = /incbin/("tty");
-                    			type = "standalone";
+                    			type = "loadable";
                     			arch = "arm";
                     			compression = "none";
                                 os = "linux";
@@ -138,9 +138,9 @@
             };
 
             mib {
-                    			description = "Module mib";
+                    			description = "mib";
                     			data = /incbin/("mib");
-                    			type = "standalone";
+                    			type = "loadable";
                     			arch = "arm";
                     			compression = "none";
                                 os = "linux";
@@ -153,9 +153,9 @@
             };
 
             vm {
-                    			description = "Module vm";
+                    			description = "vm";
                     			data = /incbin/("vm");
-                    			type = "standalone";
+                    			type = "loadable";
                     			arch = "arm";
                     			compression = "none";
                                 os = "linux";
@@ -168,9 +168,9 @@
             };
 
            pfs {
-                   			description = "Module pfs";
+                   			description = "pfs";
                    			data = /incbin/("pfs");
-                   			type = "standalone";
+                   			type = "loadable";
                    			arch = "arm";
                    			compression = "none";
                                os = "linux";
@@ -183,9 +183,9 @@
            };
 
            mfs {
-                   			description = "Module mfs";
+                   			description = "mfs";
                    			data = /incbin/("mfs");
-                   			type = "standalone";
+                   			type = "loadable";
                    			arch = "arm";
                    			compression = "none";
                                os = "linux";
@@ -199,9 +199,9 @@
 
 
 		  init {
-        			description = "Module init";
+        			description = "init";
         			data = /incbin/("init");
-        			type = "standalone";
+        			type = "loadable";
         			arch = "arm";
         			compression = "none";
                     os = "linux";
@@ -219,10 +219,10 @@
 	configurations {
 		default = "config";
 		config {
-			description = "Minix fitImage";
+			description = "Default config";
 			kernel = "kernel";
 			fdt = "fdt";
-			loadables= "ds", "init", "kernel", "memory", "mfs", "mib", "pfs", "pm", "rs", "sched", "tty", "vfs", "vm";
+			loadables= "ds", "init", "memory", "mfs", "mib", "pfs", "pm", "rs", "sched", "tty", "vfs", "vm";
 		};
 	};
 };

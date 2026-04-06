@@ -4,32 +4,18 @@
 
 #ifndef __ASSEMBLY__
 
-#ifdef CONFIG_SMP
-
-/* SMP */
-
-#define CPULOCAL_ARRAY	[CONFIG_MAX_CPUS]
+#include "resmp.h"
 
 #define get_cpu_var(cpu, name)		__cpu_local_vars[cpu].name
 #define get_cpu_var_ptr(cpu, name)	(&(get_cpu_var(cpu, name)))
-#define get_cpulocal_var(name)		get_cpu_var(cpuid, name)
-#define get_cpulocal_var_ptr(name)	get_cpu_var_ptr(cpuid, name)
+#define get_cpulocal_var(name)  __cpu_local_vars[cpunr].name
+#define get_cpulocal_var_ptr(name)  (&(get_cpu_var(cpunr, name)))
+
+#include "kernel/proc_context.h"
+
 
 /* FIXME - padd the structure so that items in the array do not share cacheline
  * with other cpus */
-
-#else
-
-/* single CPU */
-
-#define CPULOCAL_ARRAY
-
-#define get_cpulocal_var(name)		__cpu_local_vars.name
-#define get_cpulocal_var_ptr(name)	&(get_cpulocal_var(name))
-#define get_cpu_var(cpu, name)		get_cpulocal_var(name)
-#define get_cpu_var_ptr(cpu, name)	get_cpulocal_var_ptr(name)
-
-#endif
 
 /*
  * The global cpu local variables in use
@@ -72,7 +58,16 @@ extern struct __cpu_local_vars {
 	char fpu_presence; /* whether the cpu has FPU or not */
 	struct proc * fpu_owner; /* who owns the FPU of the local cpu */
 
-} __cpu_local_vars CPULOCAL_ARRAY;
+    int cpu_is_bsp; // Флаг того что именно с этого процессора произошёл запуск
+    int ht_nr; // Поддержка гипертрединга, количество псевдоконвееров на этом ядре
+
+    uint32_t arch_cpu_id; // Архитектурно зависимая идентификация cpu
+
+    volatile int need_reschedule;
+
+    proc_context_id_t context_id; // текущий загруженный в ядро контекст
+
+} __cpu_local_vars [CONFIG_MAX_CPUS];
 
 #endif /* __ASSEMBLY__ */
 

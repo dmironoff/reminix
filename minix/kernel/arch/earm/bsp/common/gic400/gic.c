@@ -103,3 +103,19 @@ void gic400_unmask(int irq) {
     int bit_number = irq % 32;
     mmio_write(gic400_memory.dist_base + GIC400_DIST_ISENABLER + (reg_number * 4), (1 << bit_number));
 }
+
+/*
+ * Отправить програмное прерывание
+ */
+void gic400_sgi(uint32_t cpu, uint32_t nr) {
+
+}
+
+/*
+ *  Отправить програмное прерывание всем остальным ядрам
+ *
+ */
+
+void gic400_sgi_all(uint32_t nr) {
+
+}

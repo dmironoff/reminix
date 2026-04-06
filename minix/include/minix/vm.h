@@ -5,6 +5,8 @@
 
 #include <sys/types.h>
 #include <minix/endpoint.h>
+#include <minix/abstract_pagetables.h>
+#include <minix/physmemorymap.h>
 
 int vm_exit(endpoint_t ep);
 int vm_fork(endpoint_t ep, int slotno, endpoint_t *child_ep);
@@ -91,6 +93,29 @@ int vm_clear_cache(dev_t dev);
 
 /* setflags for vm_set_cacheblock, also used internally in VM */
 #define VMSF_ONCE		0x01	/* discard block after one-time use */
+
+/*
+ * Дальше идут наши новые IPC механизмы
+ *
+ */
+
+typedef enum {
+    VM_PT_OP_MAP    = 1,    /* добавить/обновить маппинг vaddr → phys_addr      */
+    VM_PT_OP_UNMAP  = 2,    /* убрать маппинг, физ. страницу не трогать          */
+    VM_PT_OP_FREE   = 3,    /* убрать маппинг и освободить физ. страницу         */
+    VM_PT_OP_REMAP  = 4,    /* изменить только flags (напр. COW→writable)        */
+} vm_pt_op_t;
+
+typedef struct {
+    vir_bytes           vaddr;      /* виртуальный адрес                         */
+    phys_bytes          phys_addr;  /* физический адрес (для MAP/REMAP)          */
+    vm_abstract_arch_flags      flags;      /* новые флаги                               */
+    mmap_cache_hint_t     cache_hint; /* подсказка кеширования                     */
+    uint8_t             op;         /* vm_pt_op_t                                */
+    uint8_t             _pad[2];
+} vm_pt_change_t;   /* 28 байт → с padding = 32 */
+
+#define VM_MAX_CHANGES_PER_APPLY    128 /* ограничено размером IPC гранта ~4KB   */
 
 #endif /* _MINIX_VM_H */
 

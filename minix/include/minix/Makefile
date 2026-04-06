@@ -23,6 +23,6 @@ INCS+=	acpi.h audio_fw.h bitmap.h \
 	u64.h usb.h usb_ch9.h vbox.h \
 	vboxfs.h vboxif.h vboxtype.h vm.h \
 	vfsif.h vtreefs.h libminixfs.h \
-	virtio.h
+	virtio.h abstract_pagetables.h physmemorymap.h
 
 .include <bsd.kinc.mk>

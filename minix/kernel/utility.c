@@ -35,7 +35,7 @@ void panic(const char *fmt, ...)
 	printf("\n");
   }
 
-  printf("kernel think working on CPU %d: ", cpuid);
+  printf("kernel think working on CPU %d: ", cpunr);
   util_stacktrace();
 
 

@@ -8,6 +8,8 @@
  *   main:	    	MINIX main program
  *   prepare_shutdown:	prepare to take MINIX down
  */
+
+#include "arch_configs.h"
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -20,14 +22,18 @@
 #include "direct_utils.h"
 #include "hw_intr.h"
 #include "arch_proto.h"
+#include "kernel/env_params_utils.h"
+#include "kernel/bootstrap_kernel_information.h"
+#include "kernel/apt_utils.h"
+#include "kernel/mmap_utils.h"
+#include "kernel/resmp.h"
+#include "kernel/reup.h"
+#include "spinlock.h"
 
-#ifdef CONFIG_SMP
-#include "smp.h"
-#endif
 #ifdef USE_WATCHDOG
 #include "watchdog.h"
 #endif
-#include "spinlock.h"
+
 
 /* dummy for linking */
 char *** _penviron;
@@ -35,90 +41,95 @@ char *** _penviron;
 /* Prototype declarations for PRIVATE functions. */
 static void announce(void);
 
+// Глобальный флаг и переменная с количеством процессоров, которые мы кучи раз будем проверять
+int is_smp_mode = 0; // 0 - Uniprocessor mode, 1 - SMP
+int cpu_count = 1; // По умолчанию у нас всего один cpu
+int bsp_cpu_nr = 0; // Номер процессора на котором мы запустились
+
+//Глобальная переменная с указателем на рабочую карту памяти
+mmap_t *system_mmap;
+
+
 void bsp_finish_booting(void)
 {
-  int i;
+    int i;
 #if SPROFILE
-  sprofiling = 0;      /* we're not profiling until instructed to */
+    sprofiling = 0;      /* we're not profiling until instructed to */
 #endif /* SPROFILE */
 
-  cpu_identify();
+    cpu_identify();
 
-  vm_running = 0;
-  krandom.random_sources = RANDOM_SOURCES;
-  krandom.random_elements = RANDOM_ELEMENTS;
+    vm_running = 0;
+    krandom.random_sources = RANDOM_SOURCES;
+    krandom.random_elements = RANDOM_ELEMENTS;
 
-  /* MINIX is now ready. All boot image processes are on the ready queue.
-   * Return to the assembly code to start running the current process. 
-   */
-  
-  /* it should point somewhere */
-  get_cpulocal_var(bill_ptr) = get_cpulocal_var_ptr(idle_proc);
-  get_cpulocal_var(proc_ptr) = get_cpulocal_var_ptr(idle_proc);
-  announce();				/* print MINIX startup banner */
+    /* MINIX is now ready. All boot image processes are on the ready queue.
+     * Return to the assembly code to start running the current process.
+     */
 
-  /*
-   * we have access to the cpu local run queue, only now schedule the processes.
-   * We ignore the slots for the former kernel tasks
-   */
-  for (i=0; i < NR_BOOT_PROCS - NR_TASKS; i++) {
-	RTS_UNSET(proc_addr(i), RTS_PROC_STOP);
-  }
-  /*
-   * Enable timer interrupts and clock task on the boot CPU.  First reset the
-   * CPU accounting values, as the timer initialization (indirectly) uses them.
-   */
-  cycles_accounting_init();
+    /* it should point somewhere */
+    get_cpulocal_var(bill_ptr) = get_cpulocal_var_ptr(idle_proc);
+    get_cpulocal_var(proc_ptr) = get_cpulocal_var_ptr(idle_proc);
+    announce();				/* print MINIX startup banner */
 
-  if (boot_cpu_init_timer(system_hz)) {
-	  panic("FATAL : failed to initialize timer interrupts, "
-			  "cannot continue without any clock source!");
-  }
+    /*
+     * we have access to the cpu local run queue, only now schedule the processes.
+     * We ignore the slots for the former kernel tasks
+     */
+    for (i=0; i < NR_BOOT_PROCS - NR_TASKS; i++) {
+        RTS_UNSET(proc_addr(i), RTS_PROC_STOP);
+    }
+    /*
+     * Enable timer interrupts and clock task on the boot CPU.  First reset the
+     * CPU accounting values, as the timer initialization (indirectly) uses them.
+     */
+    cycles_accounting_init();
 
-  fpu_init();
+    if (boot_cpu_init_timer(system_hz)) {
+        panic("FATAL : failed to initialize timer interrupts, "
+              "cannot continue without any clock source!");
+    }
+
+    fpu_init();
 
 /* Warnings for sanity checks that take time. These warnings are printed
  * so it's a clear warning no full release should be done with them
  * enabled.
  */
 #if DEBUG_SCHED_CHECK
-  FIXME("DEBUG_SCHED_CHECK enabled");
+    FIXME("DEBUG_SCHED_CHECK enabled");
 #endif
 #if DEBUG_VMASSERT
-  FIXME("DEBUG_VMASSERT enabled");
+    FIXME("DEBUG_VMASSERT enabled");
 #endif
 #if DEBUG_PROC_CHECK
-  FIXME("PROC check enabled");
+    FIXME("PROC check enabled");
 #endif
 
-#ifdef CONFIG_SMP
-  cpu_set_flag(bsp_cpu_id, CPU_IS_READY);
-  machine.processors_count = ncpus;
-  machine.bsp_id = bsp_cpu_id;
-#else
-  machine.processors_count = 1;
-  machine.bsp_id = 0;
-#endif
-  
+    cpu_set_flag(bsp_cpu_nr, CPU_IS_READY);
+  machine.processors_count = cpu_count;
+  machine.bsp_id = bsp_cpu_nr;
 
-  /* Kernel may no longer use bits of memory as VM will be running soon */
-  kernel_may_alloc = 0;
 
-  switch_to_user();
-  NOT_REACHABLE;
+    /* Kernel may no longer use bits of memory as VM will be running soon */
+    kernel_may_alloc = 0;
+
+    switch_to_user();
+    NOT_REACHABLE;
 }
 
 
 /*===========================================================================*
  *			kmain 	                             		*
  *===========================================================================*/
-void kmain(kinfo_t *local_cbi)
+void kmain(bootstrap_kernel_information_t *bki)
 {
 /* Start the ball rolling. */
   struct boot_image *ip;	/* boot image pointer */
   register struct proc *rp;	/* process pointer */
   register int i, j;
   static int bss_test;
+    kinfo_t *local_cbi;
 
   /* bss sanity check */
   assert(bss_test == 0);
@@ -137,6 +148,8 @@ void kmain(kinfo_t *local_cbi)
 #endif
   /* We can talk now */
   DEBUGBASIC(("MINIX booting\n"));
+
+  printf("We are in kernel\n");
 
   /* Kernel may use bits of main memory before VM is started */
   kernel_may_alloc = 1;
@@ -206,6 +219,7 @@ void kmain(kinfo_t *local_cbi)
             priv(rp)->s_sig_mgr = SELF;
             rp->p_priority = SRV_Q;
             rp->p_quantum_size_ms = SRV_QT;
+            rp->context_id = {.generation = 1, id = ARCH_PROC_CONTEXT_VM_ID, };
         } else if (iskerneln(proc_nr)) {
             /* Privilege flags. */
             priv(rp)->s_flags = (proc_nr == IDLE ? IDL_F : TSK_F);
@@ -299,29 +313,17 @@ void kmain(kinfo_t *local_cbi)
    */
   add_memmap(&kinfo, kinfo.bootstrap_start, kinfo.bootstrap_len);
 
-#ifdef CONFIG_SMP
-  if (config_no_apic) {
-	  DEBUGBASIC(("APIC disabled, disables SMP, using legacy PIC\n"));
-	  smp_single_cpu_fallback();
-  } else if (config_no_smp) {
-	  DEBUGBASIC(("SMP disabled, using legacy PIC\n"));
-	  smp_single_cpu_fallback();
+  if (is_smp_mode) {
+      smp_init();
+      // Вообще из этой функции не выходят, но если это случилось, то значит у нас провалился запуск SMP
+      printf("SMP INIT FAILED - SWITCHING TO UNIPROCESSOR MODE\r\n");
+      cpu_count = 1;
+      is_smp_mode = 0;
+      up_finish_booting();
   } else {
-	  smp_init();
-	  /*
-	   * if smp_init() returns it means that it failed and we try to finish
-	   * single CPU booting
-	   */
-	  bsp_finish_booting();
+      // Сразу запускаемся в режиме без SMP
+      up_finish_booting();
   }
-#else
-  /* 
-   * if configured for a single CPU, we are already on the kernel stack which we
-   * are going to use everytime we execute kernel code. We finish booting and we
-   * never return here
-   */
-  bsp_finish_booting();
-#endif
 
   NOT_REACHABLE;
 }
@@ -329,7 +331,7 @@ void kmain(kinfo_t *local_cbi)
 /*===========================================================================*
  *				announce				     *
  *===========================================================================*/
-static void announce(void)
+void announce(void)
 {
   /* Display the MINIX startup banner. */
   printf("\nMINIX %s. "
@@ -370,7 +372,6 @@ void minix_shutdown(int how)
  * down MINIX.
  */
 
-#ifdef CONFIG_SMP
   /* 
    * FIXME
    *
@@ -378,9 +379,9 @@ void minix_shutdown(int how)
    * such a state that we can perform the whole boot process once restarted from
    * monitor again
    */
-  if (ncpus > 1)
+  if (is_smp_mode)
 	  smp_shutdown_aps();
-#endif
+
   hw_intr_disable_all();
   stop_local_timer();
 
@@ -460,48 +461,20 @@ void cstart(void)
 	  watchdog_enabled = atoi(value);
 #endif
 
-#ifdef CONFIG_SMP
+
   if (config_no_apic)
-	  config_no_smp = 1;
+	  is_smp_mode = 0;
   value = env_get("no_smp");
   if(value)
-	config_no_smp = atoi(value);
-  else
-	config_no_smp = 0;
-#endif
+	is_smp_mode = ~atoi(value);
+
   DEBUGEXTRA(("intr_init(0)\n"));
 
   intr_init(0);
 
 
-    arch_init();
+  arch_init();
 
-
-}
-
-/*===========================================================================*
- *				get_value				     *
- *===========================================================================*/
-
-char *get_value(
-  const char *params,			/* boot monitor parameters */
-  const char *name			/* key to look up */
-)
-{
-/* Get environment value - kernel version of getenv to avoid setting up the
- * usual environment array.
- */
-  register const char *namep;
-  register char *envp;
-
-  for (envp = (char *) params; *envp != 0;) {
-	for (namep = name; *namep != 0 && *namep == *envp; namep++, envp++)
-		;
-	if (*namep == '\0' && *envp == '=') return(envp + 1);
-	while (*envp++ != 0)
-		;
-  }
-  return(NULL);
 }
 
 /*===========================================================================*
@@ -509,7 +482,8 @@ char *get_value(
  *===========================================================================*/
 char *env_get(const char *name)
 {
-	return get_value(kinfo.param_buf, name);
+    return params_get_value(kinfo.params, name);
+    return "0";
 }
 
 void cpu_print_freq(unsigned cpu)

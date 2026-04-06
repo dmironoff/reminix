@@ -23,6 +23,7 @@ void __switch_address_space(struct proc *p, struct proc **__ptproc);
 void __copy_msg_from_user_end(void);
 void __copy_msg_to_user_end(void);
 void __user_copy_msg_pointer_failure(void);
+void switch_k_stack(void * sp, void (* continuation)(void));
 
 /* multiboot.c */
 void multiboot_init(void);

@@ -2,6 +2,8 @@ __asm__(".arch armv7-a\n\t.arch_extension virt");
 
 #define UNPAGED 1	/* for proper kmain() prototype */
 
+
+#include "arch_configs.h"
 #include "kernel/kernel.h"
 #include <assert.h>
 #include <stdlib.h>
@@ -20,19 +22,29 @@ __asm__(".arch armv7-a\n\t.arch_extension virt");
 #include "glo.h"
 #include <machine/multiboot.h>
 #include "modules_memory_map.h"
+#include <libfdt.h>
+#include <minix/physmemorymap.h>
+#include <minix/abstract_pagetables.h>
+#include "kernel/bootstrap_kernel_information.h"
+#include "bsp_devices_mmap.h"
+#include "kernel/mmap_utils.h"
+#include "bsp_smp_info.h"
+#include "pagetables.h"
+#include "kernel/apt_utils.h"
+#include "kernel/env_params_utils.h"
+#include "kernel/bootargs_utils.h"
+
+
 
 #if USE_SYSDEBUG
 #define MULTIBOOT_VERBOSE 1
 #endif
 
-/* to-be-built kinfo struct, diagnostics buffer */
-kinfo_t kinfo;
 struct kmessages kmessages;
 
 /* pg_utils.c uses this; in this phase, there is a 1:1 mapping. */
 phys_bytes vir2phys(void *addr) { return (phys_bytes) addr; }
 
-static void setup_mbi(multiboot_info_t *mbi, char *bootargs);
 
 /* String length used for mb_itoa */
 #define ITOA_BUFFER_SIZE 20
@@ -48,298 +60,24 @@ extern u32_t _end;
 extern char _kern_unpaged_edata;
 extern char _kern_unpaged_end;
 
-/* Адрес fdt blob который нам передаст u-boot*/
-u32_t fdt_addr = 0;
 
-/**
- *
- * The following function combines a few things together
- * that can well be done using standard libc like strlen/strstr
- * and such but these are not available in pre_init stage. 
- *
- * The function expects content to be in the form of space separated
- * key value pairs.
- * param content the contents to search in
- * param key the key to find (this *should* include the key/value delimiter)
- * param value a pointer to an initialized char * of at least value_max_len length
- * param value_max_len the maximum length of the value to store in value including
- *       the end char
- *
-**/
-int find_value(char * content,char * key,char *value,int value_max_len){
+/*Наша замечательная структура с параметрами для kmain*/
+bootstrap_kernel_information_t bki;
+/*Таблица памяти */
+mmap_t bootstrap_mmap;
+/* Регионы в этой таблице, мы при старте сначала инициализируем их предопределённое значение
+ *  А уже после kmain эта структура станет динамической
+ */
+mmap_region_t bootstrap_mmap_regions[BOOTSTRAP_MMAP_REGIONS];
+/*Абстрактная таблица страниц ядра*/
+vm_abstract_pt_t bootstrap_kernel_apt;
+vm_abstract_pt_l1_entry_t bootstrap_kernel_apt_l1_entries[ARM_KERNEL_L1_PAGES];
 
-	char *iter,*keyp;
-	int key_len,content_len,match_len,value_len;
+/*Абстрактные таблицы страниц для процессов*/
+vm_abstract_pagetables_t bootstrap_abstract_pagetables;
+vm_abstract_pt_t bootstrap_apt[BOOTSTRAP_APT_COUNT];
+vm_abstract_pt_l1_entry_t bootstrap_apt_enties[BOOTSTRAP_APT_COUNT * ARM_USER_L1_PAGES];
 
-	/* return if the input is invalid */
-	if  (key == NULL || content == NULL || value == NULL) {
-		return 1;
-	}
-
-	/* find the key and content length */
-	key_len = content_len =0;
-	for(iter = key ; *iter != '\0'; iter++, key_len++);
-	for(iter = content ; *iter != '\0'; iter++, content_len++);
-
-	/* return if key or content length invalid */
-	if (key_len == 0 || content_len == 0) {
-		return 1;
-	}
-
-	/* now find the key in the contents */
-	match_len =0;
-	for (iter = content ,keyp=key; match_len < key_len && *iter != '\0' ; iter++) {
-		if (*iter == *keyp) {
-			match_len++;
-			keyp++;
-			continue;
-		} 
-		/* The current key does not match the value , reset */
-		match_len =0;
-		keyp=key;
-	}
-
-	if (match_len == key_len) {
-		printf("key found at %d %s\n", match_len, &content[match_len]);
-		value_len = 0;
-		/* copy the content to the value char iter already points to the first 
-		   char value */
-		while(*iter != '\0' && *iter != ' ' && value_len  + 1< value_max_len) {
-			*value++ = *iter++;
-			value_len++;
-		}
-		*value='\0';
-		return 0;
-	}
-	return 1; /* not found */
-}
-
-static int mb_set_param(char *bigbuf,char *name,char *value, kinfo_t *cbi)
-{
-	/* bigbuf contains a list of key=value pairs separated by \0 char.
-	 * The list itself is ended by a second \0 terminator*/
-	char *p = bigbuf;
-	char *bufend = bigbuf + MULTIBOOT_PARAM_BUF_SIZE;
-	char *q;
-	int namelen = strlen(name);
-	int valuelen = strlen(value);
-
-	/* Some variables we recognize */
-	if(!strcmp(name, SERVARNAME)) { cbi->do_serial_debug = 1; }
-	if(!strcmp(name, SERBAUDVARNAME)) { cbi->serial_debug_baud = atoi(value); }
-
-	/* Delete the item if already exists */
-	while (*p) {
-		if (strncmp(p, name, namelen) == 0 && p[namelen] == '=') {
-			q = p;
-			/* let q point to the end of the entry */
-			while (*q) q++; 
-			/* now copy the remained of the buffer */
-			for (q++; q < bufend; q++, p++)
-				*p = *q;
-			break;
-		}
-
-		/* find the end of the buffer */
-		while (*p++);
-		p++;
-	}
-	
-
-	/* find the first empty spot */
-	for (p = bigbuf; p < bufend && (*p || *(p + 1)); p++);
-
-	/* unless we are the first entry step over the delimiter */
-	if (p > bigbuf) p++;
-	
-	/* Make sure there's enough space for the new parameter */
-	if (p + namelen + valuelen + 3 > bufend) {
-		return -1;
-	}
-	
-	strcpy(p, name);
-	p[namelen] = '=';
-	strcpy(p + namelen + 1, value);
-	p[namelen + valuelen + 1] = 0;
-	p[namelen + valuelen + 2] = 0; /* end with a second delimiter */
-	return 0;
-}
-
-int overlaps(multiboot_module_t *mod, int n, int cmp_mod)
-{
-	multiboot_module_t *cmp = &mod[cmp_mod];
-	int m;
-
-#define INRANGE(mod, v) ((v) >= mod->mod_start && (v) <= thismod->mod_end)
-#define OVERLAP(mod1, mod2) (INRANGE(mod1, mod2->mod_start) || \
-	    INRANGE(mod1, mod2->mod_end))
-	for(m = 0; m < n; m++) {
-		multiboot_module_t *thismod = &mod[m];
-		if(m == cmp_mod) continue;
-		if(OVERLAP(thismod, cmp)) {
-			return 1;
-		}
-	}
-	return 0;
-}
-
-
-
-multiboot_module_t mb_modlist[MB_MODS_NR];
-multiboot_memory_map_t mb_memmap;
-
-void setup_mbi(multiboot_info_t *mbi, char *bootargs)
-{
-	memset(mbi, 0, sizeof(*mbi));
-	mbi->flags = MULTIBOOT_INFO_MODS | MULTIBOOT_INFO_MEM_MAP |
-			MULTIBOOT_INFO_CMDLINE;
-	mbi->mi_mods_count = MB_MODS_NR;
-	mbi->mods_addr = (u32_t)&mb_modlist;
-
-	int i;
-	for (i = 0; i < MB_MODS_NR; ++i) {
-		mb_modlist[i].mod_start = MB_MODS_BASE + i * MB_MODS_ALIGN;
-		mb_modlist[i].mod_end = mb_modlist[i].mod_start + MB_MODS_ALIGN
-		    - ARM_PAGE_SIZE;
-		mb_modlist[i].cmdline = 0;
-	}
-
-	/* morph the bootargs into multiboot */
-	mbi->cmdline = (u32_t) bootargs;
-
-	mbi->mmap_addr =(u32_t)&mb_memmap;
-	mbi->mmap_length = sizeof(mb_memmap);
-
-	mb_memmap.size = sizeof(multiboot_memory_map_t);
-	mb_memmap.mm_base_addr = MB_MMAP_START;
-	mb_memmap.mm_length  = MB_MMAP_SIZE;
-	mb_memmap.type = MULTIBOOT_MEMORY_AVAILABLE;
-}
-
-void get_parameters(kinfo_t *cbi, char *bootargs)
-{
-	multiboot_memory_map_t *mmap;
-	multiboot_info_t *mbi = &cbi->mbi;
-	int var_i,value_i, m, k;
-	char *p;
-	extern char _kern_phys_base, _kern_vir_base, _kern_size,
-	    _kern_unpaged_start, _kern_unpaged_end;
-	phys_bytes kernbase = (phys_bytes) &_kern_phys_base,
-	    kernsize = (phys_bytes) &_kern_size;
-#define BUF 1024
-	static char cmdline[BUF];
-
-	/* get our own copy of the multiboot info struct and module list */
-	setup_mbi(mbi, bootargs);
-
-	/* Set various bits of info for the higher-level kernel. */
-	cbi->mem_high_phys = 0;
-	cbi->user_sp = (vir_bytes) &_kern_vir_base;
-	cbi->vir_kern_start = (vir_bytes) &_kern_vir_base;
-	cbi->bootstrap_start = (vir_bytes) &_kern_unpaged_start;
-	cbi->bootstrap_len = (vir_bytes) &_kern_unpaged_end -
-		cbi->bootstrap_start;
-	cbi->kmess = &kmess;
-
-	/* set some configurable defaults */
-	cbi->do_serial_debug = 1;
-	cbi->serial_debug_baud = 115200;
-
-	/* parse boot command line */
-	if (mbi->flags&MULTIBOOT_INFO_CMDLINE) {
-		static char var[BUF];
-		static char value[BUF];
-
-		/* Override values with cmdline argument */
-		memcpy(cmdline, (void *) mbi->cmdline, BUF);
-		p = cmdline;
-		while (*p) {
-			var_i = 0;
-			value_i = 0;
-			while (*p == ' ') p++; /* skip spaces */
-			if (!*p) break; /* is this the end? */
-			while (*p && *p != '=' && *p != ' ' && var_i < BUF - 1)
-				var[var_i++] = *p++ ;
-			var[var_i] = 0;
-			if (*p++ != '=') continue; /* skip if not name=value */
-			while (*p && *p != ' ' && value_i < BUF - 1) {
-				value[value_i++] = *p++ ;
-			}
-			value[value_i] = 0;
-			
-			mb_set_param(cbi->param_buf, var, value, cbi);
-		}
-	}
-
-	/* let higher levels know what we are booting on */
-	mb_set_param(cbi->param_buf, ARCHVARNAME, (char *)get_board_arch_name(machine.board_id), cbi);
-	mb_set_param(cbi->param_buf, BOARDVARNAME,(char *)get_board_name(machine.board_id) , cbi);
-	
-
-	/* move user stack/data down to leave a gap to catch kernel
-	 * stack overflow; and to distinguish kernel and user addresses
-	 * at a glance (0xf.. vs 0xe..) 
-	 */
-	cbi->user_sp = USR_STACKTOP;
-	cbi->user_end = USR_DATATOP;
-
-	/* kernel bytes without bootstrap code/data that is currently
-	 * still needed but will be freed after bootstrapping.
-	 */
-	kinfo.kernel_allocated_bytes = (phys_bytes) &_kern_size;
-	kinfo.kernel_allocated_bytes -= cbi->bootstrap_len;
-
-	assert(!(cbi->bootstrap_start % ARM_PAGE_SIZE));
-	cbi->bootstrap_len = rounddown(cbi->bootstrap_len, ARM_PAGE_SIZE);
-	assert(mbi->flags & MULTIBOOT_INFO_MODS);
-	assert(mbi->mi_mods_count < MULTIBOOT_MAX_MODS);
-	assert(mbi->mi_mods_count > 0);
-	memcpy(&cbi->module_list, (void *) mbi->mods_addr,
-		mbi->mi_mods_count * sizeof(multiboot_module_t));
-	
-	memset(cbi->memmap, 0, sizeof(cbi->memmap));
-	/* mem_map has a variable layout */
-	if(mbi->flags & MULTIBOOT_INFO_MEM_MAP) {
-		cbi->mmap_size = 0;
-	        for (mmap = (multiboot_memory_map_t *) mbi->mmap_addr;
-       	     (unsigned long) mmap < mbi->mmap_addr + mbi->mmap_length;
-       	       mmap = (multiboot_memory_map_t *) 
-		      	((unsigned long) mmap + mmap->size + sizeof(mmap->size))) {
-			if(mmap->type != MULTIBOOT_MEMORY_AVAILABLE) continue;
-			add_memmap(cbi, mmap->mm_base_addr, mmap->mm_length);
-		}
-	} else {
-		assert(mbi->flags & MULTIBOOT_INFO_MEMORY);
-		add_memmap(cbi, 0, mbi->mem_lower_unused*1024);
-		add_memmap(cbi, 0x100000, mbi->mem_upper_unused*1024);
-	}
-
-	/* Sanity check: the kernel nor any of the modules may overlap
-	 * with each other. Pretend the kernel is an extra module for a
-	 * second.
-	 */
-	k = mbi->mi_mods_count;
-	assert(k < MULTIBOOT_MAX_MODS);
-	cbi->module_list[k].mod_start = kernbase;
-	cbi->module_list[k].mod_end = kernbase + kernsize;
-	cbi->mods_with_kernel = mbi->mi_mods_count+1;
-	cbi->kern_mod = k;
-
-	for(m = 0; m < cbi->mods_with_kernel; m++) {
-#if 0
-		printf("checking overlap of module %08lx-%08lx\n",
-		  cbi->module_list[m].mod_start, cbi->module_list[m].mod_end);
-#endif
-		if(overlaps(cbi->module_list, cbi->mods_with_kernel, m))
-			panic("overlapping boot modules/kernel");
-		/* We cut out the bits of memory that we know are
-		 * occupied by the kernel and boot modules.
-		 */
-		cut_memmap(cbi,
-			cbi->module_list[m].mod_start,
-			cbi->module_list[m].mod_end);
-	}
-}
 
 /* 
  * During low level init many things are not supposed to work
@@ -352,13 +90,30 @@ void get_parameters(kinfo_t *cbi, char *bootargs)
 #define POORMANS_FAILURE_NOTIFICATION  asm volatile("svc #00\n")
 
 
-/* use the passed cmdline argument to determine the machine id */
-
-
-kinfo_t *pre_init(int argc, char **argv)
+/*
+ * На бедную функцию pre_init выпала теперь тяжкая доля:
+ * Разобрать fdt
+ * Настроить процессор и MMU
+ * Физически переместить рабочую(не bootstrap) часть ядра в начало оперативной памяти - ну мне так нравится
+ *                                   А ещё это уменьшит количество непригодных дыр в памяти
+ * Переместить fdt рядышком с ядром
+ * Выделить память под общую карту памяти, абстрактные таблицы страниц, физические таблицы страниц
+ * Разметить все модули в память ядра, для начала, что бы kmain и vm уже занялись их постепенным запуском
+ * Включить MMU
+ * Теперь мы в pre_init включаем уже не предварительный, а боевой режим
+ * Тоесть kmain уже будет работать на чистой системе, на которой ему не потребуется донастраивать MMU
+ *
+ * и прыгнуть в kmain передав ему  bootstrap_kernel_information_t
+ */
+bootstrap_kernel_information_t *pre_init(int argc, char **argv)
 {
-	char *bootargs = "console=tty00 rootdevname=c0d0p1 verbose=0 hz=1000 board_name=HUITA";
-    extern char _kern_phys_base;
+    extern char _kern_phys_base, _kern_vir_base, _kern_size,
+            _kern_unpaged_start, _kern_unpaged_end;
+    u32_t len; // Для  общих нужд
+    void *temp_pointer = 0; // Тоже для общих нужд итерации и связанных списков
+    int node; // Для работы libfdt
+    int module_id = 0;
+    mmap_region_t free_region; // При разметке сюда будем класть данные о свободной памяти
 
 	/* This is the main "c" entry point into the kernel. It gets called
 	   from head.S */
@@ -366,8 +121,8 @@ kinfo_t *pre_init(int argc, char **argv)
     /* Так мы теперь используем протокол загрузки linux из u-boot
      * и поэтому сохраним адрес fdt в отдельную переменную
      * */
-    if (fdt_addr == 0) {
-        asm volatile ("mov %0, r2" : "=r"(fdt_addr));
+    if (bki.fdt_addr == 0) {
+        asm volatile ("mov %0, r2" : "=r"(bki.fdt_addr));
     }
 
     /*
@@ -380,6 +135,7 @@ kinfo_t *pre_init(int argc, char **argv)
     if ((cpsr & 0x1f) == ARM_CPU_MODE_HYP) {
         // Если мы какого-то хуя в режиме гипервизора,
         // то нужна специальная конструкция что бы прыгнуть в SVC
+        // Нет, мне нравится режим гипервизора, просто пока ReMinix не знает что делать с таким богадством
         cpsr &= (~0x1f);
         cpsr |= ARM_CPU_MODE_SVC;
         asm volatile ("msr spsr_hyp, %0" : : "r"(cpsr));
@@ -390,59 +146,467 @@ kinfo_t *pre_init(int argc, char **argv)
         cpsr &= (~0x1f);
         cpsr |= ARM_CPU_MODE_SVC;
         asm volatile ("msr cpsr_c, %0" : : "r"(cpsr));
-    } else {
-        // А тут аще какая то хуита получилась с режимом работы
-        POORMANS_FAILURE_NOTIFICATION; // Падаем с отладочным выводом загрузчика, ну мы на это надеемся
     }
 
     disable_mmu(); // Отключаем MMU и кеши, на случай если uboot его включил
-    // Если MMU уже или всё ещё отключён, то ничего не случится
+    // Если MMU уже или всё ещё отключён, то ничего не случится, но u-boot иногда любит оставлять его включённым
     dcache_clean(); /* Очищаем все кеши, просто вталкиваем в оперативку что закешировал процессор */
-
 
 	/* Clear BSS */
 	memset(&_edata, 0, (u32_t)&_end - (u32_t)&_edata);
-        memset(&_kern_unpaged_edata, 0, (u32_t)&_kern_unpaged_end - (u32_t)&_kern_unpaged_edata);
+    memset(&_kern_unpaged_edata, 0, (u32_t)&_kern_unpaged_end - (u32_t)&_kern_unpaged_edata);
 
-	/* we get called in a c like fashion where the first arg
-         * is the program name (load address) and the rest are
-	 * arguments. by convention the second argument is the
-	 *  command line */
+    bsp_ser_init();
+    bsp_ser_putc('1');
 
-    /*
-     * У нас больше нет аргументов передаваемых как обычной программе
-     * теперь они зашиты в fdt
-     */
-    //if (argc != 2) {
-	//	POORMANS_FAILURE_NOTIFICATION;
-	//}
+    // Проверка магического числа fdt
+    if (!fdt_check_header((void *) bki.fdt_addr)) {
+        bsp_ser_putc('\n');
+        bsp_ser_putc('1');
+        while(1);
+    }
 
-	bsp_ser_init();
+    bootstrap_mmap.first_region = bootstrap_mmap_regions;
+    bootstrap_mmap.regions = bootstrap_mmap_regions;
+    bootstrap_mmap.regions_allocated = BOOTSTRAP_MMAP_REGIONS;
+    bootstrap_mmap.regions_count = 0;
+    bootstrap_mmap.version = 0;
+    bootstrap_mmap.last_region = bootstrap_mmap_regions;
+    bootstrap_mmap.need_defragmentation = 0;
+
+    // Сначала мы разметим известные нам регионы с регистрами устройств переферии
+    bsp_devices_mmap_t *devices_mmap;
+    bsp_devices_mmap(devices_mmap, &len);
+    for (int i = 0; i < len; i++) {
+        bootstrap_mmap.regions[i].type = MMAP_DEVICE;
+        bootstrap_mmap.regions[i].start = devices_mmap[i].start;
+        bootstrap_mmap.regions[i].size = devices_mmap[i].size;
+        bootstrap_mmap.regions[i].cache_hint = MMAP_CACHE_NO;
+        bootstrap_mmap.regions[i].refcount = 0;
+        bootstrap_mmap.regions[i].flags = 0;
+        bootstrap_mmap.regions[i].next_region = 0;
+        if (i == 0) {
+            bootstrap_mmap.regions[i].prev_region = 0;
+        } else {
+            bootstrap_mmap.regions[i].prev_region = bootstrap_mmap.last_region;
+            bootstrap_mmap.last_region->next_region = &bootstrap_mmap.regions[i];
+            bootstrap_mmap.last_region = &bootstrap_mmap.regions[i];
+        }
+        bootstrap_mmap.regions_count++;
+    }
+    bootstrap_mmap.version++;
+
+    bsp_ser_putc('2');
+
+    // Теперь нам нужно узнать из FDT размер оперативной памяти и регионы этой памяти
+    // #TODO Может быть несколько узлов /memory@...
+    node = fdt_path_offset((void *)bki.fdt_addr, "/memory");
+    if (node < 0) {
+        node = fdt_node_offset_by_prop_value((void *)bki.fdt_addr, -1, "device_type", "memory", 7);
+    }
+
+    if (node >= 0) {
+        const u32_t *reg;
+        reg = fdt_getprop((void *)bki.fdt_addr, node, "reg", &len);
+        if (reg != NULL && len > 0) {
+            len = len / 4 ; // fdt_getprop возвращает длинну в байтах
+            for (int i = 0; i < len; i += 2) {
+                bootstrap_mmap.regions[bootstrap_mmap.regions_count]
+                        .start = fdt32_to_cpu(reg[0]);
+                bootstrap_mmap.regions[bootstrap_mmap.regions_count]
+                        .size = fdt32_to_cpu(reg[1]);
+                bki.mem_start = fdt32_to_cpu(reg[0]);
+                bki.mem_end = fdt32_to_cpu(reg[1]);
+                bootstrap_mmap.total_mem += bootstrap_mmap.regions[bootstrap_mmap.regions_count].size;
+                bootstrap_mmap.free_mem += bootstrap_mmap.regions[bootstrap_mmap.regions_count].size;
+                bootstrap_mmap.regions[bootstrap_mmap.regions_count]
+                        .type = MMAP_FREE;
+                bootstrap_mmap.regions[bootstrap_mmap.regions_count]
+                        .cache_hint = MMAP_CACHE_NORMAL;
+
+                bootstrap_mmap.regions[bootstrap_mmap.regions_count]
+                        .prev_region = bootstrap_mmap.last_region;
+                bootstrap_mmap.last_region->next_region = &bootstrap_mmap.regions[bootstrap_mmap.regions_count];
+                bootstrap_mmap.last_region = &bootstrap_mmap.regions[bootstrap_mmap.regions_count];
+                bootstrap_mmap.regions_count++;
+            }
+            bootstrap_mmap.version++;
+        } else {
+            while(1);
+        }
+    } else {
+        while(1);
+    }
+
+    // Теперь мы хоть вкурсах за размер оперативной памяти на доске
+    // И подготовили чистую карту памяти
+
+    // Разберём командную строку из /chosen
+    node = fdt_path_offset((void *)bki.fdt_addr, "/chosen");
+    if (node >= 0) {
+        const char *bootargs = fdt_getprop((void *)bki.fdt_addr, node, "bootargs", &len);
+        if (bootargs) {
+            bootargs_to_params(bootargs, bki.params);
+        }
+    }
+
+    // Пришло время внести в нашу карту памяти модули и ядро
+
+    // Начнём с модулей, вернее с загруженных образов
+    // Мы сразу внесём их в карту памяти, что бы случайно не затереть их
+    node = fdt_path_offset((void *)bki.fdt_addr, "/miniximages");
+    if (node >= 0) {
+        int child_offset;
+        for (child_offset = fdt_first_subnode((void *)bki.fdt_addr, node);
+            child_offset >= 0;
+            child_offset = fdt_next_subnode((void *)bki.fdt_addr, child_offset)) {
+
+            const char *nodename = fdt_get_name((void *)bki.fdt_addr, child_offset, &len);
+            if (!nodename) {
+                continue;
+            }
+            const char *type = fdt_getprop((void *)bki.fdt_addr, child_offset, "type", &len);
+            if (!type) {
+                continue;
+            }
+            const uint32_t *addr = fdt_getprop((void *)bki.fdt_addr, child_offset, "addr", &len);
+            if (!addr) {
+                continue;
+            }
+            const uint32_t *size = fdt_getprop((void *)bki.fdt_addr, child_offset, "size", &len);
+            if (!size) {
+                continue;
+            }
+
+            mmap_region_t new_region;
+            new_region.size = fdt32_to_cpu((fdt32_t)*size);
+            new_region.start = fdt32_to_cpu((fdt32_t)*addr);
+            new_region.type = MMAP_BOOT_MOD;
+            mmap_add_region(&bootstrap_mmap, &new_region);
+
+            bki.modules[module_id].addr = fdt32_to_cpu((fdt32_t)*addr);
+            bki.modules[module_id].size = fdt32_to_cpu((fdt32_t)*size);
+            strcpy(bki.modules[module_id].name, nodename);
+            if (strcmp(type, "server") == 0) {
+                bki.modules[module_id].type = BOOT_MODULE_SERVER;
+            } else if (strcmp(type, "service") == 0) {
+                bki.modules[module_id].type = BOOT_MODULE_SERVICE;
+            } else if (strcmp(type, "filesystem") == 0) {
+                bki.modules[module_id].type = BOOT_MODULE_FS;
+            } else if (strcmp(type, "driver") == 0) {
+                bki.modules[module_id].type = BOOT_MODULE_DRIVER;
+            } else if (strcmp(type, "init") == 0) {
+                bki.modules[module_id].type = BOOT_MODULE_INIT;
+            } else if (strcmp(type, "user") == 0) {
+                bki.modules[module_id].type = BOOT_MODULE_USERPROC;
+            } else if (strcmp(type, "config") == 0) {
+                bki.modules[module_id].type = BOOT_MODULE_CONFIG;
+            } else {
+                bki.modules[module_id].type = BOOT_MODULE_UNKNOWN;
+            }
+
+            module_id++;
+        }
+    } else {
+        while(1);
+    }
+
+    // Разметим на карте текущее местонахождение FDT и Ядра, что бы успешно не перекрывая ничего их переместить
+    mmap_region_t fdt_region;
+    fdt_region.size = fdt_totalsize((void *) bki.fdt_addr);
+    fdt_region.start = (phys_bytes) bki.fdt_addr;
+    fdt_region.type = MMAP_BOOT_MOD;
+    mmap_add_region(&bootstrap_mmap, &fdt_region);
+    /* После перемещения добавим его в инфу
+    module_id++;
+    bki.modules[module_id].addr = fdt_totalsize((void *) bki.fdt_addr);
+    bki.modules[module_id].size = (phys_bytes) bki.fdt_addr;
+    bki.modules[module_id].name = "fdt";
+    bki.modules[module_id].type = BOOT_MODULE_FDT;
+    */
+
+    mmap_region_t kernel_region;
+    kernel_region.start = (phys_bytes) &_kern_phys_base;
+    kernel_region.size = (phys_bytes) _kern_size;
+    kernel_region.type = MMAP_KERNEL;
+    mmap_add_region(&bootstrap_mmap, &kernel_region);
+
+    // Ну чё? Поехали перетаскивать всё это и выделять память под наши структуры данных
+    mmap_region_t new_kernel_location;
+    if (mmap_find_lowest_free_region(&bootstrap_mmap, (phys_bytes) _kern_size, &new_kernel_location)) {
+        memcpy((void *)new_kernel_location.start, (void *)kernel_region.start, (uint32_t) _kern_size);
+        mmap_add_region(&bootstrap_mmap, &new_kernel_location);
+    } else {
+        while(1);
+    }
+
+    // Новая локация FDT
+    mmap_region_t new_fdt_location;
+    if (mmap_find_lowest_free_region(&bootstrap_mmap, fdt_region.size, &new_fdt_location)) {
+        memcpy((void *)new_fdt_location.start, (void *)fdt_region.start, (uint32_t)fdt_region.size);
+        mmap_add_region(&bootstrap_mmap, &new_fdt_location);
+    } else {
+        while(1);
+    }
+
+    // абстрактные таблицы памяти
+    mmap_region_t new_apt_location;
+    mmap_region_t new_apt_l1_entries;
+    mmap_region_t new_apt_l2_entries;
+    mmap_region_t new_apt_tables;
+
+    vm_abstract_pagetables_t *new_apt;
+    if (mmap_find_lowest_free_region(&bootstrap_mmap, sizeof (vm_abstract_pagetables_t), &new_apt_location)) {
+        new_apt = (vm_abstract_pagetables_t *) new_apt_location.start;
+        new_apt_location.type = MMAP_KRNL_APT;
+        mmap_add_region(&bootstrap_mmap, &new_apt_location);
+
+        mmap_find_lowest_free_region(&bootstrap_mmap, sizeof (vm_abstract_pt_t) * BOOTSTRAP_APT_COUNT + 3, &new_apt_tables);
+        new_apt_tables.type = MMAP_KRNL_APT;
+        mmap_add_region(&bootstrap_mmap, &new_apt_tables);
+        // new_apt->tables = (vm_abstract_pt_t *) new_apt_tables.start; забыл что тут нужен виртуальный адрес
+        new_apt->pagetables_allocated = new_apt_tables.size / sizeof(vm_abstract_pt_t) - 3;
+
+        mmap_find_lowest_free_region(&bootstrap_mmap, sizeof (vm_abstract_pt_l1_entry_t ) * BOOTSTRAP_APT_L1_COUNT + 3, &new_apt_l1_entries);
+        new_apt_l1_entries.type = MMAP_KRNL_APT;
+        mmap_add_region(&bootstrap_mmap, &new_apt_l1_entries);
+
+        mmap_find_lowest_free_region(&bootstrap_mmap, sizeof (vm_abstract_pt_l2_entry_t ) * BOOTSTRAP_APT_L2_COUNT + 3, &new_apt_l2_entries);
+        new_apt_l2_entries.type = MMAP_KRNL_APT;
+        mmap_add_region(&bootstrap_mmap, &new_apt_l2_entries);
 
 
-    /* Get our own copy boot params pointed to by ebx.
- * Here we find out whether we should do serial output.
- */
-	get_parameters(&kinfo, bootargs);
+    } else {
+        while(1);
+    }
 
-	/* Make and load a pagetable that will map the kernel
-	 * to where it should be; but first a 1:1 mapping so
-	 * this code stays where it should be.
-	 */
+    // Физические страницы памяти
+    mmap_region_t new_pt_location;
+    mmap_region_t new_pt_l1_location;
+    mmap_region_t new_pt_l2_location;
+    mmap_find_lowest_free_region(&bootstrap_mmap, sizeof (arm_pt_t) * ARM_MAX_PT_HANDLES, &new_pt_location);
+    new_pt_location.size = sizeof (arm_pt_t) * ARM_MAX_PT_HANDLES;
+    new_pt_location.type = MMAP_PAGETABLES;
+    new_pt_location.cache_hint = MMAP_CACHE_NORMAL;
+    mmap_add_region(&bootstrap_mmap, &new_pt_location);
 
-	pg_clear();
+    mmap_find_lowest_free_aligned_region(&bootstrap_mmap, sizeof (uint32_t) * ARM_MAX_PT_HANDLES * ARM_USER_L1_PAGES,
+                                         1024*1024, &new_pt_l1_location);
+    new_pt_l1_location.start = (new_pt_l1_location.start + 1024 * 1024) & ~(1024 * 1024);
+    new_pt_l1_location.size = sizeof (uint32_t) * ARM_MAX_PT_HANDLES * ARM_USER_L1_PAGES;
+    new_pt_l1_location.type = MMAP_PAGETABLES;
+    new_pt_l1_location.cache_hint = MMAP_CACHE_NORMAL;
+    mmap_add_region(&bootstrap_mmap, &new_pt_l1_location);
 
-	pg_identity(&kinfo);
+
+    mmap_find_lowest_free_aligned_region(&bootstrap_mmap, sizeof (uint32_t) * ARM_MAX_PT_HANDLES * ARM_USER_L1_PAGES * 256,
+                                         1024, &new_pt_l2_location);
+    new_pt_l2_location.start = (new_pt_l2_location.start + 1024) & ~(1024);
+    new_pt_l2_location.size = sizeof (uint32_t) * ARM_MAX_PT_HANDLES * ARM_USER_L1_PAGES * 256;
+    new_pt_l2_location.type = MMAP_PAGETABLES;
+    new_pt_l2_location.cache_hint = MMAP_CACHE_NORMAL;
+    mmap_add_region(&bootstrap_mmap, &new_pt_l2_location);
 
 
-	kinfo.freepde_start = pg_mapkernel();
+    mmap_region_t kernel_pt_location;
+    mmap_region_t kernel_pt_l1_location;
+    mmap_region_t kernel_pt_l2_location;
 
-	pg_load();
+    mmap_find_lowest_free_region(&bootstrap_mmap, sizeof (arm_pt_t), &kernel_pt_location);
+    kernel_pt_location.size = sizeof (arm_pt_t);
+    kernel_pt_location.type = MMAP_PAGETABLES;
+    kernel_pt_location.cache_hint = MMAP_CACHE_NORMAL;
+    mmap_add_region(&bootstrap_mmap, &kernel_pt_location);
 
-	vm_enable_paging();
+    mmap_find_lowest_free_aligned_region(&bootstrap_mmap, sizeof (uint32_t) * ARM_KERNEL_L1_PAGES,
+                                         2048, &kernel_pt_l1_location);
+    kernel_pt_l1_location.start = (kernel_pt_l1_location.start + 2048) & ~(2048);
+    kernel_pt_l1_location.size = sizeof (uint32_t) * ARM_KERNEL_L1_PAGES;
+    kernel_pt_l1_location.type = MMAP_PAGETABLES;
+    kernel_pt_l1_location.cache_hint = MMAP_CACHE_NORMAL;
+    mmap_add_region(&bootstrap_mmap, &kernel_pt_l1_location);
+
+    mmap_find_lowest_free_aligned_region(&bootstrap_mmap, sizeof (uint32_t) *  ARM_KERNEL_L1_PAGES * 256,
+                                         1024, &kernel_pt_l2_location);
+    kernel_pt_l2_location.start = (new_pt_l2_location.start + 1024) & ~(1024);
+    kernel_pt_l2_location.size = sizeof (uint32_t) *  ARM_KERNEL_L1_PAGES * 256;
+    kernel_pt_l2_location.type = MMAP_PAGETABLES;
+    kernel_pt_l2_location.cache_hint = MMAP_CACHE_NORMAL;
+    mmap_add_region(&bootstrap_mmap, &kernel_pt_l2_location);
+
+    // Теперь нужно всему дать виртуальные адреса
+    // Начнём с ядра, ох блять
+    // Главная трудность в том что виртуальные адреса зависят от APT, a APT зависит от виртуальных адресов
+    // Так что мы сначала разметим физические страницы всего подряд
+    // Загрузим всё регистры, включим MMU
+    arm_pt_t *kernel_pt = (arm_pt_t *) kernel_pt_location.start;
+    kernel_pt->l1_phys = kernel_pt_l1_location.start;
+    kernel_pt->l2_phys = kernel_pt_l2_location.start;
+    vir_bytes kernel_virt_start = (vir_bytes) &_kern_vir_base;
+#define MMU_KERNEL_FLAGS 0x1540E // Пока так оставим на ближайшее время
+    map_mmap_region_to_kernel_pt_l1 ((uint32_t *) kernel_pt->l1_phys, &new_kernel_location, &kernel_virt_start, MMU_KERNEL_FLAGS);
+    // Теперь в нагляк разметим область данных для таблиц страниц, напомню, что они у нас доступны только ядру
+    // Таблицы страниц ядра будут по адресу 0xE0000000 (ARM_KERNEL_VIRT_START)
+    vir_bytes kernel_virt_pt_start = ARM_KERNEL_VIRT_START;
+    vir_bytes kernel_pt_next_block = map_mmap_region_to_kernel_pt_l1 ((uint32_t *) kernel_pt->l1_phys, &kernel_pt_location,
+                                                                      &kernel_virt_pt_start, MMU_KERNEL_FLAGS);
+    bki.kernel_pt = (arm_pt_t *) kernel_virt_pt_start;
+    kernel_virt_pt_start = kernel_pt_next_block;
+    kernel_pt_next_block = map_mmap_region_to_kernel_pt_l1 ((uint32_t *) kernel_pt->l1_phys, &kernel_pt_l1_location,
+                                                                      &kernel_virt_pt_start, MMU_KERNEL_FLAGS);
+    kernel_pt->l1_table = (uint32_t *) kernel_virt_pt_start;
+
+    kernel_virt_pt_start = kernel_pt_next_block;
+    kernel_pt_next_block = map_mmap_region_to_kernel_pt_l1 ((uint32_t *) kernel_pt->l1_phys, &kernel_pt_l2_location,
+                                                                      &kernel_virt_pt_start, MMU_KERNEL_FLAGS);
+    kernel_pt->l2_tables = (uint32_t *) kernel_virt_pt_start;
+    // ЕБААТЬ! ЕБААТЬ! Это наши первые виртуальные указатели
+
+    // Разметим новую структуру для BKI
+    mmap_find_lowest_free_region(&bootstrap_mmap, sizeof(bootstrap_kernel_information_t), &free_region);
+    mmap_region_t new_bki_location;
+    new_bki_location.start = free_region.start;
+    new_bki_location.size = sizeof(bootstrap_kernel_information_t);
+    new_bki_location.type = MMAP_BKI;
+    mmap_add_region(&bootstrap_mmap, &new_bki_location);
+    bootstrap_kernel_information_t *new_bki = (bootstrap_kernel_information_t *) new_bki_location.start;
+    vir_bytes new_bki_vir_addr = kernel_pt_next_block;
+    kernel_pt_next_block = map_mmap_region_to_kernel_pt_l1 ((uint32_t *) kernel_pt->l1_phys, &new_bki_location,
+                                                            &new_bki_vir_addr, MMU_KERNEL_FLAGS);
+    // Размечаем в ядро FDT
+    new_bki->fdt_addr = kernel_pt_next_block;
+    kernel_pt_next_block = map_mmap_region_to_kernel_pt_l1 ((uint32_t *) kernel_pt->l1_phys, &new_fdt_location,
+                                                            &new_bki->fdt_addr, MMU_KERNEL_FLAGS);
+    // Размечаем для ядра все таблицы страниц пользовательских процессов
+    new_bki->user_pt_base = kernel_pt_next_block;
+    kernel_pt_next_block = map_mmap_region_to_kernel_pt_l1 ((uint32_t *)  kernel_pt->l1_phys, &new_pt_location,
+                                                            &new_bki->user_pt_base, MMU_KERNEL_FLAGS);
+    arm_pt_t *user_pts = (arm_pt_t *) new_pt_location.start;
+
+    vir_bytes user_pts_l1_vir_start = kernel_pt_next_block;
+    kernel_pt_next_block = map_mmap_region_to_kernel_pt_l1 ((uint32_t *) kernel_pt->l1_phys, &new_pt_l1_location,
+                                                            &user_pts_l1_vir_start, MMU_KERNEL_FLAGS);
+
+    vir_bytes user_pts_l2_vir_start = kernel_pt_next_block;
+    kernel_pt_next_block = map_mmap_region_to_kernel_pt_l1 ((uint32_t *)  kernel_pt->l1_phys, &new_pt_l2_location,
+                                                            &kernel_virt_pt_start, MMU_KERNEL_FLAGS);
+
+    // Не забываем поправить все указатели в таблицах пользовательских страниц
+    for(int i = 0; i < ARM_MAX_PT_HANDLES; i++) {
+        // sizeof (uint32_t) * ARM_MAX_PT_HANDLES * ARM_USER_L1_PAGES
+
+        user_pts[i].l1_phys = new_pt_l1_location.start + (i * sizeof(uint32_t) * ARM_USER_L1_PAGES);
+        user_pts[i].l2_phys = new_pt_l2_location.start + (i * sizeof(uint32_t) * ARM_USER_L1_PAGES * 256);
+
+        user_pts[i].l1_table = (uint32_t *) (user_pts_l1_vir_start + (i * sizeof(uint32_t) * ARM_USER_L1_PAGES));
+        user_pts[i].l2_tables = (uint32_t *) (user_pts_l2_vir_start + (i * sizeof(uint32_t) * ARM_USER_L1_PAGES * 256));
+    }
+
+    // Теперь разметим временную таблицу для ttbr0 с разметкой 1 к 1
+    // Это позволит нам включить MMU что бы доинициализировать память
+    // Перед прыжком мы включим уже рабочую адресацию со всеми размеченными объектами
+    // Мы будем давать адреса для наших структур сконца таблицы, что бы они не мешались
+    vir_bytes user_pt_end = 0x1FFFFFFF; // Конец памяти пользователя
+    // APT
+    user_pts[0].status = PT_USED;
+    user_pts[0].proc_ep = 0;
+    vir_bytes user_pt_next_block = map_mmap_region_to_pt_l1_from_end((uint32_t *) user_pts[0].l1_phys, &new_apt_location,
+                                                            &user_pt_end, MMU_KERNEL_FLAGS);
+    user_pt_end = user_pt_next_block;
+    new_bki->abstract_pagetables = (vm_abstract_pagetables_t *) user_pt_end;
+    user_pt_next_block = map_mmap_region_to_pt_l1_from_end ((uint32_t *) user_pts[0].l1_phys, &new_apt_l1_entries,
+                                                          &user_pt_end, MMU_KERNEL_FLAGS);
+    new_apt->l1_entries = (vm_abstract_pt_l1_entry_t *) user_pt_end;
+
+    user_pt_end = user_pt_next_block;
+    user_pt_next_block = map_mmap_region_to_pt_l1_from_end ((uint32_t *) user_pts[0].l1_phys, &new_apt_l2_entries,
+                                                          &user_pt_end, MMU_KERNEL_FLAGS);
+    new_apt->l2_entries = (vm_abstract_pt_l2_entry_t *) user_pt_end;
+
+    user_pt_end = user_pt_next_block;
+    user_pt_next_block = map_mmap_region_to_pt_l1_from_end ((uint32_t *) user_pts[0].l1_phys, &new_apt_tables,
+                                                          &user_pt_end, MMU_KERNEL_FLAGS);
+    new_apt->tables = (vm_abstract_pt_t *) user_pt_end;
+
+    // Карта памяти новая, после включения MMU мы сюда перенесём текущую
+    mmap_region_t new_mmap_location;
+    mmap_region_t new_mmap_regions;
+    mmap_t *newmmap;
+    mmap_find_lowest_free_region(&bootstrap_mmap, sizeof (mmap_t), &new_mmap_location);
+    new_mmap_location.type = MMAP_KRNL_MMAP;
+    new_mmap_location.size = sizeof(mmap_t);
+    mmap_add_region(&bootstrap_mmap, &new_mmap_location);
+    newmmap = (mmap_t *) new_mmap_location.start;
+
+    user_pt_end = user_pt_next_block;
+    user_pt_next_block = map_mmap_region_to_pt_l1_from_end ((uint32_t *) user_pts[0].l1_phys, &new_mmap_location,
+                                                          &user_pt_end, MMU_KERNEL_FLAGS);
+    new_bki->mmap = (mmap_t *) user_pt_end;
+
+    mmap_find_lowest_free_region(&bootstrap_mmap, sizeof(mmap_region_t) * 1024, &new_mmap_regions);
+    new_mmap_regions.type = MMAP_KRNL_MMAP;
+    new_mmap_regions.size = sizeof(mmap_region_t) * 1024;
+    mmap_add_region(&bootstrap_mmap, &new_mmap_regions);
+    user_pt_end = user_pt_next_block;
+    user_pt_next_block = map_mmap_region_to_pt_l1_from_end ((uint32_t *) user_pts[0].l1_phys, &new_mmap_regions,
+                                                            &user_pt_end, MMU_KERNEL_FLAGS);
+    newmmap->regions = (mmap_region_t *) user_pt_end;
+
+    // А теперь делаем адресацию 1 к 1 для остальных страниц
+
+// Ну пока так, после отладки основного кода будем уже правильно выставлять флаги.
+// Пока это рабочие флаги
+
+#define MMU_DDR_FLAGS    0x1140E // Кэшируемая RAM
+#define MMU_DEVICE_FLAGS 0x00406 // Регистры (UART, CCU, GIC)
+    for (int i = 0; i < ARM_USER_L1_PAGES; i++) {
+        uint32_t *l1_phys = (uint32_t *) user_pts[0].l1_phys;
+        if (l1_phys[i] == 0) {
+            mmap_region_t *maped_region;
+            if (mmap_find_region_by_addr(&bootstrap_mmap, i * ARM_SECTION_SIZE, maped_region)) {
+               if (maped_region->type == MMAP_DEVICE) {
+                   // Устройство
+                   l1_phys[i] =  ((i * ARM_SECTION_SIZE) & ARM_VM_SECTION_MASK ) | MMU_DEVICE_FLAGS;
+               } else if (maped_region->type == MMAP_KERNEL) {
+                   // Размаплена, на ядро
+                   l1_phys[i] =  ((i * ARM_SECTION_SIZE) & ARM_VM_SECTION_MASK ) | MMU_KERNEL_FLAGS;
+               } else {
+                   // Размаплена на какую-то другую хуиту
+                   l1_phys[i] =  ((i * ARM_SECTION_SIZE) & ARM_VM_SECTION_MASK ) | MMU_DDR_FLAGS;
+               }
+            } else {
+                // Pagefault
+                l1_phys[i] = 0;
+            }
+        }
+    }
+
+    // Между делом определим и запомним параметры многоядерности
+    new_bki->system_cpu_count = bsp_smp_get_cpu_count();
+    new_bki->boot_cpu_number = bsp_smp_get_current_cpu();
+
+    // ВСЁ. Включаем MMU
+    dcache_clean();
+    pg_load_ttbr1(bki.kernel_pt);
+    pg_load_ttbr0(&user_pts[0]);
+    vm_enable_paging();
+
+    // Ну что пришло время всё привести в порядок и отдать управление основной части ядра
+    new_bki = (bootstrap_kernel_information_t *) new_bki_vir_addr;
+    new_bki->kernel_pt_handler = 0;
+
+    memcpy(new_bki->modules, bki.modules, sizeof(boot_module_information_t) * BOOT_MODULES_MAX_COUNT);
+    memcpy(new_bki->params, bki.params, sizeof(char) * PARAMS_BUFFER_SIZE);
+
+    mmap_copy_to_new_location(&bootstrap_mmap, new_bki->mmap);
+
+    bsp_ser_putc('B');
+
+    bsp_ser_putc('A');
+
 
 	/* Done, return boot info so it can be passed to kmain(). */
-	return &kinfo;
+	return new_bki;
 }
 
 /* pre_init gets executed at the memory location where the kernel was loaded by the boot loader.

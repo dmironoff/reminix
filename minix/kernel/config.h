@@ -60,6 +60,7 @@
 #else
 #define NR_IRQ_HOOKS	  64		/* number of interrupt hooks */
 #endif
+
 #define VDEVIO_BUF_SIZE   64		/* max elements per VDEVIO request */
 
 #define K_PARAM_SIZE     512

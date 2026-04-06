@@ -105,3 +105,14 @@ ENTRY(interrupts_disable)
 	dsb
 	cpsid if
 	bx lr
+
+/*
+* void switch_k_stack(void * esp, void (* continuation)(void));
+*
+* sets the current stack pointer to the given value and continues execution at
+* the given address
+*/
+ENTRY(switch_k_stack)
+        mov fp, #0
+        mov sp, r0
+        bx r1

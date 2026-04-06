@@ -28,6 +28,10 @@ SECTIONS
 	. = ALIGN(4096); usermapped_nonglo_start = .;
 	.usermapped : AT(ADDR(.usermapped) - _kern_offset) { *(.usermapped) }
 	. = ALIGN(4096); usermapped_end = .;
+	__smp_trampoline_start = .;
+	.trampoline : AT(ADDR(.trampoline) - _kern_offset) { *(.smp_trampoline) }
+	__smp_trampoline_end = .;
+	. = ALIGN(4096);
 	.text             : AT(ADDR(.text) - _kern_offset) { *(.text*) }
 	_etext = .;
 	.data ALIGN(4096) : AT(ADDR(.data) - _kern_offset) { *(.data .rodata* ) }
