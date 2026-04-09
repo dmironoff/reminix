@@ -46,6 +46,8 @@
 #include "kernel/cpulocals.h"		/* CPU-local variables */
 #include "kernel/debug.h"		/* debugging, MUST be last kernel header */
 #include "kernel/proc_context.h" /* ASID / PCID arch independ support */
+#include "kernel/mmap_utils.h"  /* Abstract memory map utils */
+#include "kernel/apt_utils.h"  /* Abstract pagetable utils */
 
 
 

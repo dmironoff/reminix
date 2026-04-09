@@ -49,6 +49,17 @@ int bsp_cpu_nr = 0; // Номер процессора на котором мы 
 //Глобальная переменная с указателем на рабочую карту памяти
 mmap_t *system_mmap;
 
+//Глобальная переменная с указателем на рабочую версию абстрактных страниц памяти
+vm_abstract_pagetables_t *system_apt;
+
+#ifdef __arm__
+    vir_bytes                      fdt_addr;
+    arm_pt_t                        *kernel_pt; // Виртуальный адрес отдельной таблицы страниц ядра для регистра ttbr1
+#endif
+
+// Основная архитектурно зависимая структура - это таблица физических страниц памяти
+// Мы будем её передавать во всякие функции перевода из абстрактной таблицы в физическую
+vir_bytes  user_pt_base;
 
 void bsp_finish_booting(void)
 {
@@ -110,9 +121,6 @@ void bsp_finish_booting(void)
   machine.processors_count = cpu_count;
   machine.bsp_id = bsp_cpu_nr;
 
-
-    /* Kernel may no longer use bits of memory as VM will be running soon */
-    kernel_may_alloc = 0;
 
     switch_to_user();
     NOT_REACHABLE;
@@ -311,7 +319,8 @@ void kmain(bootstrap_kernel_information_t *bki)
   /* The bootstrap phase is over, so we can add the physical
    * memory used for it to the free list.
    */
-  add_memmap(&kinfo, kinfo.bootstrap_start, kinfo.bootstrap_len);
+  // TODO: Сделать очистку области bootstrap в перенесённом ядре
+  //add_memmap(&kinfo, kinfo.bootstrap_start, kinfo.bootstrap_len);
 
   if (is_smp_mode) {
       smp_init();
@@ -461,9 +470,10 @@ void cstart(void)
 	  watchdog_enabled = atoi(value);
 #endif
 
-
+// TODO: Вынести эту хуиту с apic в код для 86
   if (config_no_apic)
 	  is_smp_mode = 0;
+
   value = env_get("no_smp");
   if(value)
 	is_smp_mode = ~atoi(value);

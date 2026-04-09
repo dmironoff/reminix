@@ -7,6 +7,19 @@
 
 #include "cpufunc.h"
 
+typedef union {
+    uint32_t raw;
+    struct {
+        uint16_t owner;
+        uint16_t next;
+    };
+} arm_spinlock_t;
+
+typedef struct {
+    arm_spinlock_t lock;
+    uint32_t cpsr;
+} arm_spinlock_irq_t;
+
 extern int is_smp_mode;
 
 // История для многоядерных систем
@@ -38,19 +51,6 @@ EXT_SPINLOCK(big_kernel_lock);
 
 /* TODO: Проверить как компилятор это скомпилирует и если нужно переписать это на чистом ассемблере */
 
-typedef union {
-    uint32_t raw;
-    struct {
-        uint16_t owner;
-        uint16_t next;
-    };
-} arm_spinlock_t;
-
-typedef struct {
-    arm_spinlock_t lock;
-    uint32_t cpsr;
-} arm_spinlock_irq_t;
-
 static inline void arm_spin_lock(arm_spinlock_t *sl) {
 #ifdef ARCH_ARM_CORTEX_A7
     uint32_t tmp, ticket, status = 1;
@@ -71,6 +71,7 @@ static inline void arm_spin_lock(arm_spinlock_t *sl) {
                   "ldrh %[tmp], [%[lock]] \n"
                   "b 2b \n"
                   "3: \n"
+                  "dsb \n"
                   : [tmp]"=&r"(tmp), [ticket]"=&r"(ticket), [status]"+r"(status)
                   : [lock]"r"(sl)
                   : "memory", "cc");
@@ -103,7 +104,10 @@ if (!is_smp_mode) {
                   "clrex \n"
                   "mov %[result], #0 \n"
                   "3: \n"
-                  );
+                  "dsb \n"
+                  : [ticket]"=&r"(ticket), [result]"=&r"(result)
+                  : [lock]"r"(sl)
+                  : "memory", "cc");
     return 0;
 #endif
 #ifdef ARCH_ARM_CORTEX_A8
@@ -120,8 +124,8 @@ static inline void arm_spin_unlock(arm_spinlock_t *sl) {
                   "str r0, [%[owner]] \n"
                   "dsb \n"
                   "sev \n"
-                  : [owner]"=r"(&sl->owner)
                   :
+                  : [owner]"r"(&sl->owner)
                   : "memory", "r0");
 
 #endif
@@ -132,11 +136,11 @@ static inline void arm_spin_unlock(arm_spinlock_t *sl) {
 
 static inline void arm_irq_spin_lock(arm_spinlock_irq_t *sl) {
     sl->cpsr = read_cpsr();
-    arm_spin_lock(sl->lock);
+    arm_spin_lock(&sl->lock);
 }
 
 static inline void arm_irq_spin_unlock(arm_spinlock_irq_t *sl) {
-    arm_spin_unlock(sl->lock);
+    arm_spin_unlock(&sl->lock);
     write_cpsr(sl->cpsr);
 }
 

@@ -83,7 +83,7 @@ static void pagefault( struct proc *pr,
 		 */
 		printf("pagefault for VM on CPU %d, "
 			"pc = 0x%x, addr = 0x%x, flags = 0x%x, is_nested %d\n",
-			cpuid, pr->p_reg.pc, pagefault_addr, pagefault_status,
+			cpunr, pr->p_reg.pc, pagefault_addr, pagefault_status,
 			is_nested);
 		proc_stacktrace(pr);
 		printf("pc of pagefault: 0x%lx\n", pr->p_reg.pc);
@@ -147,7 +147,7 @@ static void inkernel_disaster(struct proc *saved_proc,
   if(ep)
 	printf("\n%s\n", ep->msg);
 
-  printf("cpu %d is_nested = %d ", cpuid, is_nested);
+  printf("cpu %d is_nested = %d ", cpunr, is_nested);
 
   if (saved_proc) {
 	  printf("scheduled was: process %d (%s), ", saved_proc->p_endpoint, saved_proc->p_name);

@@ -172,6 +172,107 @@ int vm_arch_destroy_pagetable(vir_bytes arch_pagetables, uint32_t handler) {
     return OK;
 }
 
+/*
+ * Наш переводчик флагов между нашей абстракцией на язык arm
+ * */
+static uint32_t flags_to_arm_l2(vm_apt_flags_t flags, vm_cache_hint_t cache)
+{
+    uint32_t pte = ARM_L2_TYPE_SMALL;  /* базовый тип: small page 4KB */
+
+    /* Not Global — у пользовательских процессов */
+    if (flags & VM_APF_USER)
+        pte |= ARM_L2_NG;
+
+    /* Права доступа → AP[2:1:0] */
+    int user  = (flags & VM_APF_USER)  ? 1 : 0;
+    int write = (flags & VM_APF_WRITE) ? 1 : 0;
+    int read  = (flags & VM_APF_READ)  ? 1 : 0;
+
+    if (!read && !write) {
+        /* нет доступа — fault при любом обращении */
+        pte |= (ARM_AP_NONE << 4);
+    } else if (user && write) {
+        pte |= (ARM_AP_KRW_URW << 4);   /* kernel и user RW */
+    } else if (user && !write) {
+        pte |= (ARM_AP_KRO_URO << 4);   /* kernel и user RO */
+    } else if (!user && write) {
+        pte |= (ARM_AP_KRW_UNO << 4);   /* только kernel RW */
+    } else {
+        pte |= (ARM_AP_KRO_UNO << 4);   /* только kernel RO */
+    }
+
+    /* Execute Never */
+    if (!(flags & VM_APF_EXEC))
+        pte |= ARM_L2_XN;
+
+    /* Атрибуты кеширования — по подсказке от VM */
+    switch (cache) {
+        case VM_CACHE_NOCACHE:
+            /* Strongly Ordered: MMIO регистры */
+            /* TEX=0, C=0, B=0 → уже установлено по умолчанию */
+            break;
+
+        case VM_CACHE_WRITECOMB:
+            /* Write-Combining: TEX=1, C=0, B=1 */
+            pte |= ARM_L2_TEX(1) | ARM_L2_B;
+            break;
+
+        case VM_CACHE_WRITETHROUGH:
+            /* Write-Through: TEX=0, C=1, B=0 */
+            pte |= ARM_L2_C;
+            break;
+
+        case VM_CACHE_DMA:
+            /* DMA coherent = Strongly Ordered на ARM без IOMMU */
+            break;
+
+        case VM_CACHE_NORMAL:
+        default:
+            /* Write-Back Write-Allocate: наилучшая производительность
+             * TEX=1, C=1, B=1, S=1 (Shareable для SMP) */
+            pte |= ARM_L2_TEX(1) | ARM_L2_C | ARM_L2_B | ARM_L2_S;
+            break;
+    }
+
+    return pte;
+}
+
 int vm_arch_pt_apply(vir_bytes arch_pagetables, vm_pt_change_t changes) {
+    return OK;
+}
+
+/*
+ * Сердце нашего механизма абстрактных таблиц
+ * Aeyrwbz преобразованию абстрактной таблицы в физическую
+ */
+int vm_arch_apt_to_pt(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vir_bytes arch_pagetables, uint32_t handler) {
+    arm_pt_t *pagetables = (arm_pt_t *) arch_pagetables;
+    vm_abstract_pt_l1_entry_t *l1_iter;
+    vm_abstract_pt_l2_entry_t  *l2_iter;
+
+    if (handler >= ARM_MAX_PT_HANDLES) {
+        return EINVAL;
+    }
+    if (pagetables[handler].status == PT_FREE) {
+        return EINVAL;
+    }
+    if (table->status == VM_RECORD_UNDEF) {
+        return EINVAL;
+    }
+
+    for (l1_iter = table->first_entry; l1_iter != 0; l1_iter = (vm_abstract_pt_l1_entry_t)l1_iter->next) {
+        if (l1_iter->type == VM_APT_L1_L2PT) {
+            // Таблица страниц второго уровня
+
+        } else {
+            // Обычная секция
+            uint32_t start_pde = l1_iter->vaddr / ARM_SECTION_SIZE;
+            for (int i = l1_iter->size / ARM_SECTION_SIZE; i >= 0 ; i--) {
+                pagetables[handler].l1_table[start_pde + (i)] = (l1_iter->paddr + (i * ARM_SECTION_SIZE))
+                                                                    & ARM_L1_ADDR_MASK) | flags;
+            }
+        }
+    }
+
     return OK;
 }

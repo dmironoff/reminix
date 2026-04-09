@@ -11,6 +11,8 @@
 #define EXTERN
 #endif
 
+
+
 #include <minix/config.h>
 #include <minix/ipcconst.h>
 #include <machine/archtypes.h>
@@ -73,7 +75,7 @@ EXTERN int config_no_smp; /* optionally turn off SMP */
 /* VM */
 EXTERN int vm_running;
 EXTERN int catch_pagefaults;
-EXTERN int kernel_may_alloc;
+
 
 /* Variables that are initialized elsewhere are just extern here. */
 extern struct boot_image image[NR_BOOT_PROCS]; 	/* system image processes */

@@ -29,7 +29,7 @@ static uint32_t tick_interval = 0;
  * Регистрируем свой обработчик прерывания для таймера
  */
 
-bsp_register_timer_handler(const irq_handler_t handler)
+int bsp_register_timer_handler(const irq_handler_t handler)
 {
 	/* Initialize the CLOCK's interrupt hook. */
 	h3_timer_hook.proc_nr_e = NONE;

@@ -6,6 +6,13 @@
  * Абстрактные, архитектурно независимые таблицы памяти
  * Их создаёт VM и передаёт ядру для применения,
  * ядро уже их интерпретирует в страницы памяти для конкретного процессора
+ * Механизм работы похож на карты физической памяти
+ * В каждой таблице есть регионы
+ * Каждый регион имеет size
+ * Если регион это таблица l2 то он не может быть больше SECTION SIZE
+ * внутри таблицы l2 тоже регионы, что бы размечать память сразу по size
+ *
+ * см. apt_utils.h - это функции для работы с этой структурой
  */
 
 #ifndef REMINIX_ABSTRACT_PAGETABLES_H
@@ -16,8 +23,9 @@
 typedef uint32_t vm_apt_flags_t;
 
 typedef enum {
-    VM_RECORD_UNDEF     = 0,
-    VM_RECORD_INUSE     = 1,
+    VM_RECORD_UNDEF     = 0,   // Неиспользуемая запись, можно брать
+    VM_RECORD_FREE      = 1,   // Используется в таблице, но вызывает pagefault
+    VM_RECORD_INUSE     = 2,   // Размеченая память
 } vm_apt_record_status_t;
 
 /* --- Тип региона (взаимоисключающие биты 0..7) --- */
@@ -72,10 +80,9 @@ typedef enum {
 
 typedef struct {
     vm_apt_record_status_t  status;
-    uint32_t            version;
     vir_bytes          vaddr;
     phys_bytes          paddr; // Если виртуальная, то будет равно 0
-    phys_bytes          size;
+    vir_bytes          size;
     vm_apt_flags_t      flags;
     mmap_cache_hint_t   cache_hint;
     void                       *next;
@@ -84,18 +91,20 @@ typedef struct {
 
 typedef struct {
     vm_apt_record_status_t      status;
-    uint32_t                    version;
     vir_bytes                  vaddr;
     phys_bytes                  paddr;
-    phys_bytes                  size;// Размер, для того что бы экономить память,
+    vm_abstract_pt_l1_type      type;
+
+    vir_bytes                  size;// Размер, для того что бы экономить память,
                                         // мы можем так размечать целый диапазон, а ядро уже разберётся
-                                        // должен быть кратен размеру страницы
+                                        // должен быть кратен размеру секции l1 Для l2 должен быть равен размеру секции
     vm_apt_flags_t              flags;
     mmap_cache_hint_t           cache_hint;
-    vm_abstract_pt_l1_type      type;
-    uint32_t                    l2_entries_count;
+    unsigned long               l2_entries_count;
     vm_abstract_pt_l2_entry_t   *first_l2_entry;
     vm_abstract_pt_l2_entry_t   *last_l2_entry;
+
+    int                         dirty;  // 0 - чистая, 1 - грязная, требует переобработки ядром после изменений
 
     void                       *next;
     void                       *prev;
@@ -104,10 +113,11 @@ typedef struct {
 typedef struct {
     vm_apt_record_status_t      status;
     endpoint_t                  owner;
-    uint32_t                    version;
+    unsigned long                    version;
     phys_bytes                  phys_pt_root;
-    uint32_t                    entries_count;
-    uint32_t                    entries_dirty;
+    unsigned long                    entries_count;
+    unsigned long                    entries_dirty;  // Количество грязных секций, для понимания ядром, если больше нуля
+                                                    // То ядро должно обойти всю таблицу, найти грязные секции и перенести информацию в физическую таблицу страниц
     vm_abstract_pt_l1_entry_t   *first_entry;
     vm_abstract_pt_l1_entry_t   *last_entry;
 
@@ -129,18 +139,22 @@ typedef struct {
     // Что бы не переписывать VM под разные архитектуры, просто ядро передаст VM базовые констранты таблиц
     // А сами эти константы мы инициализируем в pre_init исходя из архитектуры машины
     vm_abstract_arch_flags      flags;
-    uint32_t                    l1_entry_max_count;
-    phys_bytes                  l1_entry_size;
-    phys_bytes                  l2_entry_size;
-    uint32_t                    pagetables_allocated;
-    uint32_t                    pagetables_used;
-    vm_abstract_pt_t            *first_pagetable;
-    vm_abstract_pt_t            *last_pagetable;
-    uint32_t                    l1_entries_allocated;
-    uint32_t                    l1_entries_used;
-    uint32_t                    l2_entries_allocated;
-    uint32_t                    l2_entries_used;
-    vm_abstract_pt_t            *tables;
+    unsigned long                    l1_sections_max_count;   // Максимальное количество l1 секций на архитектуре
+    phys_bytes                  l1_section_size;     // Размер l1 секции на архитектуре
+                                                // Соответственно общий объём памяти возможный к разметке на архитектуре:  l1_sections_max_count * l1_section_size
+                                                // Для ARM и RISC-V: так как ядро размеченно в другом регистре другой таблицей,
+                                                // то здесь количество записей должно быть равно тому что помещается в регистр таблиц для пользовательских приложений
+    phys_bytes                  l2_page_size;    // Размер страницы l2 на архитектуре
+                                                // Количество страниц l2 в секции l1: l1_section_size / l2_page_size
+    unsigned long                    pagetables_allocated; // Количество записей о таблицах аллоцированное в памяти
+    unsigned long                    pagetables_used;   // Счётчик использованых записей
+    vm_abstract_pt_t            *first_pagetable;   // Указатель на вершину связанного списка
+    vm_abstract_pt_t            *last_pagetable;   // Указатель на конец связанного списка
+    unsigned long                    l1_entries_allocated;  // Количество записей о l1 аллоцированное в памяти
+    unsigned long                    l1_entries_used;    // Количество использованных записей
+    unsigned long                    l2_entries_allocated;
+    unsigned long                    l2_entries_used;
+    vm_abstract_pt_t            *tables;            // Указатели на весь массив аллоцированных записей
     vm_abstract_pt_l1_entry_t   *l1_entries;
     vm_abstract_pt_l2_entry_t   *l2_entries;
 } vm_abstract_pagetables_t;

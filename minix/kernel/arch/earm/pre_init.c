@@ -49,9 +49,6 @@ phys_bytes vir2phys(void *addr) { return (phys_bytes) addr; }
 /* String length used for mb_itoa */
 #define ITOA_BUFFER_SIZE 20
 
-/* Kernel may use memory */
-int kernel_may_alloc = 1;
-
 /* kernel bss */
 extern u32_t _edata;
 extern u32_t _end;
