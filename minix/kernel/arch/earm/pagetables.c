@@ -10,10 +10,19 @@
 #include "arch_configs.h"
 #include "vm.h"
 #include "string.h"
+#include "kernel/mmap_utils.h"
+#include "kernel/apt_utils.h"
 
 static uint32_t vm_enabled = 0;
 
-void vm_enable_paging(void)
+/* TODO: Сделать механизм выделения и хранения таблиц виртуальной памяти процессов менее жрущим память - сократить количество выделяемых на автомате таблиц l2*/
+
+/*
+ * Включение MMU
+ * Полностью архитектурнозависимая функция
+ * Перед её выполнением нужно загрузить таблицы страниц в регистры
+ */
+void arch_enable_paging(void)
 {
     u32_t sctlr;
     u32_t actlr;
@@ -66,6 +75,9 @@ void vm_enable_paging(void)
     vm_enabled = 1;
 }
 
+/*
+ * Загрузка таблицы страниц в регистр ttbr0 - пользовательское пространство
+ */
 void pg_load_ttbr0(arm_pt_t *pagedir)
 {
     if (vm_enabled) {
@@ -76,79 +88,69 @@ void pg_load_ttbr0(arm_pt_t *pagedir)
     }
 }
 
-void pg_load_ttbr1(arm_pt_t *pagedir)
-{
-    if (vm_enabled) {
-        clean_cache_range((vir_bytes) pagedir->l1_table, ((vir_bytes) pagedir->l1_table) + ARM_L1_SIZE);
-        write_ttbr1(pagedir->l1_phys);
-    } else {
-        write_ttbr1(pagedir->l1_phys);
+/*
+ * Выделить память для таблицы страниц l1
+ */
+int vm_arch_alloc_l1_table(mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *apt_table, arm_pt_t *pt){
+    int res = 0;
+    mmap_region_t *new_region;
+
+    res = mmap_alloc_lowest_region(mmap, mmap_align(mmap, sizeof(uint32_t) * ARM_L1_ENTRIES), new_region);
+    if (res < 0) {
+        return res;
     }
+
+    vir_bytes vir_addr;
+    res = apt_map_region_to_max_free_end(apt, apt_table, new_region, &vir_addr, VM_APF_KERNEL |
+            VM_APF_RW | VM_APF_PRESENT);
+    if (res < 0) {
+        return res;
+    }
+
+    pt->l1_phys = new_region->start;
+    pt->l1_table = (uint32_t *) vir_addr;
+    pt->l1_table_region = new_region;
+    return OK;
 }
 
+/*
+ * Выделить память для таблицы страниц l2
+ */
+int vm_arch_alloc_l2_table(mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *apt_table, arm_pt_t *pt){
+    int res = 0;
+    mmap_region_t *new_region;
 
-vir_bytes map_mmap_region_to_kernel_pt_l1 (uint32_t *l1_phys, mmap_region_t *region, vir_bytes *start, uint32_t flags) {
-    vir_bytes end_addr;
-    vir_bytes started = 0;
-    for (uint32_t i = 0; i < ARM_KERNEL_L1_PAGES; i++) {
-        if ((((vir_bytes)i * ARM_SECTION_SIZE + ARM_KERNEL_VIRT_START) >= *start) &&
-            ((vir_bytes)i * ARM_SECTION_SIZE + ARM_KERNEL_VIRT_START) <= *start + region->size) {
-            if (!started) {
-                started = i * ARM_SECTION_SIZE + ARM_KERNEL_VIRT_START;
-            }
-
-            l1_phys[i] = ((region->start + ARM_SECTION_SIZE * i) & ARM_L1_ADDR_MASK) | flags;
-            end_addr = (i + 1) * ARM_SECTION_SIZE + ARM_KERNEL_VIRT_START;
-        } else {
-            l1_phys[i] = 0;
-        }
+    res = mmap_alloc_lowest_region(mmap, mmap_align(mmap, sizeof(uint32_t) * ARM_L1_ENTRIES * ARM_L2_ENTRIES), new_region);
+    if (res < 0) {
+        return res;
     }
-    *start = started;
-    return end_addr;
+
+    vir_bytes vir_addr;
+    res = apt_map_region_to_max_free_end(apt, apt_table, new_region, &vir_addr, VM_APF_KERNEL |
+                                                                                VM_APF_RW | VM_APF_PRESENT);
+    if (res < 0) {
+        return res;
+    }
+
+    pt->l2_phys = new_region->start;
+    pt->l2_tables = (uint32_t *) vir_addr;
+    pt->l2_tables_region = new_region;
+    return OK;
 }
 
-vir_bytes map_mmap_region_to_pt_l1 (uint32_t *l1_phys, mmap_region_t *region, vir_bytes *start, uint32_t flags) {
-    vir_bytes end_addr;
-    vir_bytes started = 0;
-    for (uint32_t i = 0; i < ARM_USER_L1_PAGES; i++) {
-        if ((((vir_bytes)i * ARM_SECTION_SIZE) >= *start) &&
-            ((vir_bytes)i * ARM_SECTION_SIZE) <= *start + region->size) {
-            if (!started) {
-                started = i * ARM_SECTION_SIZE;
-            }
-
-            l1_phys[i] = ((region->start + ARM_SECTION_SIZE * i) & ARM_L1_ADDR_MASK) | flags;
-            end_addr = (i + 1) * ARM_SECTION_SIZE;
-        }
-    }
-    *start = started;
-    return end_addr;
-}
-
-vir_bytes map_mmap_region_to_pt_l1_from_end (uint32_t *l1_phys, mmap_region_t *region, vir_bytes *start, uint32_t flags) {
-    vir_bytes end_addr;
-    vir_bytes started = 0;
-    for (int i = ARM_USER_L1_PAGES - 1; i >= 0; i--) {
-        if ((((vir_bytes) i * ARM_SECTION_SIZE) <= *start )
-            && (((vir_bytes)i * ARM_SECTION_SIZE) >= *start - region->size)) {
-            if (!started) {
-                started = i * ARM_SECTION_SIZE;
-            }
-
-            l1_phys[i] = (((region->start + region->size) - ARM_SECTION_SIZE * i) & ARM_L1_ADDR_MASK) | flags;
-            end_addr = (i - 1) * ARM_SECTION_SIZE;
-        }
-    }
-    *start = started;
-    return end_addr;
-}
-
-int vm_arch_create_pagetable (vir_bytes arch_pagetables, endpoint_t proc, phys_bytes *root_phys_out, uint32_t *handle_out) {
+/*
+ * Выделить новую таблицу страниц из пула
+ * Возвращает через указатели адрес начала для загрузки в регистр и хэндлер для использования в функциях
+ */
+int vm_arch_alloc_pagetable (vir_bytes arch_pagetables, mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *kerntable,
+                             endpoint_t proc, phys_bytes *root_phys_out, uint32_t *handle_out) {
     arm_pt_t *pagetables = (arm_pt_t *) arch_pagetables;
     for (int i = 0; i < ARM_MAX_PT_HANDLES; i++) {
         if (pagetables[i].status == PT_FREE) {
             pagetables[i].status = PT_USED;
             pagetables[i].proc_ep = proc;
+            vm_arch_alloc_l1_table(mmap, apt, kerntable, &pagetables[i]);
+            vm_arch_alloc_l2_table(mmap, apt, kerntable, &pagetables[i]);
             *root_phys_out = pagetables[i].l1_phys;
             *handle_out = (uint32_t) i;
             return OK;
@@ -157,7 +159,10 @@ int vm_arch_create_pagetable (vir_bytes arch_pagetables, endpoint_t proc, phys_b
     return ENOMEM;
 }
 
-int vm_arch_destroy_pagetable(vir_bytes arch_pagetables, uint32_t handler) {
+/*
+ * Освободить таблицу памяти
+ */
+int vm_arch_free_pagetable(vir_bytes arch_pagetables, mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *kerntable, uint32_t handler) {
     arm_pt_t *pagetables = (arm_pt_t *) arch_pagetables;
     if (handler >= ARM_MAX_PT_HANDLES) {
         return EINVAL;
@@ -167,21 +172,40 @@ int vm_arch_destroy_pagetable(vir_bytes arch_pagetables, uint32_t handler) {
     }
     pagetables[handler].proc_ep = 0;
     pagetables[handler].status = PT_FREE;
-    memset((void *) pagetables[handler].l1_table, 0, ARM_USER_L1_PAGES * sizeof(uint32_t));
-    memset((void *) pagetables[handler].l2_tables, 0, ARM_USER_L1_PAGES * sizeof(uint32_t) * 256);
+    apt_unmap_region(apt, kerntable, pagetables[handler].l1_table_region);
+    apt_unmap_region(apt, kerntable, pagetables[handler].l2_tables_region);
+    mmap_free_memory(mmap, pagetables[handler].l1_table_region->start, pagetables[handler].l1_table_region->size);
+    mmap_free_memory(mmap, pagetables[handler].l2_tables_region->start, pagetables[handler].l2_tables_region->size);
+    pagetables[handler].l1_table_region = (mmap_region_t *) 0;
+    pagetables[handler].l2_tables_region = (mmap_region_t *) 0;
+    pagetables[handler].l1_phys = 0;
+    pagetables[handler].l1_table = (uint32_t *) 0;
+    pagetables[handler].l2_phys = 0;
+    pagetables[handler].l2_tables = (uint32_t *) 0;
     return OK;
 }
 
+
 /*
- * Наш переводчик флагов между нашей абстракцией на язык arm
- * */
-static uint32_t flags_to_arm_l2(vm_apt_flags_t flags, vm_cache_hint_t cache)
-{
-    uint32_t pte = ARM_L2_TYPE_SMALL;  /* базовый тип: small page 4KB */
+ * Преобразование флагов и режимов кеширования для секции L1
+ */
+uint32_t vm_arch_flags_to_l1(vm_apt_flags_t flags, mmap_cache_hint_t cache) {
+    uint32_t res = ARM_L1_S;
+    // Сначала проверим наши комбо
+    if (flags & VM_APF_KERNEL) {
+        res |= ARM_L1_AP_KRW_UNO | ~ARM_L1_XN | ~ARM_L1_PXN | ARM_L1_WRITE_BACK_WA;
+        return res;
+    } else if (flags & VM_APF_DEVICE) {
+        res |= ARM_L1_AP_KRW_URW | ARM_L1_XN | ARM_L1_PXN | ARM_L1_DEVICE;
+        return res;
+    } else if (flags & VM_APF_DMA) {
+        res |= ARM_L1_AP_KRW_URW | ARM_L1_XN | ARM_L1_PXN | ARM_L1_UNCACHED;
+        return res;
+    }
 
     /* Not Global — у пользовательских процессов */
     if (flags & VM_APF_USER)
-        pte |= ARM_L2_NG;
+        res |= ARM_L1_nG;
 
     /* Права доступа → AP[2:1:0] */
     int user  = (flags & VM_APF_USER)  ? 1 : 0;
@@ -190,60 +214,122 @@ static uint32_t flags_to_arm_l2(vm_apt_flags_t flags, vm_cache_hint_t cache)
 
     if (!read && !write) {
         /* нет доступа — fault при любом обращении */
-        pte |= (ARM_AP_NONE << 4);
+        res |= ARM_L1_AP_NONE;
     } else if (user && write) {
-        pte |= (ARM_AP_KRW_URW << 4);   /* kernel и user RW */
+        res |= ARM_L1_AP_KRW_URW;   /* kernel и user RW */
     } else if (user && !write) {
-        pte |= (ARM_AP_KRO_URO << 4);   /* kernel и user RO */
+        res |= ARM_L1_AP_KRO_URO;   /* kernel и user RO */
     } else if (!user && write) {
-        pte |= (ARM_AP_KRW_UNO << 4);   /* только kernel RW */
+        res |= ARM_L1_AP_KRW_UNO;   /* только kernel RW */
     } else {
-        pte |= (ARM_AP_KRO_UNO << 4);   /* только kernel RO */
+        res |= ARM_L1_AP_KRO_UNO;   /* только kernel RO */
+    }
+
+    /* Execute Never */
+    if (!(flags & VM_APF_EXEC))
+        pte |= ARM_L1_XN;
+
+    switch (cache) {
+        MMAP_CACHE_NO:
+        MMAP_CACHE_DMA:
+            res |= ARM_L1_UNCACHED;
+            break;
+        MMAP_CACHE_WRITECOMB:
+            res |= ARM_L1_WRITE_BACK;
+            break;
+        MMAP_CACHE_NORMAL:
+        MMAP_CACHE_WRITETHROUGH:
+        default:
+            res |= ARM_L1_WRITE_THROUGH;
+            break;
+    }
+
+    return res;
+}
+
+/*
+ * Преобразование флагов и режимов кеширования для для страницы L2
+ */
+uint32_t vm_arch_flags_to_l2(vm_apt_flags_t flags, mmap_cache_hint_t cache) {
+    uint32_t res = ARM_L2_S;
+    // Сначала проверим наши комбо
+    if (flags & VM_APF_KERNEL) {
+        res |= ARM_L2_AP_KRW_UNO | ~ARM_L2_XN  | ARM_L2_WRITE_BACK_WA;
+        return res;
+    } else if (flags & VM_APF_DEVICE) {
+        res |= ARM_L2_AP_KRW_URW | ARM_L2_XN | ARM_L2_DEVICE;
+        return res;
+    } else if (flags & VM_APF_DMA) {
+        res |= ARM_L2_AP_KRW_URW | ARM_L2_XN |  ARM_L2_UNCACHED;
+        return res;
+    }
+
+    /* Not Global — у пользовательских процессов */
+    if (flags & VM_APF_USER)
+        res |= ARM_L2_nG;
+
+    /* Права доступа → AP[2:1:0] */
+    int user  = (flags & VM_APF_USER)  ? 1 : 0;
+    int write = (flags & VM_APF_WRITE) ? 1 : 0;
+    int read  = (flags & VM_APF_READ)  ? 1 : 0;
+
+    if (!read && !write) {
+        /* нет доступа — fault при любом обращении */
+        res |= ARM_L2_AP_NONE;
+    } else if (user && write) {
+        res |= ARM_L2_AP_KRW_URW;   /* kernel и user RW */
+    } else if (user && !write) {
+        res |= ARM_L2_AP_KRO_URO;   /* kernel и user RO */
+    } else if (!user && write) {
+        res |= ARM_L2_AP_KRW_UNO;   /* только kernel RW */
+    } else {
+        res |= ARM_L2_AP_KRO_UNO;   /* только kernel RO */
     }
 
     /* Execute Never */
     if (!(flags & VM_APF_EXEC))
         pte |= ARM_L2_XN;
 
-    /* Атрибуты кеширования — по подсказке от VM */
     switch (cache) {
-        case VM_CACHE_NOCACHE:
-            /* Strongly Ordered: MMIO регистры */
-            /* TEX=0, C=0, B=0 → уже установлено по умолчанию */
+        MMAP_CACHE_NO:
+        MMAP_CACHE_DMA:
+            res |= ARM_L2_UNCACHED;
             break;
-
-        case VM_CACHE_WRITECOMB:
-            /* Write-Combining: TEX=1, C=0, B=1 */
-            pte |= ARM_L2_TEX(1) | ARM_L2_B;
+        MMAP_CACHE_WRITECOMB:
+            res |= ARM_L2_WRITE_BACK;
             break;
-
-        case VM_CACHE_WRITETHROUGH:
-            /* Write-Through: TEX=0, C=1, B=0 */
-            pte |= ARM_L2_C;
-            break;
-
-        case VM_CACHE_DMA:
-            /* DMA coherent = Strongly Ordered на ARM без IOMMU */
-            break;
-
-        case VM_CACHE_NORMAL:
+        MMAP_CACHE_NORMAL:
+        MMAP_CACHE_WRITETHROUGH:
         default:
-            /* Write-Back Write-Allocate: наилучшая производительность
-             * TEX=1, C=1, B=1, S=1 (Shareable для SMP) */
-            pte |= ARM_L2_TEX(1) | ARM_L2_C | ARM_L2_B | ARM_L2_S;
+            res |= ARM_L2_WRITE_THROUGH;
             break;
     }
 
-    return pte;
+    return res;
 }
 
+/*
+ * Флаги для секции описывающей таблицу страниц второго уровня
+ */
+uint32_t vm_arch_flags_to_l2pt (vm_apt_flags_t flags, mmap_cache_hint_t cache) {
+    uint32_t res = 0;
+    if (!(flags & VM_APF_KERNEL)) {
+      //  res |= ARM_L2PT_PXN;
+    }
+
+    return res;
+}
+
+/*
+ * Заделка на будущее: изменения в таблице по дельте
+ */
 int vm_arch_pt_apply(vir_bytes arch_pagetables, vm_pt_change_t changes) {
     return OK;
 }
 
 /*
  * Сердце нашего механизма абстрактных таблиц
- * Aeyrwbz преобразованию абстрактной таблицы в физическую
+ * преобразованию абстрактной таблицы в физическую
  */
 int vm_arch_apt_to_pt(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vir_bytes arch_pagetables, uint32_t handler) {
     arm_pt_t *pagetables = (arm_pt_t *) arch_pagetables;
@@ -263,13 +349,34 @@ int vm_arch_apt_to_pt(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vi
     for (l1_iter = table->first_entry; l1_iter != 0; l1_iter = (vm_abstract_pt_l1_entry_t)l1_iter->next) {
         if (l1_iter->type == VM_APT_L1_L2PT) {
             // Таблица страниц второго уровня
-
+            int pde = ARM_L1_INDEX(l1_iter->vaddr);
+            uint32_t *l2pt = &pagetables[handler].l2_tables[pde];
+            pagetables[handler].l1_table[pde] = ((uint32_t) pagetables[handler].l2_phys + sizeof(uint32_t) * ARM_L2_ENTRIES) & ARM_L1_L2PT_ADDR_MASK;
+            pagetables[handler].l1_table[pde] |= ARM_L1_TYPE_PAGE;
+            pagetables[handler].l1_table[pde] |= ARM_L1_DOMAIN(0);
+            pagetables[handler].l1_table[pde] |= vm_arch_flags_to_l2pt(l1_iter->flags, l1_iter->cache_hint);
+            for (l2_iter = l1_iter->first_l2_entry; l2_iter != 0; l2_iter = (vm_abstract_pt_l2_entry_t *) l2_iter->next) {
+                for (uint32_t vaddr = l2_iter->vaddr; vaddr < l2_iter->vaddr + l2_iter->size; vaddr += ARM_L2_SIZE) {
+                    if (l2_iter->flags & VM_APF_VIRTUAL_ONLY) {
+                        l2pt[ARM_L2_INDEX(vaddr)] = 0;
+                    } else {
+                        l2pt[ARM_L2_INDEX(vaddr)] = ((uint32_t)
+                        l2_iter->paddr + (vaddr - l2_iter->vaddr)) &ARM_L2_ADDR_MASK;
+                        l2pt[ARM_L2_INDEX(vaddr)] |= vm_arch_flags_to_l2(l2_iter->flags, l2_iter->cache_hint);
+                    }
+                 }
+            }
         } else {
             // Обычная секция
-            uint32_t start_pde = l1_iter->vaddr / ARM_SECTION_SIZE;
-            for (int i = l1_iter->size / ARM_SECTION_SIZE; i >= 0 ; i--) {
-                pagetables[handler].l1_table[start_pde + (i)] = (l1_iter->paddr + (i * ARM_SECTION_SIZE))
-                                                                    & ARM_L1_ADDR_MASK) | flags;
+            for (uint32_t vaddr = l1_iter->vaddr; vaddr < l1_iter->vaddr + l1_iter->size; vaddr += ARM_L1_SIZE) {
+                if (l1_iter->flags & VM_APF_VIRTUAL_ONLY) {
+                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] = 0;
+                } else {
+                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] = ((uint32_t) l1_iter->paddr + (vaddr - l1_iter->vaddr)) & ARM_L1_SECTION_ADDR_MASK;
+                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] |= ARM_L1_TYPE_SECTION;
+                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] |= ARM_L1_DOMAIN(0);
+                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] |= vm_arch_flags_to_l1(l1_iter->flags, l1_iter->cache_hint);
+                }
             }
         }
     }

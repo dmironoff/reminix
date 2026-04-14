@@ -49,10 +49,10 @@ bsp_irq_mask(const int irq)
 }
 
 void bsp_send_ipi(uint32_t cpu, uint32_t ipi_nr) {
-
+    gic400_sgi(cpu, ipi_nr);
 }
 
 void bsp_send_ipi_all_others(uint32_t ipi_nr) {
-
+    gic400_sgi_all(ipi_nr);
 }
 

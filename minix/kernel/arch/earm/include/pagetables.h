@@ -6,62 +6,101 @@
 #define REMINIX_PAGETABLES_H
 
 #include "cpufunc.h"
+#include <minix/abstract_pagetables.h>
+#include <minix/physmemorymap.h>
+#include "kernel/apt_utils.h"
+#include "kernel/mmap_utils.h"
 
-/* ============================================================
- * ARM Short-Descriptor Page Table битовые поля
- * (только в этом файле — больше нигде в системе)
- * ============================================================ */
+/*
+ * Конечно, в наших исходных кодах есть куча мест с описанием этих дескрипторов
+ * Но вот этот механизм самый новый и использовать я буду только его
+ */
 
 /* L1 дескрипторы */
 #define ARM_L1_TYPE_FAULT   0x00    /* не используется              */
-#define ARM_L1_TYPE_PAGE    0x01    /* ссылка на L2 таблицу         */
-#define ARM_L1_TYPE_SECTION 0x02    /* 1MB секция                   */
 
-/* L1 флаги для ссылки на L2 */
-#define ARM_L1_PXN          (1u <<  2)  /* privileged execute never     */
-#define ARM_L1_NS           (1u <<  3)  /* non-secure                   */
+
+/*Дескриптор целиковой секции L1*/
+#define ARM_L1_TYPE_SECTION 0x02    /* 1MB секция                   */
+#define ARM_L1_ADDR_MASK 0xFFF00000 // адрес при описании секции L1
+#define ARM_L1_PXN          (1u)     // Не исполнять код в привелигированном режиме
+#define ARM_L1_B            (1u << 2)  // Bufferable
+#define ARM_L1_C            (1u << 3)  // Cacheble
+#define ARM_L1_XN           (1u << 4)  // Execute never
+#define ARM_L1_S            (1u << 16) // Shareable for smp
+#define ARM_L1_nG          (1u << 17) // Non Global
+#define ARM_L1_NS          (1u << 19) // Not secure
+#define ARM_L1_AP2          (1u << 15) // 0 Read/Write, 1 - Read only -- используется вместе с AP0 и AP1
+#define ARM_L1_AP1          (1u << 11) // Access Permissions 01 Только SVC,  11 User + SVC
+#define ARM_L1_AP0          (1u << 10) //
+#define ARM_L1_TEX0         (1u << 12) //
+#define ARM_L1_TEX1         (1u << 13) //
+#define ARM_L1_TEX2         (1u << 14) //
 #define ARM_L1_DOMAIN(d)    ((d) <<  5) /* domain (обычно 0)            */
 #define ARM_L1_P            (1u <<  9)  /* parity/ECC                   */
 
-/* L2 дескрипторы (small page = 4KB) */
-#define ARM_L2_TYPE_FAULT   0x00
-#define ARM_L2_TYPE_LARGE   0x01    /* 64KB large page               */
-#define ARM_L2_TYPE_SMALL   0x02    /* 4KB small page                */
+/*Права доступа для страниц l1*/
+#define ARM_L1_AP_NONE         0            /* нет доступа                   */
+#define ARM_L1_AP_KRW_UNO      ARM_L1_AP0     /* kernel RW, user none          */
+#define ARM_L1_AP_KRW_URO      ARM_L1_AP1     /* kernel RW, user RO            */
+#define ARM_L1_AP_KRW_URW      (ARM_L1_AP0 | ARM_L1_AP1)     /* kernel RW, user RW            */
+#define ARM_L1_AP_KRO_UNO      (ARM_L1_AP2 | ARM_L1_AP0)     /* kernel RO, user none          */
+#define ARM_L1_AP_KRO_URO      (ARM_L1_AP0 | ARM_L1_AP1 | ARM_L1_AP2)     /* kernel RO, user RO            */
 
-/* L2 флаги для small page */
-#define ARM_L2_B            (1u <<  2)  /* Bufferable                   */
-#define ARM_L2_C            (1u <<  3)  /* Cacheable                    */
-#define ARM_L2_AP0          (1u <<  4)  /* Access Permission bit 0      */
-#define ARM_L2_AP1          (1u <<  5)  /* Access Permission bit 1      */
-#define ARM_L2_TEX(t)       ((t) <<  6) /* Type Extension [2:0]         */
-#define ARM_L2_AP2          (1u <<  9)  /* Access Permission bit 2      */
-#define ARM_L2_S            (1u << 10)  /* Shareable                    */
-#define ARM_L2_NG           (1u << 11)  /* Not Global (process-specific)*/
-#define ARM_L2_XN           (1u << 0)   /* Execute Never                */
-
-/* Access Permission комбинации (AP[2:1:0]) */
-#define ARM_AP_NONE         0x0     /* нет доступа                   */
-#define ARM_AP_KRW_UNO      0x1     /* kernel RW, user none          */
-#define ARM_AP_KRW_URO      0x2     /* kernel RW, user RO            */
-#define ARM_AP_KRW_URW      0x3     /* kernel RW, user RW            */
-#define ARM_AP_KRO_UNO      0x5     /* kernel RO, user none          */
-#define ARM_AP_KRO_URO      0x7     /* kernel RO, user RO            */
-
-/* Memory attributes (TEX + C + B) — стандартная MAIR таблица ARM */
-#define ARM_ATTR_STRONGLY_ORDERED 0x00  /* TEX=0 C=0 B=0: MMIO регистры  */
-#define ARM_ATTR_DEVICE           0x01  /* TEX=0 C=0 B=1: Device memory  */
-#define ARM_ATTR_WRITE_THROUGH    0x02  /* TEX=0 C=1 B=0: Normal WT      */
-#define ARM_ATTR_WRITE_BACK       0x03  /* TEX=0 C=1 B=1: Normal WB      */
-#define ARM_ATTR_WRITE_BACK_WA    0x07  /* TEX=1 C=1 B=1: Normal WB+WA   */
-#define ARM_ATTR_UNCACHED         0x08  /* TEX=1 C=0 B=0: Normal uncached */
-
-/* Маски адресов */
-#define ARM_L1_ADDR_MASK    0xFFFFFC00  /* биты [31:10] → адрес L2 таблицы  */
-#define ARM_L2_ADDR_MASK    0xFFFFF000  /* биты [31:12] → адрес физ. страницы */
+/*Атрибуты памяти для страниц L1*/
+#define ARM_L1_STRONGLY_ORDERED 0  /* TEX=0 C=0 B=0: MMIO регистры  */
+#define ARM_L1_DEVICE           ARM_L1_B  /* TEX=0 C=0 B=1: Device memory  */
+#define ARM_L1_WRITE_THROUGH    ARM_L1_C  /* TEX=0 C=1 B=0: Normal WT      */
+#define ARM_L1_WRITE_BACK       (ARM_L1_B | ARM_L1_C)  /* TEX=0 C=1 B=1: Normal WB      */
+#define ARM_L1_WRITE_BACK_WA    (ARM_L1_TEX0 | ARM_L1_TEX2 | ARM_L1_B | ARM_L1_C)  /* TEX=1 C=1 B=1: Normal WB+WA   - SVC */
+#define ARM_L1_UNCACHED         ARM_L1_TEX1  /* TEX=1 C=0 B=0: Normal uncached - DMA*/
 
 #define ARM_L1_INDEX(va)    ((va) >> 20)          /* биты [31:20] */
+
+
+/*Дескриптор L2PT - ссылка в l1 на адрес таблицы страниц l2*/
+#define ARM_L1_TYPE_L2PT    0x01    /* ссылка на L2 таблицу         */
+#define ARM_L2PT_ADDR_MASK    0xFFFFFC00  /* биты [31:10] → адрес L2 таблицы  */
+#define ARM_L2PT_NS         (1u << 9) // Non secure
+#define ARM_L2PT_P          (1u << 4)
+#define ARM_L2PT_PXN        (1u << 2) // Privileged Execute-Never.  1 - запрет для всех страниц таблицы
+#define ARM_L2PT_DOMAIN(d)  ((d) <<  5) /* domain (обычно 0)            */
+
+/* Дескриптор страницы l2 */
+#define ARM_L2_TYPE_FAULT   0x00
+#define ARM_L2_TYPE_LARGE   0x01    /* 64KB large page               */
+#define ARM_L2_TYPE_SMALL   0x02    /* 4KB small page - Мы используем именно их               */
+#define ARM_L2_ADDR_MASK    0xFFFFF000  /* биты [31:12] → адрес физ. страницы внутри L2 */
+#define ARM_L2_XN           (1u << 0)   /* Execute Never                */
+#define ARM_L2_B            (1u <<  2)  /* Bufferable                   */
+#define ARM_L2_C            (1u <<  3)  /* Cacheable                    */
+#define ARM_L2_S            (1u << 10)  /* Shareable                    */
+#define ARM_L2_AP0          (1u <<  4)  /* Access Permission bit 0      */
+#define ARM_L2_AP1          (1u <<  5)  /* Access Permission bit 1      */
+#define ARM_L2_AP2          (1u <<  9)  /* Access Permission bit 2      */
+#define ARM_L2_nG           (1u << 11)  /* Not Global (process-specific)*/
+#define ARM_L2_TEX0         (1u << 6)
+#define ARM_L2_TEX1         (1u << 7)
+#define ARM_L2_TEX2         (1u << 8)
 #define ARM_L2_INDEX(va)    (((va) >> 12) & 0xFF) /* биты [19:12] */
 
+/*Права доступа для страниц l2*/
+#define ARM_L2_AP_NONE         0            /* нет доступа                   */
+#define ARM_L2_AP_KRW_UNO      ARM_L2_AP0     /* kernel RW, user none          */
+#define ARM_L2_AP_KRW_URO      ARM_L2_AP1     /* kernel RW, user RO            */
+#define ARM_L2_AP_KRW_URW      (ARM_L2_AP0 | ARM_L2_AP1)     /* kernel RW, user RW            */
+#define ARM_L2_AP_KRO_UNO      (ARM_L2_AP2 | ARM_L2_AP0)     /* kernel RO, user none          */
+#define ARM_L2_AP_KRO_URO      (ARM_L2_AP0 | ARM_L2_AP1 | ARM_L2_AP2)     /* kernel RO, user RO            */
+
+/*Атрибуты памяти для страниц L2*/
+#define ARM_L2_STRONGLY_ORDERED 0  /* TEX=0 C=0 B=0: MMIO регистры  */
+#define ARM_L2_DEVICE           ARM_L2_B  /* TEX=0 C=0 B=1: Device memory  */
+#define ARM_L2_WRITE_THROUGH    ARM_L2_C  /* TEX=0 C=1 B=0: Normal WT      */
+#define ARM_L2_WRITE_BACK       (ARM_L2_B | ARM_L2_C)  /* TEX=0 C=1 B=1: Normal WB      */
+#define ARM_L2_WRITE_BACK_WA    (ARM_L2_TEX0 | ARM_L2_TEX2 | ARM_L2_B | ARM_L2_C)  /* TEX=1 C=1 B=1: Normal WB+WA   - SVC */
+#define ARM_L2_UNCACHED         ARM_L2_TEX1  /* TEX=1 C=0 B=0: Normal uncached - DMA*/
+
+/* Размеры и количество страниц */
 #define ARM_L1_SIZE         (4096 * 4)  /* 16KB — одна L1 таблица */
 #define ARM_L2_SIZE         (256  * 4)  /* 1KB  — одна L2 таблица */
 #define ARM_L1_ENTRIES      4096
@@ -84,17 +123,17 @@ typedef struct {
     /* L1 таблица (Page Directory) */
     uint32_t   *l1_table;       /* виртуальный адрес для доступа ядра       */
     phys_bytes  l1_phys;        /* физический адрес — для TTBR0             */
+    mmap_region_t *l1_table_region;
 
     /* L2 таблицы (Page Tables) — по одной на каждую используемую секцию */
     uint32_t   *l2_tables; /* виртуальные адреса            */
     phys_bytes  l2_phys;   /* физические адреса             */
+    mmap_region_t *l2_tables_region;
 } arm_pt_t;
 
 void pg_load_ttbr1(arm_pt_t *pagedir);
 void pg_load_ttbr0(arm_pt_t *pagedir);
 void vm_enable_paging(void);
-vir_bytes map_mmap_region_to_pt_l1_from_end (uint32_t *l1_phys, mmap_region_t *region, vir_bytes *start, uint32_t flags);
-vir_bytes map_mmap_region_to_pt_l1 (uint32_t *l1_phys, mmap_region_t *region, vir_bytes *start, uint32_t flags);
-vir_bytes map_mmap_region_to_kernel_pt_l1 (uint32_t *l1_phys, mmap_region_t *region, vir_bytes *start, uint32_t flags);
+
 
 #endif //REMINIX_PAGETABLES_H

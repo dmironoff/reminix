@@ -21,6 +21,10 @@ SECTIONS
 	.unpaged_bss  ALIGN(4096) : { unpaged_*.o(.bss COMMON) }
 	__k_unpaged__kern_unpaged_end = .;
 
+    __k_unpaged__smp_trampoline_start = .;
+    .trampoline : AT(ADDR(.trampoline) - _kern_offset) { *(.smp_trampoline) }
+    __k_unpaged__smp_trampoline_end = .;
+
 	. += _kern_offset;
 
 	. = ALIGN(4096); usermapped_start = .;
@@ -28,9 +32,6 @@ SECTIONS
 	. = ALIGN(4096); usermapped_nonglo_start = .;
 	.usermapped : AT(ADDR(.usermapped) - _kern_offset) { *(.usermapped) }
 	. = ALIGN(4096); usermapped_end = .;
-	__smp_trampoline_start = .;
-	.trampoline : AT(ADDR(.trampoline) - _kern_offset) { *(.smp_trampoline) }
-	__smp_trampoline_end = .;
 	. = ALIGN(4096);
 	.text             : AT(ADDR(.text) - _kern_offset) { *(.text*) }
 	_etext = .;

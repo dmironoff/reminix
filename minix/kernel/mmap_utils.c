@@ -722,3 +722,10 @@ int mmap_find_next_by_type(mmap_t *mmap, mmap_type_t type, phys_bytes offset, mm
 
     return 0;
 }
+
+/*
+ * Выравнивание адреса или размера по странице l2
+ */
+phys_bytes mmap_align(mmap_t *mmap, phys_bytes value) {
+    return (value + mmap->l2_page_size) & (~mmap->l2_page_size);
+}

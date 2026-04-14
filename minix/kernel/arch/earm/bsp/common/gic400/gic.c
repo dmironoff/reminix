@@ -107,8 +107,12 @@ void gic400_unmask(int irq) {
 /*
  * Отправить програмное прерывание
  */
-void gic400_sgi(uint32_t cpu, uint32_t nr) {
-
+void gic400_sgi(uint8_t cpu, uint8_t nr) {
+    uint32_t value = 0;
+    value = (nr & 0xF);
+    value |= (cpu << 16);
+    value |= (0 << 24);
+    mmio_write(gic400_memory.dist_base + GIC400_DIST_SGIR, value);
 }
 
 /*
@@ -116,6 +120,9 @@ void gic400_sgi(uint32_t cpu, uint32_t nr) {
  *
  */
 
-void gic400_sgi_all(uint32_t nr) {
-
+void gic400_sgi_all(uint8_t nr) {
+    uint32_t value = 0;
+    value = (nr & 0xF);
+    value |= (1 << 24);
+    mmio_write(gic400_memory.dist_base + GIC400_DIST_SGIR, value);
 }

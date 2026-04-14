@@ -86,6 +86,9 @@ int mmap_free_memory(mmap_t *mmap, phys_bytes start, phys_bytes size);
  * Никаких проверок выравнивания, просто: 0 - ненайдено, 1 - найден регион
  */
 int mmap_find_next_by_type(mmap_t *mmap, mmap_type_t type, phys_bytes offset, mmap_region_t *region);
-
+/*
+ * Выравнивание адреса или размера по странице l2
+ */
+phys_bytes mmap_align(mmap_t *mmap, phys_bytes value);
 
 #endif //REMINIX_MMAP_UTILS_H

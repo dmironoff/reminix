@@ -16,11 +16,9 @@
 
 #include "pagetables.h"
 
-#define BOOT_MODULES_MAX_COUNT              20
+#define BOOT_MODULES_MAX_COUNT              25
 #define PARAMS_BUFFER_SIZE                  2048
 #define BOOT_MODULES_NAME_MAX_LEN           20
-
-#ifdef _MINIX_SYSTEM
 
 #include <minix/physmemorymap.h>
 #include <minix/abstract_pagetables.h>
@@ -28,20 +26,24 @@
 // Типы модулей в загрузочном образе по порядку запуска
 // Сначала запускаются системные серверы - vm, vfs, proc и т.д.
 // Потом запускаются сервисы прослойки - ttyd, usbd, fdtd и т.д.
+// Потом стартуют виртуальные файловые системы
 // Потом стартуют драйверы устройств - serial, mmc
-// Потом запускаются сервисы файловых систем - mfs, memory, pfs, devfs
+// Потом запускаются сервисы файловых систем - mfs, ext2 и тд
 // Потом стартует INIT
 // А инит запускает пользовательские процессы, если они по какой-то причине находятся в образе системы
 typedef enum {
-    BOOT_MODULE_UNKNOWN     = 0,
-    BOOT_MODULE_SERVER      = 1,
-    BOOT_MODULE_SERVICE     = 2,
-    BOOT_MODULE_DRIVER      = 3,
-    BOOT_MODULE_FS          = 4,
-    BOOT_MODULE_INIT        = 5,
-    BOOT_MODULE_USERPROC    = 6,
-    BOOT_MODULE_CONFIG      = 7,
-    BOOT_MODULE_FDT         = 8
+    BOOT_MODULE_UNKNOWN     = 0,  // Хз что такое
+    BOOT_MODULE_SERVER      = 1,  // Сервер
+    BOOT_MODULE_SERVICE     = 2,  // Сервис (прокладка между системой и драйвером)
+    BOOT_MODULE_DRIVER      = 3,  // Драйвер
+    BOOT_MODULE_VIRFS       = 4,  // Виртуальная файловая система - devfs, procfs, sysfs ...
+    BOOT_MODULE_FS          = 5,  // Обычная файловая система
+    BOOT_MODULE_INIT        = 6,  // Инит
+    BOOT_MODULE_USERPROC    = 7,  // Пользовательский процесс
+    BOOT_MODULE_CONFIG      = 8,  // Конфигурационный файл
+    BOOT_MODULE_FDT         = 9,  // FDT BLOB
+    BOOT_MODULE_VM          = 10,   // Сервер виртуальной памяти, он стартует первым
+    BOOT_MODULE_KERNEL      = 11  // Загрузочный образ ядра, после инициализации просто удаляется из памяти
 } boot_module_type_t;
 
 typedef struct {
@@ -54,18 +56,17 @@ typedef struct {
 typedef struct {
 #ifdef __arm__
     vir_bytes                      fdt_addr;
-    arm_pt_t                        *kernel_pt; // Виртуальный адрес отдельной таблицы страниц ядра для регистра ttbr1
 #endif
 
-    uint32_t                        kernel_pt_handler; // Не путать со внутренней таблицой ядра из ttbr1, эта таблица для ttbr0
+    int                             kernel_pt_handler; // Не путать со внутренней таблицой ядра из ttbr1, эта таблица для ttbr0
+    vm_abstract_pt_t                *kernel_apt; // абстрактная таблица ядра - это всё адресное пространство из ttbr0
+                                                // После инициализации станет адресным пространством VM
 
     uint32_t                        system_cpu_count;
     uint32_t                        boot_cpu_number;
     vm_abstract_pagetables_t        *abstract_pagetables;  /// Хочу обратить внимание что здесь должны быть уже виртуальные адреса
     mmap_t                          *mmap;
     vir_bytes                       user_pt_base;
-    phys_bytes                      mem_start;
-    phys_bytes                      mem_end;
 
     boot_module_information_t       modules[BOOT_MODULES_MAX_COUNT];
 
@@ -76,7 +77,5 @@ typedef struct {
 } bootstrap_kernel_information_t;
 
 
-
-#endif // _MINIX_SYSTEM
 
 #endif //REMINIX_BOOTSTRAP_KERNEL_INFORMATION_H

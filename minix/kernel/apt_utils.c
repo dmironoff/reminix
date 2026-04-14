@@ -295,6 +295,43 @@ int apt_make_clean_table(vm_abstract_pagetables_t *apt, endpoint_t owner, vm_abs
 }
 
 /*
+ * Размапить полностью пустую новую таблицу памяти с определённым количеством страниц l1
+ */
+int apt_make_clean_table_with_size(vm_abstract_pagetables_t *apt, endpoint_t owner, int l1_pages, vm_abstract_pt_t *new_table) {
+    int res = apt_find_undef_table(apt, new_table);
+    if (res < 0) {
+        return res;
+    }
+    new_table->owner = owner;
+    if (apt->last_pagetable == 0) {
+        apt->first_pagetable = new_table;
+        apt->last_pagetable = new_table;
+    } else {
+        apt->last_pagetable->next = (void *) new_table;
+        new_table->prev = (void *) apt->last_pagetable;
+        apt->last_pagetable = new_table;
+    }
+    vm_abstract_pt_l1_entry_t *new_l1_entry;
+    res = apt_find_undef_l1_entry(apt, new_l1_entry);
+    if (res < 0) {
+        apt_unmap_table(apt, new_table);
+        return res;
+    }
+    new_l1_entry->type = VM_APT_L1_SECTION;
+    new_l1_entry->status = VM_RECORD_FREE;
+    new_l1_entry->vaddr = 0x0;
+    new_l1_entry->size = apt->l1_section_size * l1_pages;
+    new_l1_entry->dirty = 1;
+    new_table->entries_dirty++;
+    new_table->entries_count++;
+    new_table->first_entry = new_l1_entry;
+    new_table->last_entry = new_l1_entry;
+    new_table->version = 1;
+
+    return 1;
+}
+
+/*
  *  Инициализация таблицы l2 внутри секции l1
  *  Ничего сложного, но вынесена в отдельную функцию что бы не писать код по 200 раз
  *  l1_entry - указатель на уже выделенную внутри таблицы страниц секцию l1 размером с apt->l1_section_size
