@@ -131,9 +131,56 @@ typedef struct {
     mmap_region_t *l2_tables_region;
 } arm_pt_t;
 
-void pg_load_ttbr1(arm_pt_t *pagedir);
+/*
+ * Включение MMU
+ * Полностью архитектурнозависимая функция
+ * Перед её выполнением нужно загрузить таблицы страниц в регистры
+ */
+void arch_enable_paging(void);
+
+/*
+ * Загрузка таблицы страниц в регистр ttbr0 - пользовательское пространство
+ */
 void pg_load_ttbr0(arm_pt_t *pagedir);
-void vm_enable_paging(void);
+
+/*
+ * Выделить память для таблицы страниц l1
+ */
+int vm_arch_alloc_l1_table(mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *apt_table, arm_pt_t *pt);
+
+/*
+ * Выделить память для таблицы страниц l2
+ */
+int vm_arch_alloc_l2_table(mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *apt_table, arm_pt_t *pt);
+/*
+ * Выделить новую таблицу страниц из пула
+ * Возвращает через указатели адрес начала для загрузки в регистр и хэндлер для использования в функциях
+ */
+int vm_arch_alloc_pagetable (vir_bytes arch_pagetables, mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *kerntable,
+                             endpoint_t proc, phys_bytes *root_phys_out, uint32_t *handle_out);
+
+/*
+ * Преобразование флагов и режимов кеширования для секции L1
+ */
+uint32_t vm_arch_flags_to_l1(vm_apt_flags_t flags, mmap_cache_hint_t cache);
+/*
+ * Преобразование флагов и режимов кеширования для для страницы L2
+ */
+uint32_t vm_arch_flags_to_l2(vm_apt_flags_t flags, mmap_cache_hint_t cache);
+
+/*
+ * Флаги для секции описывающей таблицу страниц второго уровня
+ */
+uint32_t vm_arch_flags_to_l2pt (vm_apt_flags_t flags, mmap_cache_hint_t cache;
+/*
+ * Заделка на будущее: изменения в таблице по дельте
+ */
+int vm_arch_pt_apply(vir_bytes arch_pagetables, vm_pt_change_t changes);
+/*
+ * Сердце нашего механизма абстрактных таблиц
+ * преобразованию абстрактной таблицы в физическую
+ */
+int vm_arch_apt_to_pt(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vir_bytes arch_pagetables, uint32_t handler);
 
 
 #endif //REMINIX_PAGETABLES_H

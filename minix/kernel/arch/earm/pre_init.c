@@ -182,8 +182,7 @@ static void mmap2apt (mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_p
 }
 
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "UnusedValue"
+
 /*
  * На бедную функцию pre_init выпала теперь тяжкая доля:
  * Разобрать fdt
@@ -330,7 +329,7 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
         }
 
         // Сразу не отходя от кассы мы разметим в памяти где у нас лежит FDT BLOB
-        res = mmap_alloc_region(&boot_mmap, fdt_addr, (phys_bytes) fdt_totalsize((void *) fdt_addr), region);
+        res = mmap_alloc_region(&boot_mmap, fdt_addr, mmap_align(&boot_mmap, (phys_bytes) fdt_totalsize((void *) fdt_addr)), region);
         if (res < 0) {
             ser_print_variable("mmap_alloc_region", res);
             ser_print_variable("start", fdt_addr);
@@ -346,7 +345,7 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
         boot_module_id++;
 
         // Разметим текущее местонахождение ядра _kern_phys_base, _kern_size;
-        res = mmap_alloc_region(&boot_mmap, (phys_bytes) _kern_phys_base, (phys_bytes) _kern_size, region);
+        res = mmap_alloc_region(&boot_mmap, (phys_bytes) _kern_phys_base, mmap_align(&boot_mmap, (phys_bytes) _kern_size), region);
         if (res < 0) {
             ser_print_variable("mmap_alloc_region", res);
             ser_print_variable("start", fdt_addr);
@@ -389,7 +388,7 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
                 pre_panic("FDT /reminiximages section error: can not get module size.");
             }
             size = fdt32_to_cpu(reg[0]);
-            res = mmap_alloc_region(&boot_mmap, (phys_bytes) addr, (phys_bytes) size, region);
+            res = mmap_alloc_region(&boot_mmap, (phys_bytes) addr, mmap_align(&boot_mmap, (phys_bytes) size), region);
             if (res < 0) {
                 ser_print_variable("mmap_alloc_region", res);
                 pre_panic("FDT /reminiximages section error: can not map memory region");
@@ -409,7 +408,7 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
 
     mmap_region_t *new_kernel_region;
     // Приступаем к пункту 6 - перемещаем ядро
-    res = mmap_alloc_lowest_region(&boot_mmap, _kern_size, new_kernel_region);
+    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, _kern_size), new_kernel_region);
     if (res < 0) {
         ser_print_variable("mmap_alloc_lowest_region", res);
         pre_panic("Can not map new region for kernel");
@@ -567,10 +566,106 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
     res = apt_make_clean_table(apt, 0, new_apt_table);
     mmap2apt(new_mmap, apt, new_apt_table); // размапить 1 к 1
 
-	/* Done, return boot info so it can be passed to kmain(). */
+    // Сейчас переразмапим в абстрактную таблицу все наши структуры
+    res = apt_map_region_to_addr(apt, new_apt_table, new_mmap_region, vir_addr_mmap, VM_APF_VM_SHARED |
+                                        VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
+    if (res < 0) {
+        ser_print_variable("apt_map_region_to_addr", res);
+        pre_panic("Can not map mmap to apt");
+    }
+
+    res = apt_map_region_to_addr(apt, new_apt_table, new_mmap_regions_region, vir_addr_mmap_regions, VM_APF_VM_SHARED |
+                                                                                     VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
+    if (res < 0) {
+        ser_print_variable("apt_map_region_to_addr", res);
+        pre_panic("Can not map mmap regions to apt");
+    }
+    res = apt_map_region_to_addr(apt, new_apt_table, new_apt_region, vir_addr_apt, VM_APF_VM_SHARED |
+                                                                                     VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
+    if (res < 0) {
+        ser_print_variable("apt_map_region_to_addr", res);
+        pre_panic("Can not map apt to apt");
+    }
+    res = apt_map_region_to_addr(apt, new_apt_table, new_apt_tables_region, vir_addr_apt_tables, VM_APF_VM_SHARED |
+                                                                                     VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
+    if (res < 0) {
+        ser_print_variable("apt_map_region_to_addr", res);
+        pre_panic("Can not map apt tables to apt");
+    }
+    res = apt_map_region_to_addr(apt, new_apt_table, new_apt_l1_region, vir_addr_apt_l1, VM_APF_VM_SHARED |
+                                                                                     VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
+    if (res < 0) {
+        ser_print_variable("apt_map_region_to_addr", res);
+        pre_panic("Can not map apt l1 to apt");
+    }
+    res = apt_map_region_to_addr(apt, new_apt_table, new_apt_l2_region, vir_addr_apt_l2, VM_APF_VM_SHARED |
+                                                                                     VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
+    if (res < 0) {
+        ser_print_variable("apt_map_region_to_addr", res);
+        pre_panic("Can not map apt l2 to apt");
+    }
+    res = apt_map_region_to_addr(apt, new_apt_table, new_pt_handlers_region, vir_addr_pt_handlers, VM_APF_KERNEL |
+                                                                                     VM_APF_PRESENT | VM_APF_RW );
+    if (res < 0) {
+        ser_print_variable("apt_map_region_to_addr", res);
+        pre_panic("Can not map pt handlers to apt");
+    }
+    res = apt_map_region_to_addr(apt, new_apt_table, new_pt_start_l1_region, vir_addr_pt_l1, VM_APF_KERNEL |
+                                                                                     VM_APF_PRESENT | VM_APF_RW);
+    if (res < 0) {
+        ser_print_variable("apt_map_region_to_addr", res);
+        pre_panic("Can not map pt l1 to apt");
+    }
+    res = apt_map_region_to_addr(apt, new_apt_table, new_pt_start_l2_region, vir_addr_pt_l2, VM_APF_KERNEL |
+                                                                                     VM_APF_PRESENT | VM_APF_RW);
+    if (res < 0) {
+        ser_print_variable("apt_map_region_to_addr", res);
+        pre_panic("Can not map pt l2 to apt");
+    }
+    res = apt_map_region_to_addr(apt, new_apt_table, new_bki_region, vir_addr_new_bki, VM_APF_KERNEL |
+                                                                                     VM_APF_PRESENT | VM_APF_RW);
+    if (res < 0) {
+        ser_print_variable("apt_map_region_to_addr", res);
+        pre_panic("Can not map BKI to apt");
+    }
+    // Вот и всё, теперь нужно засинхронизировать таблицу и загрузить новую таблицу страниц
+    phys_bytes new_pt_root;
+    uint32_t new_pt_handler;
+    res = vm_arch_alloc_pagetable(vir_addr_pt_handlers, new_mmap, apt, new_apt_table, 0, &new_pt_root, &new_pt_handler);
+    if (res < 0) {
+        ser_print_variable("vm_arch_alloc_pagetable", res);
+        pre_panic("Can not alloc new PT");
+    }
+
+    res = vm_arch_apt_to_pt(apt, new_apt_table, vir_addr_pt_handlers, new_pt_handler);
+    if (res < 0) {
+        ser_print_variable("vm_arch_apt_to_pt", res);
+        pre_panic("Can not convert APT to PT");
+    }
+
+    // Помолились и загружаем новую таблицу страниц, сначала скинем кеши
+    dcache_clean();
+    write_ttbr0(new_pt_root);
+
+    // Готовим структуру для передачи основному ядру для завершения инициализации и старта
+    bootstrap_kernel_information_t *new_bki = (bootstrap_kernel_information_t *) vir_addr_new_bki;
+    memcpy((void *)new_bki, &bki, sizeof (bootstrap_kernel_information_t));
+    new_bki->arch_pt_base = vir_addr_pt_handlers;
+    new_bki->fdt_addr = fdt_addr;
+    new_bki->mmap = new_mmap;
+    new_bki->apt = apt;
+    new_bki->kernel_pt_handler = new_pt_handler;
+    new_bki->kernel_apt = new_apt_table;
+    new_bki->smp_trampoline = new_smp_trampoline->start;
+    new_bki->bootstrap_start = new_kernel_region->start;
+    new_bki->bootstrap_len = (phys_bytes) &_kern_unpaged_end - _kern_phys_base;
+    new_bki->system_cpu_count = bsp_smp_get_cpu_count();
+    new_bki->boot_cpu_number = cpuid2cpunr(bsp_smp_get_current_cpu());
+
+	/* Бля, помоему всё. Полетели */
 	return new_bki;
 }
-#pragma clang diagnostic pop
+
 
 /* pre_init gets executed at the memory location where the kernel was loaded by the boot loader.
  * at that stage we only have a minimum set of functionality present (all symbols gets renamed to

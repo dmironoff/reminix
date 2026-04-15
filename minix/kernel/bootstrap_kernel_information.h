@@ -58,15 +58,15 @@ typedef struct {
     vir_bytes                      fdt_addr;
 #endif
 
-    int                             kernel_pt_handler; // Не путать со внутренней таблицой ядра из ttbr1, эта таблица для ttbr0
+    int                             kernel_pt_handler; // это таблица для ttbr0
     vm_abstract_pt_t                *kernel_apt; // абстрактная таблица ядра - это всё адресное пространство из ttbr0
-                                                // После инициализации станет адресным пространством VM
 
     uint32_t                        system_cpu_count;
     uint32_t                        boot_cpu_number;
-    vm_abstract_pagetables_t        *abstract_pagetables;  /// Хочу обратить внимание что здесь должны быть уже виртуальные адреса
+    phys_bytes                      smp_trampoline; // Адрес трамплина для многоядерных систем
+    vm_abstract_pagetables_t        *apt;  // Хочу обратить внимание что здесь должны быть уже виртуальные адреса
     mmap_t                          *mmap;
-    vir_bytes                       user_pt_base;
+    vir_bytes                       arch_pt_base;
 
     boot_module_information_t       modules[BOOT_MODULES_MAX_COUNT];
 
