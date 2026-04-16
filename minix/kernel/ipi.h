@@ -5,7 +5,9 @@
 #ifndef REMINIX_IPI_H
 #define REMINIX_IPI_H
 
+#include "kernel/kernel.h"
 #include "kernel/proc_context.h"
+#include "arch_proc_context.h"
 #include "arch_ipi.h"
 
 typedef struct {
@@ -33,6 +35,11 @@ typedef struct {
     struct proc *proc; // proc descr
     volatile int    result;
 } ipi_vm_inhibit_t;
+
+extern uint32_t *arch_ipi_table;
+extern void arch_ipi_ack(void);
+extern void arch_send_ipi(int cpunr, int ipi);
+extern void arch_send_ipi_all_others(int ipi);
 
 #define IPI_NR(nr)  arch_ipi_table[nr]
 #define IPI_SEND(cpu, nr) arch_send_ipi(cpu, arch_ipi_table[nr])

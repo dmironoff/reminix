@@ -22,7 +22,7 @@ static SPINLOCK_IRQ(context);
  */
 int arch_proc_context_init(void) {
     is_asid_supported = ((read_mmfr0() & 0xFF) >= 3);
-  if (!is_asid_supported) return;
+  if (!is_asid_supported) return 0;
       allocator.generation = 1;
       allocator.next_id = ARCH_PROC_CONTEXT_MIN_ID; // В нашей архитектуре системный сервер VM имеет иддентификатор 1 и он никогда не меняется
       spinlock_irq_init(context);
@@ -60,7 +60,7 @@ void arch_proc_assign_context_id(struct proc *p) {
             spinlock_irq_lock(context);
         }
         p->context_id.generation = allocator.generation;
-        p->context_id = allocator.next_id++;
+        p->context_id.id = allocator.next_id++;
 
         spinlock_irq_unlock(context);
 

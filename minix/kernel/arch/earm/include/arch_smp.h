@@ -5,6 +5,13 @@
 #ifndef REMINIX_ARCH_SMP_H
 #define REMINIX_ARCH_SMP_H
 
+#include <unistd.h>
+#include <ctype.h>
+#include <string.h>
+#include <minix/physmemorymap.h>
+#include <minix/abstract_pagetables.h>
+#include <minix/type.h>
+#include "kernel/kernel.h"
 #include "bsp_cpu.h"
 #include "cpufunc.h"
 

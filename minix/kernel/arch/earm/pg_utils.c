@@ -156,7 +156,7 @@ void pg_map_mem_region(mmap_region_t *region) {
         pagetable[pde] |= ARM_L1_WRITE_BACK;
         pagetable[pde] |= ARM_L1_DOMAIN(0);
         pagetable[pde] |= ARM_L1_AP_KRW_URW;
-        pagetable[pde] |= ARM_L1_SHAREABLE;
+        pagetable[pde] |= ARM_L1_S;
     }
 }
 
@@ -194,7 +194,7 @@ void pg_map_kern_region (mmap_region_t *region) {
             l2_addr = pagetable[pde] & (~ARM_L2PT_ADDR_MASK);
         }
         for (;vir_addr < _kern_vir_base - start_l2 + ARM_L1_SIZE; vir_addr += ARM_L2_SIZE) {
-            pte = ARM_L2_INDEX(addr);
+            pte = ARM_L2_INDEX(vir_addr);
             uint32_t *l2page = (uint32_t *) l2_addr;
             l2page[pte] = phys_addr & ARM_L2_ADDR_MASK;
             l2page[pte] |= ARM_L2_TYPE_SMALL;
@@ -237,7 +237,7 @@ void pg_map_kern_region (mmap_region_t *region) {
         pagetable[pde] |= ARM_L1_WRITE_BACK;
         pagetable[pde] |= ARM_L1_DOMAIN(0);
         pagetable[pde] |= ARM_L1_AP_KRW_URW;
-        pagetable[pde] |= ARM_L1_SHAREABLE;
+        pagetable[pde] |= ARM_L1_S;
         phys_addr += ARM_L1_SIZE;
     }
 }
@@ -296,7 +296,7 @@ void pg_map_region_to_vir (mmap_region_t *region, vir_bytes base) {
             l2_addr = pagetable[pde] & (~ARM_L2PT_ADDR_MASK);
         }
         for (;vir_addr < base - start_l2 + ARM_L1_SIZE; vir_addr += ARM_L2_SIZE) {
-            pte = ARM_L2_INDEX(addr);
+            pte = ARM_L2_INDEX(vir_addr);
             uint32_t *l2page = (uint32_t *) l2_addr;
             l2page[pte] = phys_addr & ARM_L2_ADDR_MASK;
             l2page[pte] |= ARM_L2_TYPE_SMALL;
@@ -339,7 +339,7 @@ void pg_map_region_to_vir (mmap_region_t *region, vir_bytes base) {
         pagetable[pde] |= ARM_L1_WRITE_BACK;
         pagetable[pde] |= ARM_L1_DOMAIN(0);
         pagetable[pde] |= ARM_L1_AP_KRW_URW;
-        pagetable[pde] |= ARM_L1_SHAREABLE;
+        pagetable[pde] |= ARM_L1_S;
         phys_addr += ARM_L1_SIZE;
     }
 }
@@ -364,15 +364,15 @@ vir_bytes pg_map_high(mmap_region_t *region) {
                vir_start = iter;
                size = 0;
            } else if (size < ARM_L1_SIZE) {
-               vir_addr = iter + (ARM_L1_SIZE - size);
+               vir_start = iter + (ARM_L1_SIZE - size);
                size = 0;
            } else {
                vir_start = iter;
                size -= ARM_L1_SIZE;
            }
-        } else if (pagetable[ARM_L1_INDEX(iter)] & ARM_L1_TYPE_PAGE) {
+        } else if (pagetable[ARM_L1_INDEX(iter)] & ARM_L1_TYPE_L2PT) {
            // Мы наткнулись на таблицу L2 - будем её итерировать
-           uint32_t *l2pt = (uint32_t *) pagetables[ARM_L1_INDEX(iter)] & (~ARM_L1_L2PT_ADDR_MASK);
+           uint32_t *l2pt = (uint32_t *) (pagetable[ARM_L1_INDEX(iter)] & (~ARM_L2PT_ADDR_MASK));
            for (int i = ARM_L2_ENTRIES - 1; i >= 0; i--) {
                if (l2pt[i] == 0) {
                    // Страница свободна

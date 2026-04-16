@@ -38,6 +38,8 @@
 #include "clock.h"
 #include "spinlock.h"
 #include "arch_proto.h"
+#include "kernel/resmp.h"
+#include "arch_proc_context.h"
 
 #include <minix/syslib.h>
 
@@ -769,9 +771,9 @@ static int has_pending(sys_map_t *map, int src_p, int asynm)
 
   int src_id;
   sys_id_t id = NULL_PRIV_ID;
-#ifdef CONFIG_SMP
+
   struct proc * p;
-#endif
+
 
   /* Either check a specific bit in the mask map, or find the first bit set in
    * it (if any), depending on whether the receive was called on a specific
@@ -780,19 +782,19 @@ static int has_pending(sys_map_t *map, int src_p, int asynm)
   if (src_p != ANY) {
 	src_id = nr_to_id(src_p);
 	if (get_sys_bit(*map, src_id)) {
-#ifdef CONFIG_SMP
+
 		p = proc_addr(id_to_nr(src_id));
 		if (asynm && RTS_ISSET(p, RTS_VMINHIBIT))
 			p->p_misc_flags |= MF_SENDA_VM_MISS;
 		else
-#endif
+
 			id = src_id;
 	}
   } else {
 	/* Find a source with a pending message */
 	for (src_id = 0; src_id < NR_SYS_PROCS; src_id += BITCHUNK_BITS) {
 		if (get_sys_bits(*map, src_id) != 0) {
-#ifdef CONFIG_SMP
+
 			while (src_id < NR_SYS_PROCS) {
 				while (!get_sys_bit(*map, src_id)) {
 					if (src_id == NR_SYS_PROCS)
@@ -813,10 +815,7 @@ static int has_pending(sys_map_t *map, int src_p, int asynm)
 				} else
 					goto quit_search;
 			}
-#else
-			while (!get_sys_bit(*map, src_id)) src_id++;
-			goto quit_search;
-#endif
+
 		}
 	}
 
@@ -1355,7 +1354,7 @@ static int try_async(struct proc * caller_ptr)
 
 	src_ptr = proc_addr(privp->s_proc_nr);
 
-#ifdef CONFIG_SMP
+
 	/*
 	 * Do not copy from a process which does not have a stable address space
 	 * due to VM fiddling with it
@@ -1364,7 +1363,7 @@ static int try_async(struct proc * caller_ptr)
 		src_ptr->p_misc_flags |= MF_SENDA_VM_MISS;
 		continue;
 	}
-#endif
+
 
 	assert(!(caller_ptr->p_misc_flags & MF_DELIVERMSG));
 	if ((r = try_one(ANY, src_ptr, caller_ptr)) == OK)
@@ -1616,7 +1615,7 @@ void enqueue(
       rp->p_nextready = NULL;		/* mark new end */
   }
 
-  if (cpuid == rp->p_cpu) {
+  if (cpunr == rp->p_cpu) {
 	  /*
 	   * enqueueing a process with a higher priority than the current one,
 	   * it gets preempted. The current process must be preemptible. Testing
@@ -1629,16 +1628,16 @@ void enqueue(
 			  (priv(p)->s_flags & PREEMPTIBLE))
 		  RTS_SET(p, RTS_PREEMPTED); /* calls dequeue() */
   }
-#ifdef CONFIG_SMP
+
   /*
    * if the process was enqueued on a different cpu and the cpu is idle, i.e.
    * the time is off, we need to wake up that cpu and let it schedule this new
    * process
    */
   else if (get_cpu_var(rp->p_cpu, cpu_is_idle)) {
-	  smp_schedule(rp->p_cpu);
+      ipi_send_reschedule(rp->p_cpu);
   }
-#endif
+
 
   /* Make note of when this process was added to queue */
   read_tsc_64(&(get_cpulocal_var(proc_ptr)->p_accounting.enter_queue));
@@ -1792,7 +1791,7 @@ static struct proc * pick_proc(void)
   rdy_head = get_cpulocal_var(run_q_head);
   for (q=0; q < NR_SCHED_QUEUES; q++) {	
 	if(!(rp = rdy_head[q])) {
-		TRACE(VF_PICKPROC, printf("cpu %d queue %d empty\n", cpuid, q););
+		TRACE(VF_PICKPROC, printf("cpu %d queue %d empty\n", cpunr, q););
 		continue;
 	}
 	assert(proc_is_runnable(rp));
@@ -1869,7 +1868,7 @@ static void notify_scheduler(struct proc *p)
 	m_no_quantum.m_krn_lsys_schedule.acnt_ipc_sync  = p->p_accounting.ipc_sync;
 	m_no_quantum.m_krn_lsys_schedule.acnt_ipc_async = p->p_accounting.ipc_async;
 	m_no_quantum.m_krn_lsys_schedule.acnt_preempt   = p->p_accounting.preempted;
-	m_no_quantum.m_krn_lsys_schedule.acnt_cpu       = cpuid;
+	m_no_quantum.m_krn_lsys_schedule.acnt_cpu       = cpunr;
 	m_no_quantum.m_krn_lsys_schedule.acnt_cpu_load  = cpu_load();
 
 	/* Reset accounting */

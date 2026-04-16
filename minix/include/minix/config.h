@@ -109,4 +109,6 @@
 /* Количество потоков для одного процесса */
 #define PROC_MAX_THREADS    25
 
+#define NR_BOOT_PROCS   17
+
 #endif /* _CONFIG_H */

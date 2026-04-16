@@ -1357,8 +1357,8 @@ int map_get_ref(struct vmproc *vmp, vir_bytes addr, u8_t *cnt)
 void get_usage_info_kernel(struct vm_usage_info *vui)
 {
 	memset(vui, 0, sizeof(*vui));
-	vui->vui_total = kernel_boot_info.kernel_allocated_bytes +
-		kernel_boot_info.kernel_allocated_bytes_dynamic;
+//	vui->vui_total = kernel_boot_info.kernel_allocated_bytes +
+//		kernel_boot_info.kernel_allocated_bytes_dynamic;
 	/* All of the kernel's pages are actually mapped in. */
 	vui->vui_virtual = vui->vui_mvirtual = vui->vui_total;
 }
@@ -1366,8 +1366,8 @@ void get_usage_info_kernel(struct vm_usage_info *vui)
 static void get_usage_info_vm(struct vm_usage_info *vui)
 {
 	memset(vui, 0, sizeof(*vui));
-	vui->vui_total = kernel_boot_info.vm_allocated_bytes +
-		get_vm_self_pages() * VM_PAGE_SIZE;
+	//vui->vui_total = kernel_boot_info.vm_allocated_bytes +
+	//	get_vm_self_pages() * VM_PAGE_SIZE;
 	/* All of VM's pages are actually mapped in. */
 	vui->vui_virtual = vui->vui_mvirtual = vui->vui_total;
 }

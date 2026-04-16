@@ -266,7 +266,7 @@ static struct vmproc *init_proc(endpoint_t ep_nr)
 {
 	struct boot_image *ip;
 
-	for (ip = &kernel_boot_info.boot_procs[0];
+	/*for (ip = &kernel_boot_info.boot_procs[0];
 		ip < &kernel_boot_info.boot_procs[NR_BOOT_PROCS]; ip++) {
 		struct vmproc *vmp;
 
@@ -276,16 +276,16 @@ static struct vmproc *init_proc(endpoint_t ep_nr)
 			panic("proc: %d", ip->proc_nr);
 
 		vmp = &vmproc[ip->proc_nr];
-		assert(!(vmp->vm_flags & VMF_INUSE));	/* no double procs */
+		assert(!(vmp->vm_flags & VMF_INUSE));
 		clear_proc(vmp);
 		vmp->vm_flags = VMF_INUSE;
 		vmp->vm_endpoint = ip->endpoint;
 		vmp->vm_boot = ip;
 
 		return vmp;
-	}
-
+	}*/
 	panic("no init_proc");
+    return NULL;
 }
 
 struct vm_exec_info {
@@ -451,8 +451,8 @@ void init_vm(void)
 	env_parse("filemap", "d", 0, &enable_filemap, 0, 1);
 
 	/* Sanity check */
-	assert(kernel_boot_info.mmap_size > 0);
-	assert(kernel_boot_info.mods_with_kernel > 0);
+	//assert(kernel_boot_info.mmap_size > 0);
+	//assert(kernel_boot_info.mods_with_kernel > 0);
 
 	/* Get chunks of available memory. */
 	get_mem_chunks(mem_chunks);
@@ -485,42 +485,42 @@ void init_vm(void)
 	/* The kernel's freelist does not include boot-time modules; let
 	 * the allocator know that the total memory is bigger.
 	 */
-	for (mod = &kernel_boot_info.module_list[0];
-		mod < &kernel_boot_info.module_list[kernel_boot_info.mods_with_kernel-1]; mod++) {
-		phys_bytes len = mod->mod_end-mod->mod_start+1;
-		len = roundup(len, VM_PAGE_SIZE);
-		mem_add_total_pages(len/VM_PAGE_SIZE);
-	}
+	//for (mod = &kernel_boot_info.module_list[0];
+	//	mod < &kernel_boot_info.module_list[kernel_boot_info.mods_with_kernel-1]; mod++) {
+	//	phys_bytes len = mod->mod_end-mod->mod_start+1;
+	//	len = roundup(len, VM_PAGE_SIZE);
+	//	mem_add_total_pages(len/VM_PAGE_SIZE);
+	//}
 
-	kern_dyn = kernel_boot_info.kernel_allocated_bytes_dynamic;
-	kern_static = kernel_boot_info.kernel_allocated_bytes;
+	//kern_dyn = kernel_boot_info.kernel_allocated_bytes_dynamic;
+	//kern_static = kernel_boot_info.kernel_allocated_bytes;
 	kern_static = roundup(kern_static, VM_PAGE_SIZE);
 	mem_add_total_pages((kern_dyn + kern_static)/VM_PAGE_SIZE);
 
 	/* Give these processes their own page table. */
-	for (ip = &kernel_boot_info.boot_procs[0];
-		ip < &kernel_boot_info.boot_procs[NR_BOOT_PROCS]; ip++) {
-		struct vmproc *vmp;
+	//for (ip = &kernel_boot_info.boot_procs[0];
+	//	ip < &kernel_boot_info.boot_procs[NR_BOOT_PROCS]; ip++) {
+	//	struct vmproc *vmp;
 
-		if(ip->proc_nr < 0) continue;
+	//	if(ip->proc_nr < 0) continue;
 
-		assert(ip->start_addr);
+	//	assert(ip->start_addr);
 
 		/* VM has already been set up by the kernel and pt_init().
 		 * Any other boot process is already in memory and is set up
 		 * here.
 		 */
-		if(ip->proc_nr == VM_PROC_NR) continue;
+	//	if(ip->proc_nr == VM_PROC_NR) continue;
 
-		vmp = init_proc(ip->proc_nr);
+	//	vmp = init_proc(ip->proc_nr);
 
-		exec_bootproc(vmp, ip);
+	//	exec_bootproc(vmp, ip);
 
 		/* Free the file blob */
-		assert(!(ip->start_addr % VM_PAGE_SIZE));
-		ip->len = roundup(ip->len, VM_PAGE_SIZE);
-		free_mem(ABS2CLICK(ip->start_addr), ABS2CLICK(ip->len));
-	}
+	//	assert(!(ip->start_addr % VM_PAGE_SIZE));
+	//	ip->len = roundup(ip->len, VM_PAGE_SIZE);
+	//	free_mem(ABS2CLICK(ip->start_addr), ABS2CLICK(ip->len));
+	//}
 
 	/* Set up table of calls. */
 #define CALLMAP(code, func) { int _cmi;		      \

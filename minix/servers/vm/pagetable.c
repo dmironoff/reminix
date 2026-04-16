@@ -1027,9 +1027,9 @@ int pt_new(pt_t *pt)
 
 static int freepde(void)
 {
-	int p = kernel_boot_info.freepde_start++;
-	assert(kernel_boot_info.freepde_start < ARCH_VM_DIR_ENTRIES);
-	return p;
+	//int p = kernel_boot_info.freepde_start++;
+	//assert(kernel_boot_info.freepde_start < ARCH_VM_DIR_ENTRIES);
+	return 0;
 }
 
 void pt_allocate_kernel_mapped_pagetables(void)
@@ -1095,7 +1095,7 @@ void pt_init(void)
 	vir_bytes sparepagedirs_mem;
 #endif
 	static u32_t currentpagedir[ARCH_VM_DIR_ENTRIES];
-	int m = kernel_boot_info.kern_mod;
+	int m = 0; //kernel_boot_info.kern_mod;
 #if defined(__i386__)
 	int global_bit_ok = 0;
 	u32_t mypdbr; /* Page Directory Base Register (cr3) value */
@@ -1105,13 +1105,13 @@ void pt_init(void)
 
 	/* Find what the physical location of the kernel is. */
 	assert(m >= 0);
-	assert(m < kernel_boot_info.mods_with_kernel);
-	assert(kernel_boot_info.mods_with_kernel < MULTIBOOT_MAX_MODS);
-	kern_mb_mod = &kernel_boot_info.module_list[m];
-	kern_size = kern_mb_mod->mod_end - kern_mb_mod->mod_start;
-	assert(!(kern_mb_mod->mod_start % ARCH_BIG_PAGE_SIZE));
-	assert(!(kernel_boot_info.vir_kern_start % ARCH_BIG_PAGE_SIZE));
-	kern_start_pde = kernel_boot_info.vir_kern_start / ARCH_BIG_PAGE_SIZE;
+	//assert(m < kernel_boot_info.mods_with_kernel);
+	//assert(kernel_boot_info.mods_with_kernel < MULTIBOOT_MAX_MODS);
+//	kern_mb_mod = &kernel_boot_info.module_list[m];
+//	kern_size = kern_mb_mod->mod_end - kern_mb_mod->mod_start;
+//	assert(!(kern_mb_mod->mod_start % ARCH_BIG_PAGE_SIZE));
+//	assert(!(kernel_boot_info.vir_kern_start % ARCH_BIG_PAGE_SIZE));
+//	kern_start_pde = kernel_boot_info.vir_kern_start / ARCH_BIG_PAGE_SIZE;
 
         /* Get ourselves spare pages. */
         sparepages_mem = (vir_bytes) static_sparepages;

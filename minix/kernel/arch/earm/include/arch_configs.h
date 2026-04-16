@@ -14,8 +14,10 @@
 
 #define ARCH_CACHE_LINE_SIZE        64
 
-#define ARCH_L2_PAGE_SIZE           4096;
-#define BOOTSTRAP_L2_PULL_SIZE      255; // Используется в файле pg_utils.c для фиксированного размера пула таблиц страниц l2
+#define ARCH_L2_PAGE_SIZE           4096
+#define BOOTSTRAP_L2_PULL_SIZE      255 // Используется в файле pg_utils.c для фиксированного размера пула таблиц страниц l2
+
+#define ARCH_MEMORY_CP_REGION_SIZE  0x200000 // Размер региона виртуальной памяти для копирования информации между процессами равен двум страница L1
 
 /* Максимум процессов — совпадает с KERNEL_MAX_PROCS */
 #define ARM_MAX_PT_HANDLES  (NR_TASKS + NR_PROCS)

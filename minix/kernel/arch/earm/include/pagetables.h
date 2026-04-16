@@ -113,7 +113,7 @@
 
 typedef enum {
     PT_FREE = 0,
-    PT_USED  = 1
+    PT_USED  = 1,
 } arm_pt_status_t;
 
 typedef struct {
@@ -136,7 +136,7 @@ typedef struct {
  * Полностью архитектурнозависимая функция
  * Перед её выполнением нужно загрузить таблицы страниц в регистры
  */
-void arch_enable_paging(void);
+void vm_arch_enable_paging(void);
 
 /*
  * Загрузка таблицы страниц в регистр ttbr0 - пользовательское пространство
@@ -171,7 +171,7 @@ uint32_t vm_arch_flags_to_l2(vm_apt_flags_t flags, mmap_cache_hint_t cache);
 /*
  * Флаги для секции описывающей таблицу страниц второго уровня
  */
-uint32_t vm_arch_flags_to_l2pt (vm_apt_flags_t flags, mmap_cache_hint_t cache;
+uint32_t vm_arch_flags_to_l2pt (vm_apt_flags_t flags, mmap_cache_hint_t cache);
 /*
  * Заделка на будущее: изменения в таблице по дельте
  */

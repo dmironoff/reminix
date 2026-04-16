@@ -28,13 +28,13 @@ extern int is_smp_mode;
 #define SPINLOCK_IRQ_T arm_spinlock_irq_t
 #define SPINLOCK(name)  arm_spinlock_t name
 #define EXT_SPINLOCK(name) extern SPINLOCK_T name
-#define spinlock_init(sl) sl = { .raw = 0, .owner = 0, .next = 0 }
+#define spinlock_init(sl) sl.raw = 0; sl.owner = 0; sl.next = 0
 #define spinlock_lock(sl) if (is_smp_mode) arm_spin_lock(&sl); else arm_irq_disable()
 #define spinlock_unlock(sl) if (is_smp_mode) arm_spin_unlock(&sl); else arm_irq_enable()
 #define spinlock_trylock(sl) arm_spin_trylock(&sl)
 #define SPINLOCK_IRQ(name) arm_spinlock_irq_t name
 #define EXT_SPINLOCK_IRQ(name)  extern SPINLOCK_IRQ_T name
-#define spinlock_irq_init(sl) sl = { .lock.raw = 0, .cpsr = 0 }
+#define spinlock_irq_init(sl) sl.lock.raw = 0; sl.lock.owner = 0; sl.lock.next = 0; sl.cpsr = 0
 #define spinlock_irq_lock(sl) if (is_smp_mode) arm_irq_spin_lock(&sl); else arm_irq_disable()
 #define spinlock_irq_unlock(sl) if (is_smp_mode) arm_irq_spin_unlock(&sl); else arm_irq_enable()
 

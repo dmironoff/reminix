@@ -71,7 +71,7 @@ void bsp_boot_cpu(int cpu, phys_bytes entry_point) {
     arch_cpucore_wakeup(); // Будим ядра
 }
 
-void bsp_halt_cpu_core(int cpu) {
+void bsp_halt_cpu(int cpu) {
     // Ну типо всё в обратной последовательности
     // НЕ ЗАПУСКАТЬ НА ОТКЛЮЧАЕМОМ ЯДРЕ
     // на выключаемом ядре нужно закончить дела, вырубить прерывания, включить wfe

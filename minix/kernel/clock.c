@@ -88,7 +88,7 @@ int timer_int_handler(void)
 	watchdog_local_timer_ticks++;
 #endif
 
-	if (cpu_is_bsp(cpuid)) {
+	if (cpu_is_bsp(cpunr)) {
 		kclockinfo.uptime++;
 
 		/* if adjtime_delta has ticks remaining, apply one to realtime.
@@ -150,7 +150,7 @@ int timer_int_handler(void)
 	/* Update load average. */
 	load_update();
 
-	if (cpu_is_bsp(cpuid)) {
+	if (cpu_is_bsp(cpunr)) {
 		/*
 		 * If a timer expired, notify the clock task.  Keep in mind
 		 * that clock tick values may overflow, so we must only look at

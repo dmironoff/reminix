@@ -40,7 +40,7 @@ int apt_find_table_by_phys_addr(vm_abstract_pagetables_t *apt, phys_bytes addr, 
  * Удаление таблицы страниц, например в связи с преркращением процесса,
  * И возврат их записей в пулл свободных
  */
-int apt_unmap_table(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table;
+int apt_unmap_table(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table);
 
 /*
  * Поиск l1 секции в таблице страниц по виртуальному адресу
@@ -60,7 +60,7 @@ int apt_find_l2_entry_by_virt_addr(vm_abstract_pt_l1_entry_t *l1_entry, vir_byte
 /*
  * Поиск l2 страницы в l1 секции по физическому адресу
  */
-int apt_find_l2_entry_by_phys_addr(vm_abstract_pt_l1_entry_t *l1_entry, phys_bytes addr, vm_abstract_pt_l2_entry_t *l2_entry;
+int apt_find_l2_entry_by_phys_addr(vm_abstract_pt_l1_entry_t *l1_entry, phys_bytes addr, vm_abstract_pt_l2_entry_t *l2_entry);
 
 /*
  * Размапить полностью пустую новую таблицу памяти
@@ -117,7 +117,7 @@ int apt_map_region_to_max_free_end(vm_abstract_pagetables_t *apt, vm_abstract_pt
  * Функция проверяет размер и выделяет виртуальную память по минимальному адресу начала с учётом размера региона
  */
 int apt_map_region_to_min_free_start(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, mmap_region_t *region,
-                                     vir_bytes *start, vm_apt_flags_t flags;
+                                     vir_bytes *start, vm_apt_flags_t flags);
 
 /*
  * Размапить память для страниц выделяемых по требованию

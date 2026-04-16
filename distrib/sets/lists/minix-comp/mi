@@ -2183,3 +2183,5 @@
 ./var/db                                                minix-comp
 ./var/db/obsolete                                       minix-comp
 ./var/db/obsolete/minix-comp                            minix-comp
+./usr/include/minix/abstract_pagetables.h               minix-comp
+./usr/include/minix/physmemorymap.h                     minix-comp

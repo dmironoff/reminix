@@ -74,6 +74,15 @@ typedef struct {
 
     vir_bytes               vir_kern_start; /* kernel addrspace starts */
     vir_bytes               bootstrap_start, bootstrap_len;
+
+    // Мы делаем прототипы на этапе преинициализации так как у нас там гораздо больше данных о регионах памяти
+    vm_abstract_pt_t                *apt_user_process_prototype;  // Прототипы таблиц для пользовательского процесса
+    vm_abstract_pt_t                *apt_vm_process_prototype;  // Для процесса менеджера виртуальной памяти.
+
+    // Заранее разметим несколько секций l1 для копирования данных между ядром и процессами
+    // Они будут иметь в таблице страниц отдельный тип
+    vir_bytes                      vir_memory_cp_region_addr;
+    vir_bytes                      vir_memory_cp_region_size;
 } bootstrap_kernel_information_t;
 
 

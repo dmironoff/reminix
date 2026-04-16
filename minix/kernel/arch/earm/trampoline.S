@@ -32,7 +32,8 @@ _smp_trampoline_entry:
     isb
 
     /* Переходим в C */
-    bl      arch_smp_cpu_second_init
+    ldr     r0, =arch_smp_cpu_second_init
+    blx r0
 
     /* Сюда не должны добраться */
 .Lap_halt:
@@ -40,7 +41,9 @@ _smp_trampoline_entry:
     wfi
     b       .Lap_halt
 
-.size _smp_ap_entry, . - _smp_ap_entry
+.size _smp_trampoline_entry, . - _smp_trampoline_entry
+
+.ltorg
 
 /*
  * Стеки для AP ядер.

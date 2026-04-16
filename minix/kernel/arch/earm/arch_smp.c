@@ -75,15 +75,14 @@ void arch_smp_cpu_second_init(void) {
  * Возвращает физический адрес для arch_smp_boot_cpu()
  */
 phys_bytes arch_smp_copy_trampoline(mmap_t *mmap) {
-    extern char __smp_trampoline_end, __smp_trampoline_start;
-    phys_bytes size = &__smp_trampoline_end - &__smp_trampoline_start;
-    mmap_region_t working_region;
+    extern char __k_unpaged__smp_trampoline_end, __k_unpaged__smp_trampoline_start;
+    phys_bytes size = &__k_unpaged__smp_trampoline_end - &__k_unpaged__smp_trampoline_start;
+    mmap_region_t *region;
 
-    mmap_find_lowest_free_aligned_region(mmap, size, 4096, &working_region);
-    working_region.type = MMAP_SMP_TRAMPOLINE;
-    mmap_add_region(mmap, &working_region);
+    mmap_alloc_lowest_region(mmap, mmap_align(mmap, size), region);
+    region->type = MMAP_SMP_TRAMPOLINE;
 
-    memcpy((void *) &__smp_trampoline_start, (void *) working_region.start, size);
+    memcpy((void *) &__k_unpaged__smp_trampoline_start, (void *) region->start, size);
 
-    return working_region.start;
+    return region->start;
 }

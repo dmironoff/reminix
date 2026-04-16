@@ -65,7 +65,7 @@
 
 #define K_PARAM_SIZE     512
 
-#define NR_BOOT_PROCS   17
+
 
 #endif /* CONFIG_H */
 

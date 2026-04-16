@@ -38,6 +38,8 @@ static int mmap_find_undef_region_record(mmap_t *mmap, mmap_region_t *region) {
  */
 static int biteoff(mmap_t *mmap, mmap_region_t *from, phys_bytes start, phys_bytes size, mmap_region_t *new) {
 
+    int res = 0;
+
     if (start % mmap->l2_page_size || size % mmap->l2_page_size) {
         return MMAP_ALIGNMENT_ERROR;
     }
@@ -148,7 +150,7 @@ static int concat(mmap_t *mmap, mmap_region_t *first, mmap_region_t *second) {
         ((mmap_region_t *)second->next)->prev = (void *) first;
     }
     if (mmap->last_region == second) {
-        mmap->last_region = from;
+        mmap->last_region = first;
     }
     first->next = second->next;
     mmap->regions_count--;
@@ -187,7 +189,7 @@ int mmap_init(mmap_t *mmap, phys_bytes l2_page_size, phys_bytes size) {
         return MMAP_ALIGNMENT_ERROR;
     }
 
-    res = mmap_find_undef_region_record(mmap, *region);
+    res = mmap_find_undef_region_record(mmap, region);
     if (res <= 0) {
         return res;
     }
@@ -382,9 +384,9 @@ static inline int mmap_check_free_size(mmap_t *mmap, phys_bytes start, phys_byte
             iter != 0;
             iter = (mmap_region_t *) iter->next)  {
         if (res <= 0) {
-            return 0;
+            return res;
         }
-        if (iter->status == MMAP_FREE) {
+        if (iter->type == MMAP_FREE) {
             if (start == iter->start) {
                 if (iter->size <= size) {
                     return 1;
@@ -430,7 +432,7 @@ int mmap_alloc_region(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_regi
         return MMAP_ERROR_REGION_BUSY;
     }
 
-    for (res = mmap_find_region_by_addr(mmap, start, size);
+    for (res = mmap_find_region_by_addr(mmap, start, iter);
             iter != 0;
             iter = (mmap_region_t *) iter->next) {
         if (res <= 0) {
@@ -465,7 +467,7 @@ int mmap_alloc_region(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_regi
                     }
                     size = 0;
                 } else {
-                   if (new ! = 0) {
+                   if (new != 0) {
                        res = concat(mmap, new, iter);
                        if (res <= 0) {
                            return res;

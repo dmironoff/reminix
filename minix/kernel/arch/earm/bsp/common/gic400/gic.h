@@ -13,7 +13,7 @@ int gic400_get_irq();
 void gic400_end_irq(int irq);
 void gic400_mask(int irq);
 void gic400_unmask(int irq);
-void gic400_sgi(uint32_t cpu, uint32_t nr);
-void gic400_sgi_all(uint32_t nr);
+void gic400_sgi(uint8_t cpu, uint8_t nr);
+void gic400_sgi_all(uint8_t nr);
 
 #endif //REMINIX_GIC_H

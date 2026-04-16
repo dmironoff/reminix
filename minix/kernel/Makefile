@@ -13,9 +13,10 @@ DBG=-O0
 .include "arch/${MACHINE_ARCH}/Makefile.inc"
 
 SRCS+=	clock.c cpulocals.c interrupt.c main.c proc.c system.c \
-	table.c utility.c usermapped_data.c libcutils.c apt_utils.c env_params_utils.c mmap_utils.c bootargs_utils.c
+	table.c utility.c usermapped_data.c libcutils.c apt_utils.c env_params_utils.c mmap_utils.c bootargs_utils.c \
+	resmp.c
 
-LDADD+=	-ltimers -lsys -lexec 
+LDADD+=	-ltimers -lsys -lexec -lfdt
 
 .if ${MACHINE_ARCH} == "earm"
 CPPFLAGS+= -I${NETBSDSRCDIR}/external/bsd/libfdt/dist/include
@@ -61,9 +62,6 @@ CPPFLAGS+= -I${NETBSDSRCDIR}/minix/include/arch/${MACHINE_ARCH}/include
 CPPFLAGS+= -DPAE=1
 .endif
 
-.ifdef CONFIG_SMP
-SRCS+= smp.c
-.endif
 
 .if ${USE_WATCHDOG} != "no"
 SRCS+= watchdog.c

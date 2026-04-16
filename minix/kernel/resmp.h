@@ -37,4 +37,71 @@ EXTERN struct cpu cpus[CONFIG_MAX_CPUS];
 // Приколюшка для быстрого определения текущего ядра
 #define cpunr cpuid2cpunr(arch_get_current_cpuid())
 
+
+int smp_ipi_irq_handler(struct irq_hook *hook);
+
+void smp_tss_init_all(void);
+
+void smp_ap_boot(int cpu_nr);
+
+void smp_init(void);
+
+void smp_ap_init(void);
+
+/*
+ * мы гасим все дополнительные ядра
+ * кроме себя.
+ */
+void smp_shutdown_aps(void);
+
+/*
+ * Вызовы для других частей системы, что бы выполнять нужные действия с нашими всеми ядрами
+ * Весь прикол, что они проверяют многоядерность системы и мы их можем не опасаясь вызывать из любого места ядра
+ */
+
+/*
+ * Сбросить кеш контекста процесса у всех ядер
+ */
+void proc_context_shoot_all(struct proc *p);
+
+/*
+ * Отправить вызов дополнительной функции на ядро
+ */
+void ipi_send_call(int cpu_nr, int func, void *data);
+
+/*
+ * Отправить вызов дополнительной функции всем
+ */
+void ipi_send_call_all(int func, void *data);
+
+/*
+ * Отправить всем ядрам команду на переход в остановленное состояние для паники
+ */
+void ipi_send_stop(void);
+
+/*
+ * Пересчитать очередь на cpu
+ */
+void ipi_send_reschedule(int cpu_nr);
+
+/*
+ * Пересчитать очередь всем
+ */
+void ipi_send_reschedule_all(void);
+/*
+ * Остановить выполнение процесса
+ */
+void ipi_send_stop_proc(struct proc *p);
+
+/*
+ * Остановить процесс и полностью сохранить контекс
+ */
+void ipi_send_save_ctx(struct proc *p);
+
+/*
+ * Остановить процесс пока VM не разберётся с его таблицей страниц
+ * Используется когда требуется переразметить пространство процесса
+ */
+void ipi_send_vm_inhibit(struct proc *p);
+
 #endif //REMINIX_RESMP_H

@@ -22,7 +22,7 @@ static uint32_t vm_enabled = 0;
  * Полностью архитектурнозависимая функция
  * Перед её выполнением нужно загрузить таблицы страниц в регистры
  */
-void arch_enable_paging(void)
+void vm_arch_enable_paging(void)
 {
     u32_t sctlr;
     u32_t actlr;
@@ -227,18 +227,18 @@ uint32_t vm_arch_flags_to_l1(vm_apt_flags_t flags, mmap_cache_hint_t cache) {
 
     /* Execute Never */
     if (!(flags & VM_APF_EXEC))
-        pte |= ARM_L1_XN;
+        res |= ARM_L1_XN;
 
     switch (cache) {
-        MMAP_CACHE_NO:
-        MMAP_CACHE_DMA:
+        case MMAP_CACHE_NO:
+        case MMAP_CACHE_DMA:
             res |= ARM_L1_UNCACHED;
             break;
-        MMAP_CACHE_WRITECOMB:
+        case MMAP_CACHE_WRITECOMB:
             res |= ARM_L1_WRITE_BACK;
             break;
-        MMAP_CACHE_NORMAL:
-        MMAP_CACHE_WRITETHROUGH:
+        case MMAP_CACHE_NORMAL:
+        case MMAP_CACHE_WRITETHROUGH:
         default:
             res |= ARM_L1_WRITE_THROUGH;
             break;
@@ -288,18 +288,18 @@ uint32_t vm_arch_flags_to_l2(vm_apt_flags_t flags, mmap_cache_hint_t cache) {
 
     /* Execute Never */
     if (!(flags & VM_APF_EXEC))
-        pte |= ARM_L2_XN;
+        res |= ARM_L2_XN;
 
     switch (cache) {
-        MMAP_CACHE_NO:
-        MMAP_CACHE_DMA:
+        case MMAP_CACHE_NO:
+        case MMAP_CACHE_DMA:
             res |= ARM_L2_UNCACHED;
             break;
-        MMAP_CACHE_WRITECOMB:
+        case MMAP_CACHE_WRITECOMB:
             res |= ARM_L2_WRITE_BACK;
             break;
-        MMAP_CACHE_NORMAL:
-        MMAP_CACHE_WRITETHROUGH:
+        case MMAP_CACHE_NORMAL:
+        case MMAP_CACHE_WRITETHROUGH:
         default:
             res |= ARM_L2_WRITE_THROUGH;
             break;
@@ -346,13 +346,13 @@ int vm_arch_apt_to_pt(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vi
         return EINVAL;
     }
 
-    for (l1_iter = table->first_entry; l1_iter != 0; l1_iter = (vm_abstract_pt_l1_entry_t)l1_iter->next) {
+    for (l1_iter = table->first_entry; l1_iter != 0; l1_iter = (vm_abstract_pt_l1_entry_t *)l1_iter->next) {
         if (l1_iter->type == VM_APT_L1_L2PT) {
             // Таблица страниц второго уровня
             int pde = ARM_L1_INDEX(l1_iter->vaddr);
             uint32_t *l2pt = &pagetables[handler].l2_tables[pde];
-            pagetables[handler].l1_table[pde] = ((uint32_t) pagetables[handler].l2_phys + sizeof(uint32_t) * ARM_L2_ENTRIES) & ARM_L1_L2PT_ADDR_MASK;
-            pagetables[handler].l1_table[pde] |= ARM_L1_TYPE_PAGE;
+            pagetables[handler].l1_table[pde] = ((uint32_t) pagetables[handler].l2_phys + sizeof(uint32_t) * ARM_L2_ENTRIES) & ARM_L2PT_ADDR_MASK;
+            pagetables[handler].l1_table[pde] |= ARM_L1_TYPE_L2PT;
             pagetables[handler].l1_table[pde] |= ARM_L1_DOMAIN(0);
             pagetables[handler].l1_table[pde] |= vm_arch_flags_to_l2pt(l1_iter->flags, l1_iter->cache_hint);
             for (l2_iter = l1_iter->first_l2_entry; l2_iter != 0; l2_iter = (vm_abstract_pt_l2_entry_t *) l2_iter->next) {
@@ -372,7 +372,7 @@ int vm_arch_apt_to_pt(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vi
                 if (l1_iter->flags & VM_APF_VIRTUAL_ONLY) {
                     pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] = 0;
                 } else {
-                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] = ((uint32_t) l1_iter->paddr + (vaddr - l1_iter->vaddr)) & ARM_L1_SECTION_ADDR_MASK;
+                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] = ((uint32_t) l1_iter->paddr + (vaddr - l1_iter->vaddr)) & ARM_L1_ADDR_MASK;
                     pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] |= ARM_L1_TYPE_SECTION;
                     pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] |= ARM_L1_DOMAIN(0);
                     pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] |= vm_arch_flags_to_l1(l1_iter->flags, l1_iter->cache_hint);

@@ -25,7 +25,7 @@
  * Поиск региона памяти по адресу памяти
  * Возвращает указатель на регион памяти в карте через переменную region
  */
-int mmap_find_region_by_addr(mmap_t *mmap, phys_bytes addr, mmap_region_t *region;
+int mmap_find_region_by_addr(mmap_t *mmap, phys_bytes addr, mmap_region_t *region);
 /*
  * Инициализация чистой карты памяти
  * Предполагает, что указатель на массив свободных записей уже установлен

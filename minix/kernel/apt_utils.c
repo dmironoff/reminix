@@ -570,7 +570,7 @@ static inline int biteoff_l1 (vm_abstract_pagetables_t *apt, vm_abstract_pt_t *t
     }
 
     if (from->vaddr == start && size == from->size) {
-        new_l2 = from;
+        new_l1 = from;
         return 1;
     }
 
@@ -633,7 +633,7 @@ static inline int biteoff_l1 (vm_abstract_pagetables_t *apt, vm_abstract_pt_t *t
         }
         new_l1->next = from->next;
         from->next = (void *) new_l1;
-        new_l2->prev = (void *) from;
+        new_l1->prev = (void *) from;
         table->entries_count++;
     } else {
         // Мы в середине
@@ -742,7 +742,7 @@ int apt_check_free_memory_addr (vm_abstract_pagetables_t *apt, vm_abstract_pt_t 
                         return 0;
                     }
                     if (working_l2->status == VM_RECORD_FREE) {
-                        if (working_l2->start + apt->l2_page_size >= start + size) {
+                        if (working_l2->vaddr + apt->l2_page_size >= start + size) {
                             // Мы уместились в этой записи о страницах
                             return 1;
                         } else {
@@ -963,7 +963,7 @@ int apt_map_phys_to_vir(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, 
                     }
                     working_l1 = (vm_abstract_pt_l1_entry_t *) new_l1->next;
                     new_l1->status = VM_RECORD_INUSE;
-                    new_l1->flags = flahgs;
+                    new_l1->flags = flags;
                     new_l1->cache_hint = cache_hint;
                     start += new_l1->size;
                     if (addr != 0)
@@ -1105,7 +1105,7 @@ int apt_map_phys_to_vir_max_free_end(vm_abstract_pagetables_t *apt, vm_abstract_
 
     int started= 0;
     //Так как мы ищем непрерывное пространство в конце, то начнём итерацию сконца
-    for (res = table->last_entry; l1_iter != 0; l1_iter = (vm_abstract_pt_l1_entry_t *) l1_iter->prev) {
+    for (l1_iter = table->last_entry; l1_iter != 0; l1_iter = (vm_abstract_pt_l1_entry_t *) l1_iter->prev) {
         if (l1_iter->status == VM_RECORD_FREE) {
             if (!started) {
                 iter_addr = l1_iter->vaddr + l1_iter->size;
@@ -1500,12 +1500,12 @@ int apt_unmap_vir_addr(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, v
             }
         }
         // Уменьшаем количество записей о секторах памяти
-        if (l1_iter>status == VM_RECORD_FREE && ((vm_abstract_pt_l1_entry_t *) l1_iter->prev)->status == VM_RECORD_FREE) {
+        if (l1_iter->status == VM_RECORD_FREE && ((vm_abstract_pt_l1_entry_t *) l1_iter->prev)->status == VM_RECORD_FREE) {
             vm_abstract_pt_l1_entry_t *first = (vm_abstract_pt_l1_entry_t *)l1_iter->prev;
             concat_l1(apt, table, first, l1_iter);
             l1_iter = first;
         }
-        if (l1_iter>status == VM_RECORD_FREE && ((vm_abstract_pt_l1_entry_t *)l1_iter->next)->status == VM_RECORD_FREE) {
+        if (l1_iter->status == VM_RECORD_FREE && ((vm_abstract_pt_l1_entry_t *)l1_iter->next)->status == VM_RECORD_FREE) {
             vm_abstract_pt_l1_entry_t *second = (vm_abstract_pt_l1_entry_t *)l1_iter->next;
             concat_l1(apt, table, l1_iter, second);
         }

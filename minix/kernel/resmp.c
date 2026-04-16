@@ -3,6 +3,7 @@
 //
 
 #include "resmp.h"
+#include "arch_proto.h"
 #include "arch_proc_context.h"
 
 static phys_bytes trampoline_addr;
@@ -47,10 +48,10 @@ static void smp_ipi_handle_stop_proc (void) {
 static void smp_ipi_handle_call (void) {
     // так то этот IPI нужен для бесконечной возможности расширения этого интерфейса
     spinlock_lock(ipi_call);
-    swicth (ipi_call_info[cpunr].func) {
-        default:
-            break;
-    }
+    //swicth (ipi_call_info[cpunr].func) {
+    //    default:
+    //        break;
+   // }
     ipi_call_info[cpunr].result = 1;
     arch_barrier();
     spinlock_unlock(ipi_call);
@@ -193,7 +194,7 @@ void smp_ap_init(void) {
 
 
     cpu_set_flag(cpu, CPU_IS_READY);
-    booted_aps++;
+    booted_cpu++;
     spinlock_unlock(boot_lock);
 
     arm_irq_enable(); // включаем прерывашки на ядре)))))) и полетели =)

@@ -5,6 +5,10 @@
 #ifndef REMINIX_IPI_H
 #define REMINIX_IPI_H
 
+#include <unistd.h>
+#include <ctype.h>
+#include <string.h>
+#include <minix/type.h>
 #include "bsp_ipi.h"
 
 uint32_t arch_ipi_table[] = {
