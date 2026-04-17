@@ -62,8 +62,8 @@ extern uint32_t _smp_trampoline_start, _smp_trampoline_end;
 // Эти данные нам потребуются для перемещения ядра в памяти
 extern uint32_t _kern_phys_base, _kern_vir_base, _kern_size;
 
-
-static phys_bytes fdt_addr; // Сохраним сюда адрес fdt переданным нам при загрузке
+/* Сохранением этого адреса у нас занимается ассемблер в head.S */
+phys_bytes fdt_addr; // Сохраним сюда адрес fdt переданным нам при загрузке
 
 
 // Карта памяти для преинициализации системы
@@ -235,13 +235,9 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
     mmap_region_t *region;
     mmap_region_t *fdt_region;
 
-
-    /* Так мы теперь используем протокол загрузки linux из u-boot
-     * и поэтому сохраним адрес fdt в отдельную переменную
-     * Пункт #1
-     * */
-    asm volatile ("mov %0, r2" : "=r"(fdt_addr));
-
+    /* Clear BSS */
+    //memset(&_edata, 0, (u32_t)&_end - (u32_t)&_edata);
+    //memset(&_kern_unpaged_edata, 0, (u32_t)&_kern_unpaged_end - (u32_t)&_kern_unpaged_edata);
 
     /*
      * НАЧНЁМ ПУНКТ #2
@@ -273,17 +269,13 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
 
     // Пункт 2 закончен, мы перевели всю железку в нужное нам для инициализации состояние
 
-	/* Clear BSS */
-	memset(&_edata, 0, (u32_t)&_end - (u32_t)&_edata);
-    memset(&_kern_unpaged_edata, 0, (u32_t)&_kern_unpaged_end - (u32_t)&_kern_unpaged_edata);
-
     // Включаем отладочный вывод в серийный порт.
     bsp_ser_init();
     ser_print("ReMinix ARM32 kernel\r\n");
 
-
+    ser_print_variable("FDT_ADDR", (uint32_t)fdt_addr);
     // Проверка магического числа fdt
-    if (!fdt_check_header((void *) fdt_addr)) {
+    if (fdt_check_header((void *) fdt_addr) < 0) {
         pre_panic("FDT Blob header check fail");
     }
 
@@ -291,9 +283,9 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
     boot_mmap.regions = boot_mmap_regions;
     boot_mmap.regions_allocated = BOOTSTRAP_MMAP_REGIONS;
     boot_mmap.l2_page_size = ARM_L2_SIZE;
-    node = fdt_path_offset((void *) fdt_addr, "/memory");
+    node = fdt_subnode_offset((void *) fdt_addr, 0, "memory");
     if (node < 0) {
-        node = fdt_node_offset_by_prop_value((void *) fdt_addr, 0, "device_type", "memory", 6);
+        node = fdt_node_offset_by_prop_value((void *) fdt_addr, -1, "device_type", "memory", 7);
         if (node < 0) {
             ser_print_variable("node", node);
             pre_panic("Can not get memory information from FDT");
@@ -306,9 +298,9 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
     } else {
         // Я стараюсь выделять всё в маленькие регионы кода, что бы не плодить много переменных в области видимости функции
         bsp_devices_mmap_t *devices_map;
-        uint32_t devices_map_count;
+        uint32_t devices_map_count = 0;
         bsp_devices_mmap (devices_map, &devices_map_count);
-        phys_bytes devices_mem_len;
+        phys_bytes devices_mem_len = 0;
         phys_bytes mem_len = (phys_bytes) fdt32_to_cpu((fdt32_t)reg[1]);
 
         for (int i = 0; i < devices_map_count; i++) {
@@ -543,6 +535,7 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
     apt->l2_entries = (vm_abstract_pt_l2_entry_t *) vir_addr_apt_l2;
     apt->l2_entries_allocated = BOOTSTRAP_APT_L2_COUNT;
     apt->l2_page_size = ARM_L2_SIZE;
+    apt->l1_section_size = ARM_L1_SIZE;
 
     arm_pt_t *arm_pagetables = (arm_pt_t *) vir_addr_pt_handlers;
     arm_pagetables[0].proc_ep = 0;
@@ -653,8 +646,8 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
     // Выделим в текущей "стартовой" apt наше пространство для копирования данных между процессами
     vir_bytes new_memory_cp_addr = 0;
     vir_bytes new_memory_cp_size = ARCH_MEMORY_CP_REGION_SIZE;
-    res = apt_map_phys_to_vir_max_free_end(apt, new_apt_table, 0, new_memory_cp_size, &new_memory_cp_addr, VM_APF_USER_TO_KERNEL_CP_SPACE |
-                                                                                                           VM_APF_VIRTUAL_ONLY, 0);
+    res = apt_alloc_virtual_l1_max_high(apt, new_apt_table, &new_memory_cp_addr, new_memory_cp_size, VM_APF_USER_TO_KERNEL_CP_SPACE, 0);
+
     if (res < 0) {
         ser_print_variable("apt_map_phys_to_vir_max_free_end", res);
         pre_panic("Can not map virtual memory for inter process copy");

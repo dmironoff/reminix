@@ -18,12 +18,16 @@
 
 #include "arch_proto.h" /* K_STACK_SIZE */
 
+.extern fdt_addr
+
 .section .startup
 /*===========================================================================*/
 /*					MINIX				     */
 /*===========================================================================*/
 .global MINIX
 MINIX:
+    ldr r4, =fdt_addr
+    str r2, [r4]
 /* this is the entry point for the MINIX kernel */
 	b multiboot_init
 

@@ -156,4 +156,9 @@ int apt_unmap_region(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, mma
  */
 int apt_make_clean_table_with_size(vm_abstract_pagetables_t *apt, endpoint_t owner, int l1_pages, vm_abstract_pt_t *new_table);
 
+/* Выделение непрерывного виртуального региона кратного l1 size в конце доступного диапазона виртуальных адресов
+ * Необходимо для выделения памяти в функции межпроцессного взаимодействия
+ * */
+int apt_alloc_virtual_l1_max_high(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vir_bytes *addr, vir_bytes size, vm_apt_flags_t flags, mmap_cache_hint_t cache);
+
 #endif //REMINIX_APT_UTILS_H

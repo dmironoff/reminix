@@ -1546,3 +1546,38 @@ int apt_unmap_phys_addr(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, 
 int apt_unmap_region(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, mmap_region_t *region) {
  return apt_unmap_phys_addr(apt, table, region->start, region->size);
 }
+
+/* Выделение непрерывного виртуального региона кратного l1 size в конце доступного диапазона виртуальных адресов
+ * Необходимо для выделения памяти в функции межпроцессного взаимодействия
+ * */
+int apt_alloc_virtual_l1_max_high(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vir_bytes *addr, vir_bytes size, vm_apt_flags_t flags, mmap_cache_hint_t cache) {
+    vm_abstract_pt_l1_entry_t *iter;
+    int res;
+    vir_bytes iter_size;
+
+    if (size % apt->l1_section_size) {
+        return APT_ALIGNMENT_ERROR;
+    }
+
+    for (iter = table->last_entry; iter != 0; iter = (vm_abstract_pt_l1_entry_t *) iter->prev) {
+        if (iter->status == VM_RECORD_FREE) {
+            if (iter_size == size) {
+                *addr = iter->vaddr + iter->size - size;
+            }
+            if (iter_size <= iter->size) {
+                iter_size = 0;
+            } else {
+                iter_size -= iter->size;
+            }
+        } else {
+            iter_size = size;
+            *addr = 0;
+        }
+
+        if (iter_size == 0) {
+            return apt_map_phys_to_vir(apt, table, 0, size, *addr, (flags | VM_APF_VIRTUAL_ONLY), cache);
+        }
+    }
+
+    return APT_NOT_FREE;
+}

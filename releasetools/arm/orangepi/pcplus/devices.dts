@@ -14,7 +14,7 @@
 	};
 
 	reminiximages {
-
+		compatible = "reminix,boot-images";
     		  ds {
 				  type = "server";
                   addr = <0x82000000>;
@@ -27,7 +27,7 @@
                   size = <0x00800000>;
             };
 
-    		  memory {
+    		  mem {
 				  type = "driver";
                   addr = <0x84800000>;
 				  size = <0x00800000>;

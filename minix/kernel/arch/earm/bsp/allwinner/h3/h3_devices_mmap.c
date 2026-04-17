@@ -23,6 +23,6 @@ static bsp_devices_mmap_t mymap[] = {
 
 void bsp_devices_mmap (bsp_devices_mmap_t *mmap, uint32_t   *count) {
 
-    mmap = &mymap[0];
+    mmap = mymap;
     *count = 1;
 }
