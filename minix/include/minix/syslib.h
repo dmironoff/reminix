@@ -35,6 +35,7 @@ int sys_fork(endpoint_t parent, endpoint_t child, endpoint_t *,
 	u32_t vm, vir_bytes *);
 int sys_clear(endpoint_t proc_ep);
 int sys_exit(void);
+int sys_kyield(void);
 int sys_trace(int req, endpoint_t proc_ep, long addr, long *data_p);
 
 int sys_schedule(endpoint_t proc_ep, int priority, int quantum, int cpu,

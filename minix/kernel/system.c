@@ -267,6 +267,9 @@ void system_init(void)
   map(SYS_SCHEDULE, do_schedule);	/* reschedule a process */
   map(SYS_SCHEDCTL, do_schedctl);	/* change process scheduler */
 
+  /* KYield - пропуск своей очереди процессом */
+  map(SYS_KYIELD, do_kyield);
+
 }
 /*===========================================================================*
  *				get_priv				     *
