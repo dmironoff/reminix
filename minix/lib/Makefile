@@ -24,6 +24,7 @@ SUBDIR+=	libsockevent
 SUBDIR+=	libtimers
 SUBDIR+=	libusb
 SUBDIR+=	libvtreefs
+SUBDIR+=	libkmutex
 
 .if (${HAVE_LIBGCC} == "no")
 SUBDIR+=	libgcc_s_empty
