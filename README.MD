@@ -1,3 +1,6 @@
+# ReMinix - Free open source microkernel operating system
+<img src="logo.jpg" width="300">
+
 ## Legal Notice and Credits
 
 ReMinix is an independent, open-source operating system project. It is a derivative work based on the MINIX 3 operating system.
