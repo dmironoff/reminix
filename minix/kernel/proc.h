@@ -11,6 +11,8 @@
 #include "const.h"
 #include "priv.h"
 #include "kernel/proc_context.h"
+#include "kmutex.h"
+#include "minix/abstract_pagetables.h"
 
 /* Sentinel: у процесса нет физической таблицы (ядровые задачи, незапущенные) */
 #define PT_HANDLER_NONE  ((uint32_t)0xFFFFFFFFu)
@@ -95,6 +97,12 @@ struct proc {
     struct { reg_t r1, r2, r3; } p_defer;
 
     /*
+     * Виртуальный адрес APT и применённая версия
+     */
+    vm_abstract_pt_t    *apt_table;
+    unsigned long       apt_version; //По ней мы будем смотреть стоит ли применять изменения на лету
+
+    /*
      * Индекс в массиве arm_pt_t (arch_pt_base из BKI).
      * PT_HANDLER_NONE — таблица не назначена (ядровые задачи, init-фаза).
      * Выставляется в arch_boot_proc для VM и в sys_vmctl VMCTL_SETPT для остальных.
@@ -106,6 +114,7 @@ struct proc {
      * ASID/PCID кеширование контекста:
      *   ARM/AArch64/RISC-V — ASID
      *   x86-64             — PCID
+     *   i586               - Нет, наша архитектурная часть должна это учитывать
      */
     proc_context_id_t context_id;
 

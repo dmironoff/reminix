@@ -77,7 +77,7 @@ ORIG_UNPAGED_OBJS += ${unpaged_obj}
 
 CLEANFILES+= ${ORIG_UNPAGED_OBJS}
 
-SRCS+=	mpx.S arch_clock.c arch_do_vmctl.c arch_system.c do_padconf.c \
+SRCS+=	mpx.S arch_clock.c arch_system.c do_padconf.c \
 	exception.c hw_intr.c klib.S memory.c \
 	protect.c direct_tty_utils.c arch_reset.c \
 	pg_utils.c phys_copy.S phys_memset.S exc.S \

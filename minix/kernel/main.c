@@ -42,8 +42,8 @@ int cpu_count   = 1;
 int bsp_cpu_nr  = 0;
 
 /* Глобальные указатели на рабочие структуры памяти */
-mmap_t                   *system_mmap;
-vm_abstract_pagetables_t *system_apt;
+mmap_t                   *mmap;
+vm_abstract_pagetables_t *apt;
 
 #ifdef __arm__
 vir_bytes  fdt_addr;
@@ -51,7 +51,7 @@ arm_pt_t  *kernel_pt;
 #endif
 
 /* Физические таблицы страниц — передаётся во всё архитектурно-зависимое */
-vir_bytes user_pt_base;
+vir_bytes arch_pt_base;
 
 /* ------------------------------------------------------------------ */
 

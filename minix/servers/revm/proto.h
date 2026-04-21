@@ -38,4 +38,5 @@ int do_map_phys(message *m);
 
 // Обработка вызова VM_PAGEFAULT от ядра
 int do_pagefault(message *m);
+
 #endif //REMINIX_PROTO_H

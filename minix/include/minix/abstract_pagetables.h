@@ -114,6 +114,7 @@ typedef struct {
 } vm_abstract_pt_l1_entry_t;
 
 typedef struct {
+    kmutex_t                    lock;
     vm_apt_record_status_t      status;
     endpoint_t                  owner;
     unsigned long                    version;
@@ -138,6 +139,7 @@ typedef uint32_t vm_abstract_arch_flags;
  * Ну такая идея, просто сразу хочется избавится от завязывания на количестве процессов
  */
 typedef struct {
+    kmutex_t                    lock;
     // Сразу разместим здесь настройки для vm
     // Что бы не переписывать VM под разные архитектуры, просто ядро передаст VM базовые констранты таблиц
     // А сами эти константы мы инициализируем в pre_init исходя из архитектуры машины
@@ -145,8 +147,6 @@ typedef struct {
     unsigned long                    l1_sections_max_count;   // Максимальное количество l1 секций на архитектуре
     phys_bytes                  l1_section_size;     // Размер l1 секции на архитектуре
                                                 // Соответственно общий объём памяти возможный к разметке на архитектуре:  l1_sections_max_count * l1_section_size
-                                                // Для ARM и RISC-V: так как ядро размеченно в другом регистре другой таблицей,
-                                                // то здесь количество записей должно быть равно тому что помещается в регистр таблиц для пользовательских приложений
     phys_bytes                  l2_page_size;    // Размер страницы l2 на архитектуре
                                                 // Количество страниц l2 в секции l1: l1_section_size / l2_page_size
     unsigned long                    pagetables_allocated; // Количество записей о таблицах аллоцированное в памяти

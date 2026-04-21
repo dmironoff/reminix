@@ -10,6 +10,20 @@
 #include "kernel/system.h"
 #include "kernel/vm.h"
 #include <assert.h>
+#include "kmutex.h"
+#include "minix/abstract_pagetables.h"
+#include "pagetables.h"
+#include "mmap_utils.h"
+#include "apt_utils.h"
+
+/* Глобальные указатели на рабочие структуры памяти */
+extern mmap_t                   *mmap;
+extern vm_abstract_pagetables_t *apt;
+
+/* Физические таблицы страниц — передаётся во всё архитектурно-зависимое */
+extern vir_bytes arch_pt_base;
+
+extern int do_kyield(struct proc * caller, message * m_ptr);
 
 /*===========================================================================*
  *				do_vmctl				     *
@@ -30,10 +44,75 @@ int do_vmctl(struct proc * caller, message * m_ptr)
   p = proc_addr(proc_nr);
 
   switch(m_ptr->SVMCTL_PARAM) {
+      // Получить виртуальный адрес таблицы APT для процесса
+      case VMCTL_GET_APT:
+          m_ptr->SVMCTL_APT = p->apt_table;
+          return OK;
+
+      // Обновить данные таблицы страниц согласно новой APT
+      // и сбросить связанный кеш
+          // но если мы не сможем сразу её закомитить, то мы так же как и с pagefault
+          // Переложим эту ответственность на функцию переключения контекста
+      case VMCTL_COMMIT_APT:
+          if (kmutex_trylock(p->apt_table->lock)) {
+              // сейчас обновим нашу физическую таблицу страниц
+              vm_arch_apt_to_pt(apt, p->apt_table, arch_pt_base, p->pt_handler);
+              proc_context_shoot_all(p->context_id); // Всегда убиваем кеш по контексту
+              // Эта функция уже реализует SMP
+              p->apt_version = p->apt_table->version;
+              kmutex_unlock(p->apt_table->lock);
+          } else {
+              printf("Process %d APT MUTEX Locked while VMCTL_CLEAR_PAGEFAULT\r\n", p->p_nr);
+              // Мьютекс заблокирован, это странно, но мы обработаем это так
+              // Мы просто переместим процесс в конец очереди, так как при изменении APT были изменена версия
+              // Так что при следующем переключении контекста попытка синхронизировать адресное пространство повторится
+              do_kyield(p, NULL);
+          }
+          return OK;
+
+      // Установить для процесса новую таблицу APT
+      // Предполагает что нужно её сразу закоммитить
+      // но если мы не сможем сразу её закомитить, то мы так же как и с pagefault
+      // Переложим эту ответственность на функцию переключения контекста
+      case VMCTL_SET_APT:
+          p->apt_table = m_ptr->SVMCTL_APT;
+          if (kmutex_trylock(p->apt_table->lock)) {
+              // сейчас обновим нашу физическую таблицу страниц
+              vm_arch_apt_to_pt(apt, p->apt_table, arch_pt_base, p->pt_handler);
+              proc_context_shoot_all(p->context_id); // Всегда убиваем кеш по контексту
+              // Эта функция уже реализует SMP
+              p->apt_version = p->apt_table->version;
+              kmutex_unlock(p->apt_table->lock);
+          } else {
+              printf("Process %d APT MUTEX Locked while VMCTL_CLEAR_PAGEFAULT\r\n", p->p_nr);
+              // Мьютекс заблокирован, это странно, но мы обработаем это так
+              // Мы просто переместим процесс в конец очереди, так как при изменении APT были изменена версия
+              // Так что при следующем переключении контекста попытка синхронизировать адресное пространство повторится
+              do_kyield(p, NULL);
+          }
+          return OK;
+
+    // Сбросить флаг ошибки адресации страниц для процесса
 	case VMCTL_CLEAR_PAGEFAULT:
 		assert(RTS_ISSET(p,RTS_PAGEFAULT));
+        if (kmutex_trylock(p->apt_table->lock)) {
+          // сейчас обновим нашу физическую таблицу страниц
+            vm_arch_apt_to_pt(apt, p->apt_table, arch_pt_base, p->pt_handler);
+            proc_context_shoot_all(p->context_id); // Всегда убиваем кеш по контексту
+                                                    // Эта функция уже реализует SMP
+            p->apt_version = p->apt_table->version;
+            kmutex_unlock(p->apt_table->lock);
+        } else {
+          printf("Process %d APT MUTEX Locked while VMCTL_CLEAR_PAGEFAULT\r\n", p->p_nr);
+          // Мьютекс заблокирован, это странно, но мы обработаем это так
+          // Мы просто переместим процесс в конец очереди, так как при изменении APT были изменена версия
+          // Так что при следующем переключении контекста попытка синхронизировать адресное пространство повторится
+          do_kyield(p, NULL);
+        }
 		RTS_UNSET(p, RTS_PAGEFAULT);
 		return OK;
+
+    // Получение списка запросов памяти от ядра
 	case VMCTL_MEMREQ_GET:
 		/* Send VM the information about the memory request. We can
 		 * not simply send the first request on the list, because IPC
@@ -78,6 +157,7 @@ int do_vmctl(struct proc * caller, message * m_ptr)
 
 		return ENOENT;
 
+    // Ответ о выделении памяти для ядерных нужд
 	case VMCTL_MEMREQ_REPLY:
 		assert(RTS_ISSET(p, RTS_VMREQUEST));
 		assert(p->p_vmrequest.vmresult == VMSUSPEND);
@@ -109,31 +189,17 @@ int do_vmctl(struct proc * caller, message * m_ptr)
 		RTS_UNSET(p, RTS_VMREQUEST);
 		return OK;
 
-	case VMCTL_KERN_PHYSMAP:
-	{
-		int i = m_ptr->SVMCTL_VALUE;
-		return arch_phys_map(i,
-			(phys_bytes *) &m_ptr->SVMCTL_MAP_PHYS_ADDR,
-			(phys_bytes *) &m_ptr->SVMCTL_MAP_PHYS_LEN,
-			&m_ptr->SVMCTL_MAP_FLAGS);
-	}
-	case VMCTL_KERN_MAP_REPLY:
-	{
-		return arch_phys_map_reply(m_ptr->SVMCTL_VALUE,
-			(vir_bytes) m_ptr->SVMCTL_MAP_VIR_ADDR);
-	}
+    // Установка флага процесса, что он остановлен, до завершения действий VM
 	case VMCTL_VMINHIBIT_SET:
-		/* check if we must stop a process on a different CPU */
-#if CONFIG_SMP
-		if (p->p_cpu != cpuid) {
-			smp_schedule_vminhibit(p);
+		/* Проверочка что процесс на другом процессоре, если так, то мы отправим IPI */
+		if (p->p_cpu != cpunr) {
+            ipi_send_vm_inhibit(p);
 		} else
-#endif
 			RTS_SET(p, RTS_VMINHIBIT);
-#if CONFIG_SMP
 		p->p_misc_flags |= MF_FLUSH_TLB;
-#endif
 		return OK;
+
+    // Сброс флага состояния остановки по требованию VM
 	case VMCTL_VMINHIBIT_CLEAR:
 		assert(RTS_ISSET(p, RTS_VMINHIBIT));
 		/*
@@ -141,7 +207,6 @@ int do_vmctl(struct proc * caller, message * m_ptr)
 		 * cpu
 		 */
 		RTS_UNSET(p, RTS_VMINHIBIT);
-#ifdef CONFIG_SMP
 		if (p->p_misc_flags & MF_SENDA_VM_MISS) {
 			struct priv *privp;
 			p->p_misc_flags &= ~MF_SENDA_VM_MISS;
@@ -157,17 +222,21 @@ int do_vmctl(struct proc * caller, message * m_ptr)
 		 * Next time we map memory, we map it fresh.
 		 */
 		bits_fill(p->p_stale_tlb, CONFIG_MAX_CPUS);
-#endif
 		return OK;
+
 	case VMCTL_CLEARMAPCACHE:
 		/* VM says: forget about old mappings we have cached. */
 		mem_clear_mapcache();
 		return OK;
+
+    // Сброс остановки процесса после старта системы
+    // Первые процессы рождаются с этим флагом
+    // И ждут когда VM для них разметит адресное пространство
 	case VMCTL_BOOTINHIBIT_CLEAR:
 		RTS_UNSET(p, RTS_BOOTINHIBIT);
 		return OK;
   }
 
-  /* Try architecture-specific vmctls. */
-  return arch_do_vmctl(m_ptr, p);
+    printf("do_vmctl: strange param %d\n", m_ptr->SVMCTL_PARAM);
+    return EINVAL;
 }
