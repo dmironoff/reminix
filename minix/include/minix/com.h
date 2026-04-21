@@ -380,13 +380,7 @@
 #define	SVMCTL_MRG_ADDR2	m2_l2	/* MEMREQ_GET reply: source address */
 #define SVMCTL_MRG_REQUESTOR	m2_p1	/* MEMREQ_GET reply: requestor */
 #define SVMCTL_MAP_VIR_ADDR	m1_p1
-#define SVMCTL_PTROOT		m1_i3
-#define SVMCTL_PTROOT_V		m1_p1
-
-/* Reply message for VMCTL_KERN_PHYSMAP */
-#define SVMCTL_MAP_FLAGS	m2_i1	/* VMMF_* */
-#define SVMCTL_MAP_PHYS_ADDR	m2_l1
-#define SVMCTL_MAP_PHYS_LEN	m2_l2
+#define SVMCTL_APT		m1_p1
 
 #define VMMF_UNCACHED		(1L << 0)
 #define VMMF_USER		(1L << 1)
@@ -395,16 +389,11 @@
 
 /* Values for SVMCTL_PARAM. */
 #define VMCTL_CLEAR_PAGEFAULT	12
-#define VMCTL_GET_PDBR		13
+#define VMCTL_GET_APT		13
 #define VMCTL_MEMREQ_GET 	14
 #define VMCTL_MEMREQ_REPLY	15
-#define VMCTL_NOPAGEZERO	18
-#define VMCTL_I386_KERNELLIMIT	19
-#define VMCTL_I386_INVLPG	25
-#define VMCTL_FLUSHTLB		26
-#define VMCTL_KERN_PHYSMAP	27
-#define VMCTL_KERN_MAP_REPLY	28
-#define VMCTL_SETADDRSPACE	29
+#define VMCTL_COMMIT_APT		26
+#define VMCTL_SET_APT	29
 #define VMCTL_VMINHIBIT_SET	30
 #define VMCTL_VMINHIBIT_CLEAR	31
 #define VMCTL_CLEARMAPCACHE	32
