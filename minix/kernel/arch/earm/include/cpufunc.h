@@ -563,6 +563,7 @@ static inline void clean_cache_range(vir_bytes start, vir_bytes end) {
 #endif
 }
 
+
 static inline void arm_irq_disable(void) {
     asm volatile("cpsid if" ::: "memory");
 }

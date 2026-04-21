@@ -23,11 +23,19 @@
 #include "bsp_serial.h"
 #include "kernel/resmp.h"
 #include "kernel/proc_context.h"
+#include "kmutex.h"
 #include "arch_proc_context.h"
+#include "pagetables.h"
 
 #include "glo.h"
 
 void * k_stacks;
+
+/* Физические таблицы страниц — передаётся во всё архитектурно-зависимое */
+extern vir_bytes arch_pt_base;
+/* Глобальные указатели на рабочие структуры памяти */
+extern mmap_t                   *mmap;
+extern vm_abstract_pagetables_t *apt;
 
 
 void fpu_init(void)
@@ -203,8 +211,7 @@ void __switch_address_space(struct proc *p, struct proc **__ptproc)
 	orig_ttbr = read_ttbr0();
 
 	/*
-	 * test if ttbr is loaded with the current value to avoid unnecessary
-	 * TLB flushes
+	 * Проверим нужно ли нам обновлять
 	 */
 	if (new_ttbr == orig_ttbr)
 	    return;

@@ -40,7 +40,9 @@
 #include "arch_proto.h"
 #include "kernel/resmp.h"
 #include "arch_proc_context.h"
-
+#include "kmutex.h"
+#include "pagetables.h"
+#include <minix/abstract_pagetables.h>
 #include <minix/syslib.h>
 
 /* Scheduling and message passing functions */
@@ -307,8 +309,26 @@ void switch_to_user(void)
 	 * if the current process is still runnable check the misc flags and let
 	 * it run unless it becomes not runnable in the meantime
 	 */
-	if (proc_is_runnable(p))
-		goto check_misc_flags;
+	if (proc_is_runnable(p)) {
+        /*
+         * Добавим сюда проверку на изменение таблицы страниц*/
+        if (p->apt_version != p->apt_table->version) {
+            if (kmutex_trylock(p->apt_table->lock)) {
+                // сейчас обновим нашу физическую таблицу страниц
+                vm_arch_apt_to_pt(apt, p->apt_table, arch_pt_base, p->pt_handler);
+                proc_context_shoot_all(p->context_id); // Всегда убиваем кеш по контексту
+                // Эта функция уже реализует SMP
+                p->apt_version = p->apt_table->version;
+                kmutex_unlock(p->apt_table->lock);
+            } else {
+                // Мьютекс заблокирован, направим процесс на следующий раунд
+                dequeue(p);
+                enqueue(p);
+                goto not_runnable_pick_new;
+            }
+        }
+        goto check_misc_flags;
+    }
 	/*
 	 * if a process becomes not runnable while handling the misc flags, we
 	 * need to pick a new one here and start from scratch. Also if the
@@ -334,6 +354,24 @@ not_runnable_pick_new:
 	while (!(p = pick_proc())) {
 		idle();
 	}
+
+    /*
+         * Добавим сюда проверку на изменение таблицы страниц*/
+    if (p->apt_version != p->apt_table->version) {
+        if (kmutex_trylock(p->apt_table->lock)) {
+            // сейчас обновим нашу физическую таблицу страниц
+            vm_arch_apt_to_pt(apt, p->apt_table, arch_pt_base, p->pt_handler);
+            proc_context_shoot_all(p->context_id); // Всегда убиваем кеш по контексту
+            // Эта функция уже реализует SMP
+            p->apt_version = p->apt_table->version;
+            kmutex_unlock(p->apt_table->lock);
+        } else {
+            // Мьютекс заблокирован, направим процесс на следующий раунд
+            dequeue(p);
+            enqueue(p);
+            goto not_runnable_pick_new;
+        }
+    }
 
 	/* update the global variable */
 	get_cpulocal_var(proc_ptr) = p;

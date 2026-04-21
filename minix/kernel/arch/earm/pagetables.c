@@ -78,8 +78,9 @@ void vm_arch_enable_paging(void)
 /*
  * Загрузка таблицы страниц в регистр ttbr0 - пользовательское пространство
  */
-void pg_load_ttbr0(arm_pt_t *pagedir)
+void pg_load_ttbr0(vir_bytes arch_pagetables, uint32_t handler)
 {
+    arm_pt_t *pagedir = &((arm_pt_t *) arch_pagetables)[handler];
     if (vm_enabled) {
         clean_cache_range((vir_bytes) pagedir->l1_table, ((vir_bytes) pagedir->l1_table) + ARM_L1_SIZE);
         write_ttbr0(pagedir->l1_phys);

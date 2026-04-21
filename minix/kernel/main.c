@@ -115,14 +115,11 @@ void kmain(bootstrap_kernel_information_t *bki)
 
     /* ----- Сохраняем BKI глобально ----- */
     BKI         = bki;
-    system_mmap = bki->mmap;
-    system_apt  = bki->apt;
+    mmap = bki->mmap;
+    apt  = bki->apt;
 
-#ifdef __arm__
     fdt_addr  = bki->fdt_addr;
-    kernel_pt = (arm_pt_t *) bki->arch_pt_base;
-    user_pt_base = bki->arch_pt_base;
-#endif
+    arch_pt_base = bki->arch_pt_base;
 
     /* Переносим параметры загрузки в kinfo.params для env_get() */
     strlcpy(kinfo.params, bki->params, sizeof(kinfo.params));

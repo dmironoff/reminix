@@ -141,7 +141,7 @@ void vm_arch_enable_paging(void);
 /*
  * Загрузка таблицы страниц в регистр ttbr0 - пользовательское пространство
  */
-void pg_load_ttbr0(arm_pt_t *pagedir);
+void pg_load_ttbr0(vir_bytes arch_pagetables, uint32_t handler);
 
 /*
  * Выделить память для таблицы страниц l1
@@ -182,8 +182,5 @@ int vm_arch_pt_apply(vir_bytes arch_pagetables, vm_pt_change_t changes);
  */
 int vm_arch_apt_to_pt(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vir_bytes arch_pagetables, uint32_t handler);
 
-void vm_arch_tlb_shoot() {
-
-}
 
 #endif //REMINIX_PAGETABLES_H

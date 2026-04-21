@@ -31,13 +31,15 @@
 #include "kernel/apt_utils.h"
 #include "kernel/mmap_utils.h"
 
-extern bootstrap_kernel_information_t *BKI;
-extern vm_abstract_pagetables_t       *system_apt;
-extern vir_bytes                       user_pt_base; /* arch_pt_base из BKI */
+extern bootstrap_kernel_information_t *BKI; // Структура с инициализационными параметрами ядра, отсюда нам нужно знать куда мы размапили окно копирования
+extern vm_abstract_pagetables_t       *apt; // Абстрактная таблица страниц
+extern vir_bytes                       arch_pt_base; // Базовый адрес физической аппаратной таблицы страниц
+extern mmap_t                         *mmap; // Абстрактная карта памяти
 
-/* ------------------------------------------------------------------ */
-/* Совместимость: HASPT проверяет p_ttbr как и раньше                 */
-#define HASPT(procptr) ((procptr)->p_seg.p_ttbr != 0)
+/*
+ * Проверяем наличие у процесса своей таблицы страниц
+ */
+#define HASPT(procptr) ((procptr)->pt_handler != 0xFFFFFFFF)
 
 static int nfreepdes = 0;
 #define MAXFREEPDES 2
@@ -45,8 +47,6 @@ static int freepdes[MAXFREEPDES];   /* индексы L1 в текущей та�
 
 static u32_t phys_get32(phys_bytes v);
 
-/* list of requested physical mapping */
-static kern_phys_map *kern_phys_map_head;
 
 /*===========================================================================*
  *                          memory_init                                      *
@@ -66,32 +66,29 @@ void memory_init(void)
     assert(nfreepdes == MAXFREEPDES);
 }
 
-/*===========================================================================*
- *                          mem_clear_mapcache                               *
- *===========================================================================*/
+/*
+ * Сброс записей о наших окнах копирования в физической таблице текущего процесса
+ */
 void mem_clear_mapcache(void)
 {
     int i;
+    struct proc *ptproc = get_cpulocal_var(ptproc);
+    vir_bytes ptbase = ((arm_pt_t *) arch_pt_base)[ptproc->pt_handler].l1_table;
     for (i = 0; i < nfreepdes; i++) {
-        struct proc *ptproc = get_cpulocal_var(ptproc);
-        int pde = freepdes[i];
-        u32_t *ptv;
-        assert(ptproc);
-        ptv = ptproc->p_seg.p_ttbr_v;
-        assert(ptv);
-        ptv[pde] = 0;
+        ((uint32_t *) ptbase)[freepdes[i]] = 0;
+        // Сбросим эту запись в кешах процессоров
+        tlbi_mva_asid_is(freepdes[i] * ARM_L1_SIZE, ptproc->context_id.id);
     }
 }
 
-/*===========================================================================*
- *                          createpde                                        *
- *===========================================================================*/
+/*
+ * Создание окна в память другого процесса
+ */
 static phys_bytes createpde(
         const struct proc *pr,
         const phys_bytes   linaddr,
         phys_bytes        *bytes,
-        int                free_pde_idx,
-        int               *changed)
+        int                free_pde_idx)
 {
     u32_t pdeval;
     phys_bytes offset;
@@ -99,26 +96,35 @@ static phys_bytes createpde(
 
     assert(free_pde_idx >= 0 && free_pde_idx < nfreepdes);
     pde = freepdes[free_pde_idx];
-    assert(pde >= 0 && pde < 4096);
+    assert(pde >= 0 && pde < ARM_L1_ENTRIES);
 
+    // Процесс ядерный, так что там нет своей таблицы - возвращаем линейный адрес
     if (pr && ((pr == get_cpulocal_var(ptproc)) || iskernelp(pr)))
         return linaddr;
 
     if (pr) {
-        assert(pr->p_seg.p_ttbr_v);
-        pdeval = pr->p_seg.p_ttbr_v[ARM_VM_PDE(linaddr)];
+        // Наш процесс сейчас не запущен, так что мы просто покопаемся в его таблице страниц
+        // И сопрём данные записи нужного нам участка, точнее секции 1MB
+        vir_bytes ptbase = ((arm_pt_t *) arch_pt_base)[pr->pt_handler].l1_table;
+        pdeval = (uint32_t) ((uint32_t *) ptbase)[ARM_L1_INDEX(linaddr)];
     } else {
-        pdeval = (linaddr & ARM_VM_SECTION_MASK)
-                 | ARM_VM_SECTION
-                 | ARM_VM_SECTION_DOMAIN
-                 | ARM_VM_SECTION_CACHED
-                 | ARM_VM_SECTION_USER;
+        // Это вообще не процесс, так что просто мапим физическую память.
+        // Думал написать проверку на физическую память через MMAP, но решил что это будет тормозить систему
+        // Если что, то потом.
+        // В оригинале если пихнуть в эту функцию адрес устройства, то будет паника.
+        pdeval = (linaddr & ARM_L1_ADDR_MASK)
+                 | ARM_L1_TYPE_SECTION
+                 | ARM_L1_DOMAIN(0)
+                 | ARM_L1_WRITE_THROUGH
+                 | ARM_L1_AP_KRW_URW;
     }
 
-    assert(get_cpulocal_var(ptproc)->p_seg.p_ttbr_v);
-    if (get_cpulocal_var(ptproc)->p_seg.p_ttbr_v[pde] != pdeval) {
-        get_cpulocal_var(ptproc)->p_seg.p_ttbr_v[pde] = pdeval;
-        *changed = 1;
+
+    vir_bytes ptbase = ((arm_pt_t *) arch_pt_base)[get_cpulocal_var(ptproc)->pt_handler].l1_table;
+    if (((uint32_t *)ptbase)[pde] != pdeval) {
+        // Если наша новая запись ещё не такая как нужно, то мы ее делаем такой и сбрасываем опять таки кеш для неё
+        ((uint32_t *)ptbase)[pde] = pdeval;
+        tlbi_mva_asid_is(pde * ARM_L1_SIZE, get_cpulocal_var(ptproc)->context_id.id);
     }
 
     offset  = linaddr & ARM_VM_OFFSET_MASK_1MB;
@@ -158,7 +164,7 @@ static int lin_lin_copy(struct proc *srcproc, vir_bytes srclinaddr,
     if (srcproc) assert(!RTS_ISSET(srcproc, RTS_SLOT_FREE));
     if (dstproc) assert(!RTS_ISSET(dstproc, RTS_SLOT_FREE));
     assert(!RTS_ISSET(get_cpulocal_var(ptproc), RTS_SLOT_FREE));
-    assert(get_cpulocal_var(ptproc)->p_seg.p_ttbr_v);
+    assert(get_cpulocal_var(ptproc)->pt_handler != 0xFFFFFFFF);
     if (srcproc) assert(!RTS_ISSET(srcproc, RTS_VMINHIBIT));
     if (dstproc) assert(!RTS_ISSET(dstproc, RTS_VMINHIBIT));
 
@@ -167,17 +173,8 @@ static int lin_lin_copy(struct proc *srcproc, vir_bytes srclinaddr,
         vir_bytes  chunk   = bytes;
         int        changed = 0;
 
-        unsigned cpu = cpunr;
-        if (srcproc && GET_BIT(srcproc->p_stale_tlb, cpu)) {
-            changed = 1; UNSET_BIT(srcproc->p_stale_tlb, cpu);
-        }
-        if (dstproc && GET_BIT(dstproc->p_stale_tlb, cpu)) {
-            changed = 1; UNSET_BIT(dstproc->p_stale_tlb, cpu);
-        }
-        srcptr = createpde(srcproc, srclinaddr, &chunk, 0, &changed);
-        dstptr = createpde(dstproc, dstlinaddr, &chunk, 1, &changed);
-        if (changed)
-            reload_ttbr0();
+        srcptr = createpde(srcproc, srclinaddr, &chunk, 0);
+        dstptr = createpde(dstproc, dstlinaddr, &chunk, 1);
 
         if (srcptr + chunk < srcptr) return EFAULT_SRC;
         if (dstptr + chunk < dstptr) return EFAULT_DST;
@@ -197,7 +194,7 @@ static int lin_lin_copy(struct proc *srcproc, vir_bytes srclinaddr,
         dstlinaddr += chunk;
     }
 
-    assert(get_cpulocal_var(ptproc)->p_seg.p_ttbr_v);
+    assert(get_cpulocal_var(ptproc)->pt_handler != 0xFFFFFFFF);
     return OK;
 }
 
@@ -213,86 +210,43 @@ static u32_t phys_get32(phys_bytes addr)
     return v;
 }
 
-/*===========================================================================*
- *                          vm_lookup                                        *
- *
- * Сначала ищем в APT (быстро, не надо ходить в физическую память).
- * Если APT не знает — откатываемся к физической таблице через phys_get32.
- *===========================================================================*/
+/*
+ * Поиск физического адреса по виртуальному в конкретном пространстве процесса
+ * Ищем только по APT
+ */
 int vm_lookup(const struct proc *proc, const vir_bytes virtual,
               phys_bytes *physical, u32_t *ptent)
 {
-    u32_t *root, *pt;
-    int pde, pte;
-    u32_t pde_v, pte_v;
-
     assert(proc);
     assert(physical);
     assert(!isemptyp(proc));
     assert(HASPT(proc));
 
-    /* --- Попытка через APT --- */
-    if (system_apt) {
-        vm_abstract_pt_t        *apt_table = NULL;
-        vm_abstract_pt_l1_entry_t *l1e     = NULL;
-        vm_abstract_pt_l2_entry_t *l2e     = NULL;
-
-        /* Ищем таблицу процесса */
-        if (apt_find_table_by_endpoint(system_apt,
-                                       proc->p_endpoint,
-                                       apt_table) == OK && apt_table) {
-            if (apt_find_l1_entry_by_virt_addr(apt_table,
+    vm_abstract_pt_t        *apt_table = proc->apt_table;
+    vm_abstract_pt_l1_entry_t *l1e     = NULL;
+    vm_abstract_pt_l2_entry_t *l2e     = NULL;
+    if (apt_find_l1_entry_by_virt_addr(apt_table,
                                                virtual, l1e) == OK && l1e) {
-                if (l1e->type == VM_APT_L1_SECTION) {
+        if (l1e->type == VM_APT_L1_SECTION) {
                     /* Секция L1: физический адрес = paddr + offset в секции */
                     if (l1e->flags & VM_APF_VIRTUAL_ONLY) return EFAULT;
                     *physical = l1e->paddr + (virtual - l1e->vaddr);
-                    if (ptent) *ptent = 0; /* нет PTE у section */
+                    if (ptent) *ptent = ARM_L1_INDEX(virtual);
                     return OK;
-                } else {
+        } else {
                     /* L2 таблица */
                     if (apt_find_l2_entry_by_virt_addr(l1e,
                                                        virtual, l2e) == OK
                         && l2e) {
                         if (l2e->flags & VM_APF_VIRTUAL_ONLY) return EFAULT;
                         *physical = l2e->paddr + (virtual - l2e->vaddr);
-                        if (ptent) *ptent = 0;
+                        if (ptent) *ptent = ARM_L2_INDEX(virtual);
                         return OK;
                     }
-                }
-            }
         }
-        /* APT не знает — продолжаем через физическую таблицу */
     }
 
-    /* --- Физическая таблица (как в оригинале) --- */
-    root = (u32_t *)(proc->p_seg.p_ttbr & ARM_TTBR_ADDR_MASK);
-    assert(!((u32_t)root % ARM_PAGEDIR_SIZE));
-    pde   = ARM_VM_PDE(virtual);
-    assert(pde >= 0 && pde < ARM_VM_DIR_ENTRIES);
-    pde_v = phys_get32((u32_t)(root + pde));
-
-    if (!((pde_v & ARM_VM_PDE_PRESENT) || (pde_v & ARM_VM_SECTION_PRESENT)))
-        return EFAULT;
-
-    if (pde_v & ARM_VM_SECTION) {
-        *physical = pde_v & ARM_VM_SECTION_MASK;
-        if (ptent) *ptent = pde_v;
-        *physical += virtual & ARM_VM_OFFSET_MASK_1MB;
-    } else {
-        pt  = (u32_t *)(pde_v & ARM_VM_PDE_MASK);
-        assert(!((u32_t)pt % ARM_PAGETABLE_SIZE));
-        pte   = ARM_VM_PTE(virtual);
-        assert(pte >= 0 && pte < ARM_VM_PT_ENTRIES);
-        pte_v = phys_get32((u32_t)(pt + pte));
-        if (!(pte_v & ARM_VM_PTE_PRESENT))
-            return EFAULT;
-        if (ptent) *ptent = pte_v;
-        *physical  = pte_v & ARM_VM_PTE_MASK;
-        *physical += virtual % ARM_PAGE_SIZE;
-    }
-
-    return OK;
+    return EFAULT;
 }
 
 /*===========================================================================*
@@ -384,15 +338,13 @@ int vm_memset(struct proc *caller, endpoint_t who, phys_bytes ph, int c,
     c &= 0xFF;
     pattern = c | (c << 8) | (c << 16) | (c << 24);
 
-    assert(get_cpulocal_var(ptproc)->p_seg.p_ttbr_v);
+    assert(get_cpulocal_var(ptproc)->pt_handler != 0xFFFFFFFF);
     assert(!catch_pagefaults);
     catch_pagefaults = 1;
 
     while (left > 0) {
-        new_ttbr = 0;
         chunk    = left;
-        ptr      = createpde(whoptr, cur_ph, &chunk, 0, &new_ttbr);
-        if (new_ttbr) reload_ttbr0();
+        ptr      = createpde(whoptr, cur_ph, &chunk, 0);
 
         if ((pfa = phys_memset(ptr, pattern, chunk))) {
             if (whoptr) {
@@ -407,7 +359,7 @@ int vm_memset(struct proc *caller, endpoint_t who, phys_bytes ph, int c,
         left   -= chunk;
     }
 
-    assert(get_cpulocal_var(ptproc)->p_seg.p_ttbr_v);
+    assert(get_cpulocal_var(ptproc)->pt_handler != 0xFFFFFFF);
     assert(catch_pagefaults);
     catch_pagefaults = 0;
     return OK;
@@ -507,31 +459,14 @@ void arch_proc_init(struct proc *pr, const u32_t ip, const u32_t sp,
     pr->pt_handler    = PT_HANDLER_NONE; /* будет выставлен в arch_boot_proc */
 }
 
-/*===========================================================================*
- *                      switch_address_space                                 *
- *
- * Используется при переключении контекста (вызывается из mpx.S через
- * switch_address_space(proc)).  Если у процесса есть pt_handler — грузим
- * через pg_load_ttbr0(); иначе (ядровые задачи) — ничего не делаем.
- *===========================================================================*/
-/*
-void switch_address_space(struct proc *p)
-{
-    arm_pt_t *pagetables = (arm_pt_t *) user_pt_base;
-
-    if (p->pt_handler != PT_HANDLER_NONE &&
-        p->pt_handler < ARM_MAX_PT_HANDLES) {
-        pg_load_ttbr0(&pagetables[p->pt_handler]);
-    }
-
-    get_cpulocal_var(ptproc) = p;
-}
-*/
 
 /* ------------------------------------------------------------------ */
 /* Оставшиеся функции arch_phys_map / arch_phys_map_reply /           */
 /* arch_enable_paging / kern_phys_map_ptr — без изменений             */
 /* ------------------------------------------------------------------ */
+
+/* list of requested physical mapping */
+static kern_phys_map *kern_phys_map_head;
 
 static int usermapped_glo_index = -1,
         usermapped_index = -1, first_um_idx = -1;

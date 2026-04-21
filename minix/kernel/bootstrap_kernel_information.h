@@ -22,9 +22,7 @@
 
 
 typedef struct {
-#ifdef __arm__
-    vir_bytes                      fdt_addr;
-#endif
+    vir_bytes                      fdt_addr; // Для x86 мы сюда кладём только информацию о загруженных модулях
 
     int                             kernel_pt_handler; // это таблица для ttbr0
     vm_abstract_pt_t                *kernel_apt; // абстрактная таблица ядра - это всё адресное пространство из ttbr0
