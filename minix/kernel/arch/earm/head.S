@@ -26,13 +26,12 @@
 /*===========================================================================*/
 .global MINIX
 MINIX:
-    ldr r4, =fdt_addr
-    str r2, [r4]
 /* this is the entry point for the MINIX kernel */
 	b multiboot_init
 
 .text
 multiboot_init:
+    mov r11, r2 /*Поместим адрес FDT подальше - в регистр r11*/
 	ldr	sp, =load_stack_start	/* make usable stack */
 	mov	fp, #0
 	bl	_C_LABEL(pre_init)

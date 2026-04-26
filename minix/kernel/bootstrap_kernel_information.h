@@ -40,6 +40,7 @@ typedef struct {
 
     vir_bytes               vir_kern_start; /* kernel addrspace starts */
     vir_bytes               bootstrap_start, bootstrap_len;
+    phys_bytes              phys_kernel_base; /* Адрес куда мы переместили ядро*/
 
     // Мы делаем прототипы на этапе преинициализации так как у нас там гораздо больше данных о регионах памяти
     vm_abstract_pt_t                *apt_user_process_prototype;  // Прототипы таблиц для пользовательского процесса

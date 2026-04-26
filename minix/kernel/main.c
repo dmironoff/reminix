@@ -99,6 +99,18 @@ void bsp_finish_booting(void)
     NOT_REACHABLE;
 }
 
+void map_usermaped_to_apt(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table) {
+    extern char usermapped_start, usermapped_end, usermapped_nonglo_start;
+    vir_bytes glo_size = (vir_bytes) & usermapped_nonglo_start - (vir_bytes) & usermapped_start;
+    vir_bytes noglo_size = (vir_bytes) & usermapped_end - (vir_bytes) & usermapped_nonglo_start;
+    apt_vir_set_new_flags(apt, table, (vir_bytes) &usermapped_start, glo_size,
+                          VM_APF_PRESENT |
+                                VM_APF_RW,MMAP_CACHE_NORMAL);
+    apt_vir_set_new_flags(apt, table, (vir_bytes) &usermapped_nonglo_start, noglo_size,
+                          VM_APF_PRESENT |
+                          VM_APF_RO,MMAP_CACHE_NORMAL);
+}
+
 /*===========================================================================*
  *                              kmain                                        *
  *===========================================================================*/

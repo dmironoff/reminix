@@ -76,54 +76,28 @@ typedef enum {
 #define VM_APF_RWX      (VM_APF_READ | VM_APF_WRITE | VM_APF_EXEC)
 
 
-typedef enum {
-    VM_APT_L1_SECTION       = 0,  // Является цельной секцией
-    VM_APT_L1_L2PT          = 1  // Является ссылкой на таблицу L2
-} vm_abstract_pt_l1_type;
-
-typedef struct {
-    vm_apt_record_status_t  status;
-    vir_bytes          vaddr;
-    phys_bytes          paddr; // Если виртуальная, то будет равно 0
-    vir_bytes          size;
-    vm_apt_flags_t      flags;
-    mmap_cache_hint_t   cache_hint;
-    void                       *next;
-    void                       *prev;
-} vm_abstract_pt_l2_entry_t;
-
 typedef struct {
     vm_apt_record_status_t      status;
     vir_bytes                  vaddr;
     phys_bytes                  paddr;
-    vm_abstract_pt_l1_type      type;
 
     vir_bytes                  size;// Размер, для того что бы экономить память,
                                         // мы можем так размечать целый диапазон, а ядро уже разберётся
-                                        // должен быть кратен размеру секции l1 Для l2 должен быть равен размеру секции
+                                        // должен быть кратен размеру страницы
     vm_apt_flags_t              flags;
-    mmap_cache_hint_t           cache_hint;
-    unsigned long               l2_entries_count;
-    vm_abstract_pt_l2_entry_t   *first_l2_entry;
-    vm_abstract_pt_l2_entry_t   *last_l2_entry;
-
-    int                         dirty;  // 0 - чистая, 1 - грязная, требует переобработки ядром после изменений
+    mmap_cache_hint_t           cache;
 
     void                       *next;
     void                       *prev;
-} vm_abstract_pt_l1_entry_t;
+} vm_abstract_pt_entry_t;
 
 typedef struct {
     kmutex_t                    lock;
     vm_apt_record_status_t      status;
-    endpoint_t                  owner;
     unsigned long                    version;
-    phys_bytes                  phys_pt_root;
-    unsigned long                    entries_count;
-    unsigned long                    entries_dirty;  // Количество грязных секций, для понимания ядром, если больше нуля
-                                                    // То ядро должно обойти всю таблицу, найти грязные секции и перенести информацию в физическую таблицу страниц
-    vm_abstract_pt_l1_entry_t   *first_entry;
-    vm_abstract_pt_l1_entry_t   *last_entry;
+
+    vm_abstract_pt_entry_t   *first; // вершина связанного списка страниц
+    vm_abstract_pt_entry_t   *last; // конец связанного списка страниц
 
     void                         *next;
     void                          *prev;
@@ -134,32 +108,25 @@ typedef uint32_t vm_abstract_arch_flags;
 
 /*
  * Общий массив таблиц страниц
- * Как всегда связанный список,
- * но мы будем его в процессе работы сразу сортировать по endpoint_t для более быстрой работы системы
- * Ну такая идея, просто сразу хочется избавится от завязывания на количестве процессов
+ * Как всегда связанный список
+ * В ядре и VM будет основной из глобальных переменных
  */
 typedef struct {
-    kmutex_t                    lock;
+    kmutex_t                    lock; // Мьютекс на случай если сейчас мы переделываем весь массив таблиц
     // Сразу разместим здесь настройки для vm
     // Что бы не переписывать VM под разные архитектуры, просто ядро передаст VM базовые констранты таблиц
     // А сами эти константы мы инициализируем в pre_init исходя из архитектуры машины
     vm_abstract_arch_flags      flags;
-    unsigned long                    l1_sections_max_count;   // Максимальное количество l1 секций на архитектуре
-    phys_bytes                  l1_section_size;     // Размер l1 секции на архитектуре
-                                                // Соответственно общий объём памяти возможный к разметке на архитектуре:  l1_sections_max_count * l1_section_size
-    phys_bytes                  l2_page_size;    // Размер страницы l2 на архитектуре
-                                                // Количество страниц l2 в секции l1: l1_section_size / l2_page_size
+    unsigned long               pages_max_count;        // Максимальное количество страниц на архитектуре
+    phys_bytes                  page_size;    // Размер страницы на архитектуре
     unsigned long                    pagetables_allocated; // Количество записей о таблицах аллоцированное в памяти
     unsigned long                    pagetables_used;   // Счётчик использованых записей
-    vm_abstract_pt_t            *first_pagetable;   // Указатель на вершину связанного списка
-    vm_abstract_pt_t            *last_pagetable;   // Указатель на конец связанного списка
-    unsigned long                    l1_entries_allocated;  // Количество записей о l1 аллоцированное в памяти
-    unsigned long                    l1_entries_used;    // Количество использованных записей
-    unsigned long                    l2_entries_allocated;
-    unsigned long                    l2_entries_used;
+    vm_abstract_pt_t            *first;   // Указатель на вершину связанного списка таблиц
+    vm_abstract_pt_t            *last;   // Указатель на конец связанного списка таблиц
+    unsigned long                    entries_allocated;  // Количество записей о страницых аллоцированное в памяти
+    unsigned long                    entries_used;    // Количество использованных записей
     vm_abstract_pt_t            *tables;            // Указатели на весь массив аллоцированных записей
-    vm_abstract_pt_l1_entry_t   *l1_entries;
-    vm_abstract_pt_l2_entry_t   *l2_entries;
+    vm_abstract_pt_entry_t   *entries;
 } vm_abstract_pagetables_t;
 
 #endif //REMINIX_ABSTRACT_PAGETABLES_H

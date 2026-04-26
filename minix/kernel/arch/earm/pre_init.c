@@ -236,8 +236,12 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
     mmap_region_t *fdt_region;
 
     /* Clear BSS */
-    //memset(&_edata, 0, (u32_t)&_end - (u32_t)&_edata);
-    //memset(&_kern_unpaged_edata, 0, (u32_t)&_kern_unpaged_end - (u32_t)&_kern_unpaged_edata);
+    memset(&_edata, 0, (u32_t)&_end - (u32_t)&_edata);
+    memset(&_kern_unpaged_edata, 0, (u32_t)&_kern_unpaged_end - (u32_t)&_kern_unpaged_edata);
+
+    // Мы в head.s переместили наш адрес FDT от u-boot в регистр r11, надеюсь, что memset его не затёр
+    asm volatile ("str r11, [%[fdt]]"
+                  : [fdt]"r"(&fdt_addr) :: "memory");
 
     /*
      * НАЧНЁМ ПУНКТ #2
@@ -688,8 +692,6 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
     new_bki->fdt_addr = vir_addr_new_fdt;
     new_bki->mmap = new_mmap;
     new_bki->apt = apt;
-    new_bki->kernel_pt_handler = new_pt_handler;
-    new_bki->kernel_apt = new_apt_table;
     new_bki->smp_trampoline = new_smp_trampoline->start;
     new_bki->bootstrap_start = new_kernel_region->start;
     new_bki->bootstrap_len = (phys_bytes) &_kern_unpaged_end - _kern_phys_base;
@@ -782,6 +784,7 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
 
     new_bki->apt_user_process_prototype = new_user_apt_prototype;
     new_bki->apt_vm_process_prototype = new_vm_apt_prototype;
+    new_bki->phys_kernel_base = new_kernel_start;
 
     /* Бля, помоему всё. Полетели */
 	return new_bki;
