@@ -31,10 +31,10 @@
 #include "kernel/apt_utils.h"
 #include "kernel/mmap_utils.h"
 
-extern bootstrap_kernel_information_t *BKI; // Структура с инициализационными параметрами ядра, отсюда нам нужно знать куда мы размапили окно копирования
 extern vm_abstract_pagetables_t       *apt; // Абстрактная таблица страниц
 extern vir_bytes                       arch_pt_base; // Базовый адрес физической аппаратной таблицы страниц
 extern mmap_t                         *mmap; // Абстрактная карта памяти
+extern struct kinfo                   kinfo;
 
 /*
  * Проверяем наличие у процесса своей таблицы страниц
@@ -48,6 +48,21 @@ static int freepdes[MAXFREEPDES];   /* индексы L1 в текущей та�
 static u32_t phys_get32(phys_bytes v);
 
 
+/*
+ * вычисление оффсета для выравнивая l1 относительно выделенного региона
+ */
+static inline uint32_t pdoff(uint32_t sector_start) {
+    return (sector_start + (ARM_PD_ALIGN - 1)) & ~(ARM_PD_ALIGN - 1) - sector_start;
+}
+
+/*
+ * Вычисление оффсета начала таблицы l2 относительно начала выделенного региона
+ */
+static inline uint32_t ptoff(uint32_t sector_start) {
+    return ptaddr(sector_start) + ARM_PD_SIZE;
+}
+
+
 /*===========================================================================*
  *                          memory_init                                      *
  *===========================================================================*/
@@ -59,8 +74,8 @@ void memory_init(void)
     /* Берём два последовательных L1-слота из области копирования.
      * В pre_init эта область размечена как VM_APF_USER_TO_KERNEL_CP_SPACE
      * и занимает как минимум 2 * ARM_L1_SIZE байт.                         */
-    freepdes[nfreepdes++] = ARM_L1_INDEX(BKI->vir_memory_cp_region_addr);
-    freepdes[nfreepdes++] = ARM_L1_INDEX(BKI->vir_memory_cp_region_addr
+    freepdes[nfreepdes++] = ARM_L1_INDEX(kinfo->vir_memory_cp_region_addr);
+    freepdes[nfreepdes++] = ARM_L1_INDEX(kinfo->vir_memory_cp_region_addr
                                          + ARM_L1_SIZE);
 
     assert(nfreepdes == MAXFREEPDES);
@@ -73,9 +88,10 @@ void mem_clear_mapcache(void)
 {
     int i;
     struct proc *ptproc = get_cpulocal_var(ptproc);
-    vir_bytes ptbase = ((arm_pt_t *) arch_pt_base)[ptproc->pt_handler].l1_table;
+    mmap_region_t *my_pd_reg = (mmap_region_t *) ((arm_pt_t *) kinfo->arch_pagetables)[ptproc->pt_handler].table_region;
+    uint32_t *ptbase = (uint32_t *) (kinfo->vir_memory_pt_region_addr + pdoff(my_pd_reg->start));
     for (i = 0; i < nfreepdes; i++) {
-        ((uint32_t *) ptbase)[freepdes[i]] = 0;
+        ptbase[freepdes[i]] = 0;
         // Сбросим эту запись в кешах процессоров
         tlbi_mva_asid_is(freepdes[i] * ARM_L1_SIZE, ptproc->context_id.id);
     }
@@ -93,6 +109,7 @@ static phys_bytes createpde(
     u32_t pdeval;
     phys_bytes offset;
     int pde;
+    mmap_region_t *my_pd_reg = (mmap_region_t *) ((arm_pt_t *) kinfo->arch_pagetables)[get_cpulocal_var(ptproc)->pt_handler].table_region;
 
     assert(free_pde_idx >= 0 && free_pde_idx < nfreepdes);
     pde = freepdes[free_pde_idx];
@@ -105,8 +122,11 @@ static phys_bytes createpde(
     if (pr) {
         // Наш процесс сейчас не запущен, так что мы просто покопаемся в его таблице страниц
         // И сопрём данные записи нужного нам участка, точнее секции 1MB
-        vir_bytes ptbase = ((arm_pt_t *) arch_pt_base)[pr->pt_handler].l1_table;
-        pdeval = (uint32_t) ((uint32_t *) ptbase)[ARM_L1_INDEX(linaddr)];
+        map_pt_table_to_me(pr->pt_handler);
+        mmap_region_t *reg = ((arm_pt_t *) arch_pt_base)[pr->pt_handler].table_region;
+        uint32_t *ptbase = (uint32_t *) (kinfo->vir_memory_pt_work_region_addr + pdoff(reg->start));;
+        pdeval = ptbase[ARM_L1_INDEX(linaddr)];
+        unmap_pt_table_to_me();
     } else {
         // Это вообще не процесс, так что просто мапим физическую память.
         // Думал написать проверку на физическую память через MMAP, но решил что это будет тормозить систему
@@ -120,10 +140,10 @@ static phys_bytes createpde(
     }
 
 
-    vir_bytes ptbase = ((arm_pt_t *) arch_pt_base)[get_cpulocal_var(ptproc)->pt_handler].l1_table;
-    if (((uint32_t *)ptbase)[pde] != pdeval) {
+    uint32_t *ptbase = (uint32_t *) (kinfo->vir_memory_pt_region_addr + pdoff(my_pd_reg->start));
+    if (ptbase[pde] != pdeval) {
         // Если наша новая запись ещё не такая как нужно, то мы ее делаем такой и сбрасываем опять таки кеш для неё
-        ((uint32_t *)ptbase)[pde] = pdeval;
+        ptbase[pde] = pdeval;
         tlbi_mva_asid_is(pde * ARM_L1_SIZE, get_cpulocal_var(ptproc)->context_id.id);
     }
 
@@ -223,27 +243,14 @@ int vm_lookup(const struct proc *proc, const vir_bytes virtual,
     assert(HASPT(proc));
 
     vm_abstract_pt_t        *apt_table = proc->apt_table;
-    vm_abstract_pt_l1_entry_t *l1e     = NULL;
-    vm_abstract_pt_l2_entry_t *l2e     = NULL;
-    if (apt_find_l1_entry_by_virt_addr(apt_table,
-                                               virtual, l1e) == OK && l1e) {
-        if (l1e->type == VM_APT_L1_SECTION) {
-                    /* Секция L1: физический адрес = paddr + offset в секции */
-                    if (l1e->flags & VM_APF_VIRTUAL_ONLY) return EFAULT;
-                    *physical = l1e->paddr + (virtual - l1e->vaddr);
-                    if (ptent) *ptent = ARM_L1_INDEX(virtual);
-                    return OK;
-        } else {
-                    /* L2 таблица */
-                    if (apt_find_l2_entry_by_virt_addr(l1e,
-                                                       virtual, l2e) == OK
-                        && l2e) {
-                        if (l2e->flags & VM_APF_VIRTUAL_ONLY) return EFAULT;
-                        *physical = l2e->paddr + (virtual - l2e->vaddr);
-                        if (ptent) *ptent = ARM_L2_INDEX(virtual);
-                        return OK;
-                    }
+    vm_abstract_pt_entry_t *entry;
+    if (apt_find_entry_by_virt_addr(apt_table, virtual, entry) == OK) {
+        if (entry->paddr == 0) {
+            *physical = 0;
+            return OK;
         }
+        *physical = entry->paddr + (virtual - entry->vaddr);
+        return OK;
     }
 
     return EFAULT;

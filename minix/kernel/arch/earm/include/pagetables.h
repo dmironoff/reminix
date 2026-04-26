@@ -119,17 +119,28 @@ typedef enum {
 typedef struct {
     arm_pt_status_t status;
     endpoint_t  proc_ep;
-
-    /* L1 таблица (Page Directory) */
-    uint32_t   *l1_table;       /* виртуальный адрес для доступа ядра       */
-    phys_bytes  l1_phys;        /* физический адрес — для TTBR0             */
-    mmap_region_t *l1_table_region;
-
-    /* L2 таблицы (Page Tables) — по одной на каждую используемую секцию */
-    uint32_t   *l2_tables; /* виртуальные адреса            */
-    phys_bytes  l2_phys;   /* физические адреса             */
-    mmap_region_t *l2_tables_region;
+    mmap_region_t *table_region;
+    int next_pte;
 } arm_pt_t;
+
+/*
+ * вычисление оффсета для выравнивая l1 относительно выделенного региона
+ */
+inline uint32_t pdoff(uint32_t sector_start;
+/*
+ * Вычисление оффсета начала таблицы l2 относительно начала выделенного региона
+ */
+inline uint32_t ptoff(uint32_t sector_start);
+
+/*
+ * "Монтирование" таблицы страниц для работы с ними
+ */
+void map_pt_table_to_me (uint32_t handler);
+
+/*
+ * Освобождаем сектора в которые мы "монтировали" рабочую директорию страниц
+ */
+void unmap_pt_table_to_me ();
 
 /*
  * Включение MMU
@@ -144,25 +155,22 @@ void vm_arch_enable_paging(void);
 void pg_load_ttbr0(vir_bytes arch_pagetables, uint32_t handler);
 
 /*
- * Выделить память для таблицы страниц l1
- */
-int vm_arch_alloc_l1_table(mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *apt_table, arm_pt_t *pt);
-
-/*
- * Выделить память для таблицы страниц l2
- */
-int vm_arch_alloc_l2_table(mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *apt_table, arm_pt_t *pt);
-/*
  * Выделить новую таблицу страниц из пула
  * Возвращает через указатели адрес начала для загрузки в регистр и хэндлер для использования в функциях
  */
-int vm_arch_alloc_pagetable (vir_bytes arch_pagetables, mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *kerntable,
-                             endpoint_t proc, phys_bytes *root_phys_out, uint32_t *handle_out);
+int vm_arch_alloc_pagetable (vir_bytes arch_pagetables, mmap_t *mmap, endpoint_t proc, uint32_t *handle_out);
+
+/*
+ * Освободить таблицу памяти
+ */
+int vm_arch_free_pagetable(vir_bytes arch_pagetables, mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *kerntable, uint32_t handler);
+
 
 /*
  * Преобразование флагов и режимов кеширования для секции L1
  */
 uint32_t vm_arch_flags_to_l1(vm_apt_flags_t flags, mmap_cache_hint_t cache);
+
 /*
  * Преобразование флагов и режимов кеширования для для страницы L2
  */
@@ -172,15 +180,11 @@ uint32_t vm_arch_flags_to_l2(vm_apt_flags_t flags, mmap_cache_hint_t cache);
  * Флаги для секции описывающей таблицу страниц второго уровня
  */
 uint32_t vm_arch_flags_to_l2pt (vm_apt_flags_t flags, mmap_cache_hint_t cache);
-/*
- * Заделка на будущее: изменения в таблице по дельте
- */
-int vm_arch_pt_apply(vir_bytes arch_pagetables, vm_pt_change_t changes);
+
 /*
  * Сердце нашего механизма абстрактных таблиц
  * преобразованию абстрактной таблицы в физическую
  */
 int vm_arch_apt_to_pt(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vir_bytes arch_pagetables, uint32_t handler);
-
 
 #endif //REMINIX_PAGETABLES_H

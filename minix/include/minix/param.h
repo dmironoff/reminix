@@ -79,6 +79,17 @@ typedef struct kinfo {
         vir_bytes                      vir_memory_cp_region_addr;
         vir_bytes                      vir_memory_cp_region_size;
 
+        // Заранее выделенное пространство для работы с таблицами страниц
+        // Ядро не держит размеченными все физические таблицы страниц,
+        // А размечает в этот регион таблицу страниц на время действий с ней
+        vir_bytes                      vir_memory_pt_region_addr;
+        vir_bytes                      vir_memory_pt_region_size;
+        vir_bytes                      vir_memory_pt_work_region_addr;
+        vir_bytes                      vir_memory_pt_work_region_size;
+
+        // Виртуальный адрес массива хендлеров архитектурно зависимых таблиц страниц
+        vir_bytes                      arch_pagetables;
+
         vm_abstract_pagetables_t        *apt;  // Хочу обратить внимание что здесь должны быть уже виртуальные адреса
         mmap_t                          *mmap;
 

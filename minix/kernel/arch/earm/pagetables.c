@@ -15,6 +15,59 @@
 
 static uint32_t vm_enabled = 0;
 
+extern struct kinfo kinfo;
+
+#define ARM_PD_ALIGN    16384
+#define ARM_PD_SIZE     16384
+#define ARM_PT_SIZE     1024
+
+/*
+ * вычисление оффсета для выравнивая l1 относительно выделенного региона
+ */
+inline uint32_t pdoff(uint32_t sector_start) {
+    return (sector_start + (ARM_PD_ALIGN - 1)) & ~(ARM_PD_ALIGN - 1) - sector_start;
+}
+
+/*
+ * Вычисление оффсета начала таблицы l2 относительно начала выделенного региона
+ */
+inline uint32_t ptoff(uint32_t sector_start) {
+    return ptaddr(sector_start) + ARM_PD_SIZE;
+}
+
+
+/*
+ * "Монтирование" таблицы страниц для работы с ними
+ */
+void map_pt_table_to_me (uint32_t handler) {
+    struct proc *ptproc = get_cpulocal_var(ptproc);
+    mmap_region_t *my_pd_reg = (mmap_region_t *) ((arm_pt_t *) kinfo->arch_pagetables)[ptproc->pt_handler].table_region;
+    mmap_region_t *need_pd_reg = (mmap_region_t *) ((arm_pt_t *) kinfo->arch_pagetables)[handler].table_region;
+    uint32_t *pd = (uint32_t *) (kinfo->vir_memory_pt_region_addr + pdoff(my_pd_reg->start));
+    for (int pde = ARM_L1_INDEX(kinfo->vir_memory_pt_work_region_addr); pde <= ARM_L1_INDEX(kinfo->vir_memory_pt_work_region_addr + kinfo->vir_memory_pt_work_region_size); pde++) {
+        pd[pde] = (need_pd_reg->start + (pde * ARM_L1_SIZE - kinfo->vir_memory_pt_work_region_addr) & ARM_L1_ADDR_MASK)
+                  | ARM_L1_TYPE_SECTION
+                  | ARM_L1_DOMAIN(0)
+                  | ARM_L1_WRITE_THROUGH
+                  | ARM_L2_AP_KRW_UNO;
+        tlbi_mva_asid_is(pde * ARM_L1_SIZE, get_cpulocal_var(ptproc)->context_id.id);
+    }
+}
+
+/*
+ * Освобождаем сектора в которые мы "монтировали" рабочую директорию страниц
+ */
+void unmap_pt_table_to_me () {
+    struct proc *ptproc = get_cpulocal_var(ptproc);
+    mmap_region_t *my_pd_reg = (mmap_region_t *) ((arm_pt_t *) kinfo->arch_pagetables)[ptproc->pt_handler].table_region;
+    uint32_t *pd = (uint32_t *) (kinfo->vir_memory_pt_region_addr + pdoff(my_pd_reg->start));
+    for (int pde = ARM_L1_INDEX(kinfo->vir_memory_pt_work_region_addr); pde <= ARM_L1_INDEX(kinfo->vir_memory_pt_work_region_addr + kinfo->vir_memory_pt_work_region_size); pde++) {
+        pd[pde] = 0;
+        tlbi_mva_asid_is(pde * ARM_L1_SIZE, get_cpulocal_var(ptproc)->context_id.id);
+    }
+}
+
+
 /* TODO: Сделать механизм выделения и хранения таблиц виртуальной памяти процессов менее жрущим память - сократить количество выделяемых на автомате таблиц l2*/
 
 /*
@@ -90,69 +143,17 @@ void pg_load_ttbr0(vir_bytes arch_pagetables, uint32_t handler)
 }
 
 /*
- * Выделить память для таблицы страниц l1
- */
-int vm_arch_alloc_l1_table(mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *apt_table, arm_pt_t *pt){
-    int res = 0;
-    mmap_region_t *new_region;
-
-    res = mmap_alloc_lowest_region(mmap, mmap_align(mmap, sizeof(uint32_t) * ARM_L1_ENTRIES), new_region);
-    if (res < 0) {
-        return res;
-    }
-
-    vir_bytes vir_addr;
-    res = apt_map_region_to_max_free_end(apt, apt_table, new_region, &vir_addr, VM_APF_KERNEL |
-            VM_APF_RW | VM_APF_PRESENT);
-    if (res < 0) {
-        return res;
-    }
-
-    pt->l1_phys = new_region->start;
-    pt->l1_table = (uint32_t *) vir_addr;
-    pt->l1_table_region = new_region;
-    return OK;
-}
-
-/*
- * Выделить память для таблицы страниц l2
- */
-int vm_arch_alloc_l2_table(mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *apt_table, arm_pt_t *pt){
-    int res = 0;
-    mmap_region_t *new_region;
-
-    res = mmap_alloc_lowest_region(mmap, mmap_align(mmap, sizeof(uint32_t) * ARM_L1_ENTRIES * ARM_L2_ENTRIES), new_region);
-    if (res < 0) {
-        return res;
-    }
-
-    vir_bytes vir_addr;
-    res = apt_map_region_to_max_free_end(apt, apt_table, new_region, &vir_addr, VM_APF_KERNEL |
-                                                                                VM_APF_RW | VM_APF_PRESENT);
-    if (res < 0) {
-        return res;
-    }
-
-    pt->l2_phys = new_region->start;
-    pt->l2_tables = (uint32_t *) vir_addr;
-    pt->l2_tables_region = new_region;
-    return OK;
-}
-
-/*
  * Выделить новую таблицу страниц из пула
  * Возвращает через указатели адрес начала для загрузки в регистр и хэндлер для использования в функциях
  */
-int vm_arch_alloc_pagetable (vir_bytes arch_pagetables, mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *kerntable,
-                             endpoint_t proc, phys_bytes *root_phys_out, uint32_t *handle_out) {
+int vm_arch_alloc_pagetable (vir_bytes arch_pagetables, mmap_t *mmap, endpoint_t proc, uint32_t *handle_out) {
     arm_pt_t *pagetables = (arm_pt_t *) arch_pagetables;
     for (int i = 0; i < ARM_MAX_PT_HANDLES; i++) {
         if (pagetables[i].status == PT_FREE) {
             pagetables[i].status = PT_USED;
             pagetables[i].proc_ep = proc;
-            vm_arch_alloc_l1_table(mmap, apt, kerntable, &pagetables[i]);
-            vm_arch_alloc_l2_table(mmap, apt, kerntable, &pagetables[i]);
-            *root_phys_out = pagetables[i].l1_phys;
+            mmap_alloc_highest_region(mmap, ARM_L1_SIZE,  pagetables[i].table_region);
+            pagetables[i].next_pte = 0;
             *handle_out = (uint32_t) i;
             return OK;
         }
@@ -173,16 +174,8 @@ int vm_arch_free_pagetable(vir_bytes arch_pagetables, mmap_t *mmap, vm_abstract_
     }
     pagetables[handler].proc_ep = 0;
     pagetables[handler].status = PT_FREE;
-    apt_unmap_region(apt, kerntable, pagetables[handler].l1_table_region);
-    apt_unmap_region(apt, kerntable, pagetables[handler].l2_tables_region);
-    mmap_free_memory(mmap, pagetables[handler].l1_table_region->start, pagetables[handler].l1_table_region->size);
-    mmap_free_memory(mmap, pagetables[handler].l2_tables_region->start, pagetables[handler].l2_tables_region->size);
-    pagetables[handler].l1_table_region = (mmap_region_t *) 0;
-    pagetables[handler].l2_tables_region = (mmap_region_t *) 0;
-    pagetables[handler].l1_phys = 0;
-    pagetables[handler].l1_table = (uint32_t *) 0;
-    pagetables[handler].l2_phys = 0;
-    pagetables[handler].l2_tables = (uint32_t *) 0;
+    mmap_free_memory(mmap, pagetables[handler].table_region->start, pagetables[handler].table_region->size);
+    pagetables[handler].table_region = 0;
     return OK;
 }
 
@@ -321,21 +314,15 @@ uint32_t vm_arch_flags_to_l2pt (vm_apt_flags_t flags, mmap_cache_hint_t cache) {
     return res;
 }
 
-/*
- * Заделка на будущее: изменения в таблице по дельте
- */
-int vm_arch_pt_apply(vir_bytes arch_pagetables, vm_pt_change_t changes) {
-    return OK;
-}
+/*TODO: Перепроверить функцию трансляции APT в PT*/
 
 /*
  * Сердце нашего механизма абстрактных таблиц
  * преобразованию абстрактной таблицы в физическую
  */
 int vm_arch_apt_to_pt(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vir_bytes arch_pagetables, uint32_t handler) {
-    arm_pt_t *pagetables = (arm_pt_t *) arch_pagetables;
-    vm_abstract_pt_l1_entry_t *l1_iter;
-    vm_abstract_pt_l2_entry_t  *l2_iter;
+    arm_pt_t *pagetable = &((arm_pt_t *) arch_pagetables)[handler];
+    vm_abstract_pt_entry_t *iter;
 
     if (handler >= ARM_MAX_PT_HANDLES) {
         return EINVAL;
@@ -347,40 +334,76 @@ int vm_arch_apt_to_pt(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table, vi
         return EINVAL;
     }
 
-    for (l1_iter = table->first_entry; l1_iter != 0; l1_iter = (vm_abstract_pt_l1_entry_t *)l1_iter->next) {
-        if (l1_iter->type == VM_APT_L1_L2PT) {
-            // Таблица страниц второго уровня
-            int pde = ARM_L1_INDEX(l1_iter->vaddr);
-            uint32_t *l2pt = &pagetables[handler].l2_tables[pde];
-            pagetables[handler].l1_table[pde] = ((uint32_t) pagetables[handler].l2_phys + sizeof(uint32_t) * ARM_L2_ENTRIES) & ARM_L2PT_ADDR_MASK;
-            pagetables[handler].l1_table[pde] |= ARM_L1_TYPE_L2PT;
-            pagetables[handler].l1_table[pde] |= ARM_L1_DOMAIN(0);
-            pagetables[handler].l1_table[pde] |= vm_arch_flags_to_l2pt(l1_iter->flags, l1_iter->cache_hint);
-            for (l2_iter = l1_iter->first_l2_entry; l2_iter != 0; l2_iter = (vm_abstract_pt_l2_entry_t *) l2_iter->next) {
-                for (uint32_t vaddr = l2_iter->vaddr; vaddr < l2_iter->vaddr + l2_iter->size; vaddr += ARM_L2_SIZE) {
-                    if (l2_iter->flags & VM_APF_VIRTUAL_ONLY) {
-                        l2pt[ARM_L2_INDEX(vaddr)] = 0;
-                    } else {
-                        l2pt[ARM_L2_INDEX(vaddr)] = ((uint32_t)
-                        l2_iter->paddr + (vaddr - l2_iter->vaddr)) &ARM_L2_ADDR_MASK;
-                        l2pt[ARM_L2_INDEX(vaddr)] |= vm_arch_flags_to_l2(l2_iter->flags, l2_iter->cache_hint);
-                    }
-                 }
-            }
-        } else {
-            // Обычная секция
-            for (uint32_t vaddr = l1_iter->vaddr; vaddr < l1_iter->vaddr + l1_iter->size; vaddr += ARM_L1_SIZE) {
-                if (l1_iter->flags & VM_APF_VIRTUAL_ONLY) {
-                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] = 0;
+
+    map_pt_table_to_me(handler);
+    pagetable->next_pte = 0;
+
+    // Затираем текущие данные в редактируемой таблице страниц
+    memset((void *)kinfo->vir_memory_pt_work_region_addr, 0, kinfo->vir_memory_pt_work_region_size);
+
+    uint32_t *pd = (uint32_t *) (kinfo->vir_memory_pt_work_region_addr + pdoff(pagetable->table_region->start));
+
+    for (iter = table->first; iter != 0; iter = (vm_abstract_pt_entry_t *) iter->next) {
+        // Размеры l2 страниц по концам региона
+        vir_bytes on_start_l2 = iter->vaddr % ARM_L1_SIZE;
+        vir_bytes on_end_l2 = (iter->vaddr + iter->size) % ARM_L1_SIZE;
+
+        // Начало и конец региона который можно разметить как l1
+        vir_bytes start_l1_addr = 0;
+        vir_bytes end_l1_addr = 0;
+        if (iter->size / ARM_L1_SIZE > 0) {
+            vir_bytes start_l1_addr = iter->vaddr + ARM_L1_SIZE - on_start_l2;
+            vir_bytes end_l1_addr = iter->vaddr + iter->size - ARM_L1_SIZE - on_end_l2;
+        }
+
+        if (on_start_l2) {
+            for (int pte = ARM_L2_INDEX(iter->vaddr); pte <= ARM_L2_INDEX(iter->vaddr + on_start_l2); pte++) {
+                uint32_t *pt = (uint32_t *)(kinfo.vir_memory_pt_work_region_addr + ptoff(pagetable->table_region->start));
+                if (iter->flags & VM_APF_VIRTUAL_ONLY || iter->paddr == 0) {
+                    pt[pagetable->next_pte + pte] = 0;
                 } else {
-                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] = ((uint32_t) l1_iter->paddr + (vaddr - l1_iter->vaddr)) & ARM_L1_ADDR_MASK;
-                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] |= ARM_L1_TYPE_SECTION;
-                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] |= ARM_L1_DOMAIN(0);
-                    pagetables[handler].l1_table[ARM_L1_INDEX(vaddr)] |= vm_arch_flags_to_l1(l1_iter->flags, l1_iter->cache_hint);
+                    pt[pagetable->next_pte + pte] = (iter->paddr + (pte * ARM_L2_SIZE - iter->vaddr)) & ARM_L2_ADDR_MASK;
+                    pt[pagetable->next_pte + pte] |= vm_arch_flags_to_l2(iter->flags, iter->cache);
+                }
+            }
+        }
+
+        for (int pde = ARM_L1_INDEX(start_l1_addr); pde <= ARM_L1_INDEX(end_l1_addr); pde++) {
+            if (iter->flags & VM_APF_VIRTUAL_ONLY || iter->paddr == 0) {
+                pd[pde] = 0;
+            } else {
+                pd[pde] = (uint32_t) (iter->paddr + (pde * ARM_L1_SIZE - iter->vaddr)) & ARM_L1_ADDR_MASK;
+                pd[pde] |= ARM_L1_TYPE_SECTION;
+                pd[pde] |= ARM_L1_DOMAIN(0);
+                pd[pde] |= vm_arch_flags_to_l1(iter->flags, iter->cache);
+            }
+        }
+
+        if (on_end_l2) {
+            pagetable->next_pte++;
+            pd[ARM_L1_INDEX(iter->vaddr + iter->size - on_end_l2)] = (uint32_t)
+                    (pagetable->table_region->start + ptoff(pagetable->table_region->start) + sizeof(uint32_t) * ARM_L2_ENTRIES) & ARM_L2PT_ADDR_MASK;
+            pd[ARM_L1_INDEX(iter->vaddr + iter->size - on_end_l2)] |= ARM_L1_TYPE_L2PT | ARM_L1_DOMAIN(0) | vm_arch_flags_to_l2pt(iter->flags, iter->cache);
+            for (int pte = ARM_L2_INDEX(iter->vaddr + iter->size - on_end_l2); pte <= ARM_L2_INDEX(iter->vaddr + size); pte++) {
+                uint32_t *pt = (uint32_t *)(kinfo.vir_memory_pt_work_region_addr + ptoff(pagetable->table_region->start));
+                if (iter->flags & VM_APF_VIRTUAL_ONLY || iter->paddr == 0) {
+                    pt[pagetable->next_pte + pte] = 0;
+                } else {
+                    pt[pagetable->next_pte + pte] = (iter->paddr + iter->size - on_end_l2 - (pte * ARM_L2_SIZE)) & ARM_L2_ADDR_MASK;
+                    pt[pagetable->next_pte + pte] |= vm_arch_flags_to_l2(iter->flags, iter->cache);
                 }
             }
         }
     }
+
+    for (int pde = ARM_L1_INDEX(kinfo.vir_memory_pt_region_addr); pde <= ARM_L1_INDEX(kinfo.vir_memory_pt_region_addr + kinfo.vir_memory_pt_region_size); pde++) {
+        pd[pde] = (uint32_t) (pagetable->table_region->start + (pde * ARM_L1_SIZE - kinfo.vir_memory_pt_region_addr) & ARM_L1_ADDR_MASK)
+                  | ARM_L1_TYPE_SECTION
+                  | ARM_L1_DOMAIN(0)
+                  | ARM_L1_WRITE_THROUGH
+                  | ARM_L2_AP_KRW_UNO;
+    }
+    unmap_pt_table_to_me();
 
     return OK;
 }

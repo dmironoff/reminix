@@ -597,7 +597,7 @@ static inline void arch_cpucore_wakeup (void) {
 /* TLBIALL — инвалидировать весь non-global TLB (локально) */
 static inline void tlbi_all_local(void)
 {
-    asm volatile(
+    asm volatile("dmb \n"
             "mcr p15, 0, %0, c8, c7, 0 \n"
             "dsb                         \n"
             "isb                         \n"
@@ -608,7 +608,7 @@ static inline void tlbi_all_local(void)
 /* TLBIASID — инвалидировать по ASID (локально) */
 static inline void tlbi_asid_local(uint32_t asid)
 {
-    asm volatile(
+    asm volatile("dmb \n"
             "mcr p15, 0, %0, c8, c7, 2 \n"
             "dsb                         \n"
             "isb                         \n"
@@ -620,7 +620,7 @@ static inline void tlbi_asid_local(uint32_t asid)
 static inline void tlbi_mva_asid_local(uint32_t mva, uint32_t asid)
 {
     uint32_t val = (mva & ~0xFFFu) | (asid & 0xFF);
-    asm volatile(
+    asm volatile("dmb \n"
             "mcr p15, 0, %0, c8, c7, 1 \n"
             "dsb                         \n"
             :: "r"(val) : "memory"
@@ -630,7 +630,7 @@ static inline void tlbi_mva_asid_local(uint32_t mva, uint32_t asid)
 /* TLBIALLIS — инвалидировать весь TLB, Inner Shareable (все ядра) */
 static inline void tlbi_all_is(void)
 {
-    asm volatile(
+    asm volatile("dmb \n"
             "mcr p15, 0, %0, c8, c3, 0 \n"
             "dsb                         \n"
             "isb                         \n"
@@ -641,7 +641,7 @@ static inline void tlbi_all_is(void)
 /* TLBIASIDIS — инвалидировать по ASID, Inner Shareable (все ядра) */
 static inline void tlbi_asid_is(uint32_t asid)
 {
-    asm volatile(
+    asm volatile("dmb \n"
             "mcr p15, 0, %0, c8, c3, 2 \n"
             "dsb                         \n"
             "isb                         \n"
@@ -653,7 +653,7 @@ static inline void tlbi_asid_is(uint32_t asid)
 static inline void tlbi_mva_asid_is(uint32_t mva, uint32_t asid)
 {
     uint32_t val = (mva & ~0xFFFu) | (asid & 0xFF);
-    asm volatile(
+    asm volatile("dmb \n"
             "mcr p15, 0, %0, c8, c3, 1 \n"
             "dsb                         \n"
             :: "r"(val) : "memory"
