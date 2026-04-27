@@ -15,6 +15,9 @@
 #include <string.h>
 #include <assert.h>
 
+#include "kernel/apt_utils.h"
+#include "pagetables.h"
+
 #include <minix/endpoint.h>
 #include <minix/u64.h>
 
@@ -122,13 +125,13 @@ int do_fork(struct proc * caller, message * m_ptr)
   RTS_UNSET(rpc, (RTS_SIGNALED | RTS_SIG_PENDING | RTS_P_STOP));
   (void) sigemptyset(&rpc->p_pending);
 
-#if defined(__i386__)
-  rpc->p_seg.p_cr3 = 0;
-  rpc->p_seg.p_cr3_v = NULL;
-#elif defined(__arm__)
-  rpc->p_seg.p_ttbr = 0;
-  rpc->p_seg.p_ttbr_v = NULL;
-#endif
+  /*
+   * Инициализируем новые таблицы страниц и виртуальной памяти
+   */
+    apt_copy_table(kinfo.apt, kinfo.apt_user_process_prototype, rpc->apt_table);
+    rpc->apt_version = 0;
+    vm_arch_alloc_pagetable (kinfo.arch_pagetables, kinfo.mmap, rpc->p_endpoint, rpc->pt_handler);
+    kmutex_init(rpc->apt_table->lock);
 
   return OK;
 }

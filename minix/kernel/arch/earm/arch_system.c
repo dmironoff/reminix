@@ -31,11 +31,7 @@
 
 void * k_stacks;
 
-/* Физические таблицы страниц — передаётся во всё архитектурно-зависимое */
-extern vir_bytes arch_pt_base;
-/* Глобальные указатели на рабочие структуры памяти */
-extern mmap_t                   *mmap;
-extern vm_abstract_pagetables_t *apt;
+extern struct kinfo kinfo;
 
 
 void fpu_init(void)
@@ -204,7 +200,7 @@ void __switch_address_space(struct proc *p, struct proc **__ptproc)
 {
 	reg_t orig_ttbr, new_ttbr;
 
-	new_ttbr = p->p_seg.p_ttbr;
+	new_ttbr = ((arm_pt_t *)kinfo.arch_pagetables)[p->pt_handler].table_region->start + pdoff(((arm_pt_t *)kinfo.arch_pagetables)[p->pt_handler].table_region->start);
 	if (new_ttbr == 0)
 	    return;
 
@@ -220,9 +216,6 @@ void __switch_address_space(struct proc *p, struct proc **__ptproc)
     arch_proc_check_context_id(p);
     // Шлёпаемся в безопасный asid ядра
     arch_proc_context_set_kernel();
-
-    // Очень крутое решение - сбрасывать кеш адресов памяти с таблицей страниц процесса
-    clean_cache_range((vir_bytes) p->p_seg.p_ttbr_v, ((vir_bytes) p->p_seg.p_ttbr_v) + 16384);
 
     // Пишем адрес корня таблицы страниц процесса
 	write_ttbr0(new_ttbr);

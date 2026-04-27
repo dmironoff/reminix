@@ -126,7 +126,7 @@ typedef struct {
 /*
  * вычисление оффсета для выравнивая l1 относительно выделенного региона
  */
-inline uint32_t pdoff(uint32_t sector_start;
+inline uint32_t pdoff(uint32_t sector_start);
 /*
  * Вычисление оффсета начала таблицы l2 относительно начала выделенного региона
  */
@@ -163,7 +163,7 @@ int vm_arch_alloc_pagetable (vir_bytes arch_pagetables, mmap_t *mmap, endpoint_t
 /*
  * Освободить таблицу памяти
  */
-int vm_arch_free_pagetable(vir_bytes arch_pagetables, mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_pt_t *kerntable, uint32_t handler);
+int vm_arch_free_pagetable(vir_bytes arch_pagetables, mmap_t *mmap, uint32_t handler);
 
 
 /*

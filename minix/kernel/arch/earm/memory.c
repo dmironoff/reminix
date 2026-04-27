@@ -31,9 +31,6 @@
 #include "kernel/apt_utils.h"
 #include "kernel/mmap_utils.h"
 
-extern vm_abstract_pagetables_t       *apt; // Абстрактная таблица страниц
-extern vir_bytes                       arch_pt_base; // Базовый адрес физической аппаратной таблицы страниц
-extern mmap_t                         *mmap; // Абстрактная карта памяти
 extern struct kinfo                   kinfo;
 
 /*
@@ -47,20 +44,6 @@ static int freepdes[MAXFREEPDES];   /* индексы L1 в текущей та�
 
 static u32_t phys_get32(phys_bytes v);
 
-
-/*
- * вычисление оффсета для выравнивая l1 относительно выделенного региона
- */
-static inline uint32_t pdoff(uint32_t sector_start) {
-    return (sector_start + (ARM_PD_ALIGN - 1)) & ~(ARM_PD_ALIGN - 1) - sector_start;
-}
-
-/*
- * Вычисление оффсета начала таблицы l2 относительно начала выделенного региона
- */
-static inline uint32_t ptoff(uint32_t sector_start) {
-    return ptaddr(sector_start) + ARM_PD_SIZE;
-}
 
 
 /*===========================================================================*
@@ -482,6 +465,6 @@ int arch_enable_paging(struct proc *caller)
 
 void release_address_space(struct proc *pr)
 {
-    pr->p_seg.p_ttbr_v = NULL;
+    pr->pt_handler = PT_HANDLER_NONE;
     barrier();
 }

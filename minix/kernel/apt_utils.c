@@ -20,6 +20,37 @@
  *
  */
 
+/*
+ * Жесткое добавление новой записи в таблицу c начала
+ * Используется при копировании
+ */
+static int apt_hard_add_entry_first(vm_abstract_pt_t *table, vm_abstract_pt_entry_t *entry) {
+    if (table->first == 0) {
+        table->first = entry;
+        table->last = entry;
+    } else {
+        table->first->prev = entry;
+        entry->next = table->first;
+        table->first = entry;
+    }
+    return OK;
+}
+
+/*
+ * Жесткое добавление новой записи в таблицу c конца
+ * Используется при копировании
+ */
+static int apt_hard_add_entry_last(vm_abstract_pt_t *table, vm_abstract_pt_entry_t *entry) {
+    if (table->first == 0) {
+        table->first = entry;
+        table->last = entry;
+    } else {
+        table->last->next = entry;
+        entry->prev = table->last;
+        table->last = entry;
+    }
+    return OK;
+}
 
 /*
  * Поиск первой незанятой записи о таблице
@@ -733,4 +764,26 @@ int apt_vir_set_new_flags(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *table
     }
 
     return APT_NOT_FOUND;
+}
+
+int apt_copy_table(vm_abstract_pagetables_t *apt, vm_abstract_pt_t *source, vm_abstract_pt_t *dest) {
+    vm_abstract_pt_entry_t *iter;
+    vm_abstract_pt_entry_t *new_entry;
+
+    apt_find_undef_table(apt, dest);
+    dest->status = source->status;
+    dest->version = 1;
+
+    for (iter = source->first; iter != 0; iter = (vm_abstract_pt_entry_t *) iter->next) {
+        apt_find_undef_entry(apt, new_entry);
+        new_entry->size = iter->size;
+        new_entry->vaddr = iter->vaddr;
+        new_entry->paddr = iter->paddr;
+        new_entry->status = iter->status;
+        new_entry->flags = iter->flags;
+        new_entry->cache = iter->cache;
+        apt_hard_add_entry_last(dest, new_entry);
+    }
+
+    return OK;
 }

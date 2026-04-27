@@ -9,6 +9,9 @@
 
 #include <minix/endpoint.h>
 
+#include "kernel/apt_utils.h"
+#include "pagetables.h"
+
 #if USE_CLEAR
 
 /*===========================================================================*
@@ -66,6 +69,12 @@ int do_clear(struct proc * caller, message * m_ptr)
    * slots are assigned to another, new process. 
    */
   if (priv(rc)->s_flags & SYS_PROC) priv(rc)->s_proc_nr = NONE;
+
+  /*
+   * Освобождение размеченных таблиц страниц и виртуальной памяти
+   */
+  vm_arch_free_pagetable(kinfo.arch_pagetables, kinfo.mmap, rc->pt_handler);
+  apt_unmap_table(kinfo.apt, rc->pt_table);
 
 #if 0
   /* Clean up virtual memory */

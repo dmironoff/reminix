@@ -315,7 +315,7 @@ void switch_to_user(void)
         if (p->apt_version != p->apt_table->version) {
             if (kmutex_trylock(p->apt_table->lock)) {
                 // сейчас обновим нашу физическую таблицу страниц
-                vm_arch_apt_to_pt(apt, p->apt_table, arch_pt_base, p->pt_handler);
+                vm_arch_apt_to_pt(kinfo.apt, p->apt_table, kinfo.arch_pagetables, p->pt_handler);
                 proc_context_shoot_all(p->context_id); // Всегда убиваем кеш по контексту
                 // Эта функция уже реализует SMP
                 p->apt_version = p->apt_table->version;
@@ -360,7 +360,7 @@ not_runnable_pick_new:
     if (p->apt_version != p->apt_table->version) {
         if (kmutex_trylock(p->apt_table->lock)) {
             // сейчас обновим нашу физическую таблицу страниц
-            vm_arch_apt_to_pt(apt, p->apt_table, arch_pt_base, p->pt_handler);
+            vm_arch_apt_to_pt(kinfo.apt, p->apt_table, kinfo.arch_pagetables, p->pt_handler);
             proc_context_shoot_all(p->context_id); // Всегда убиваем кеш по контексту
             // Эта функция уже реализует SMP
             p->apt_version = p->apt_table->version;
@@ -482,11 +482,7 @@ check_misc_flags:
 	 */
 	p->p_misc_flags &= ~MF_CONTEXT_SET;
 
-#if defined(__i386__)
-  	assert(p->p_seg.p_cr3 != 0);
-#elif defined(__arm__)
-	assert(p->p_seg.p_ttbr != 0);
-#endif
+    assert(p->pt_handler != PT_HANDLER_NONE);
 
 	if (p->p_misc_flags & MF_FLUSH_TLB) {
 		if (tlb_must_refresh)
