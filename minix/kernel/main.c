@@ -28,9 +28,6 @@
 #include "watchdog.h"
 #endif
 
-/* Глобальный указатель на BKI — используется в memory.c и protect.c */
-bootstrap_kernel_information_t *BKI;
-
 /* dummy for linking */
 char *** _penviron;
 
@@ -41,17 +38,7 @@ int is_smp_mode = 0;
 int cpu_count   = 1;
 int bsp_cpu_nr  = 0;
 
-/* Глобальные указатели на рабочие структуры памяти */
-mmap_t                   *mmap;
-vm_abstract_pagetables_t *apt;
-
-#ifdef __arm__
-vir_bytes  fdt_addr;
-arm_pt_t  *kernel_pt;
-#endif
-
-/* Физические таблицы страниц — передаётся во всё архитектурно-зависимое */
-vir_bytes arch_pt_base;
+extern struct kinfo kinfo;
 
 /* ------------------------------------------------------------------ */
 
@@ -125,13 +112,6 @@ void kmain(bootstrap_kernel_information_t *bki)
     assert(bss_test == 0);
     bss_test = 1;
 
-    /* ----- Сохраняем BKI глобально ----- */
-    BKI         = bki;
-    mmap = bki->mmap;
-    apt  = bki->apt;
-
-    fdt_addr  = bki->fdt_addr;
-    arch_pt_base = bki->arch_pt_base;
 
     /* Переносим параметры загрузки в kinfo.params для env_get() */
     strlcpy(kinfo.params, bki->params, sizeof(kinfo.params));

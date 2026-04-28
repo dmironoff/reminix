@@ -24,32 +24,25 @@
 typedef struct {
     vir_bytes                      fdt_addr; // Для x86 мы сюда кладём только информацию о загруженных модулях
 
-    int                             kernel_pt_handler; // это таблица для ttbr0
-    vm_abstract_pt_t                *kernel_apt; // абстрактная таблица ядра - это всё адресное пространство из ttbr0
-
     uint32_t                        system_cpu_count;
     uint32_t                        boot_cpu_number;
     phys_bytes                      smp_trampoline; // Адрес трамплина для многоядерных систем
     vm_abstract_pagetables_t        *apt;  // Хочу обратить внимание что здесь должны быть уже виртуальные адреса
     mmap_t                          *mmap;
-    vir_bytes                       arch_pt_base;
+    vir_bytes                       arch_pagetables;
 
     boot_module_information_t       modules[BOOT_MODULES_MAX_COUNT];
 
     char                            params[PARAMS_BUFFER_SIZE];
 
-    vir_bytes               vir_kern_start; /* kernel addrspace starts */
-    vir_bytes               bootstrap_start, bootstrap_len;
-    phys_bytes              phys_kernel_base; /* Адрес куда мы переместили ядро*/
 
-    // Мы делаем прототипы на этапе преинициализации так как у нас там гораздо больше данных о регионах памяти
-    vm_abstract_pt_t                *apt_user_process_prototype;  // Прототипы таблиц для пользовательского процесса
-    vm_abstract_pt_t                *apt_vm_process_prototype;  // Для процесса менеджера виртуальной памяти.
-
-    // Заранее разметим несколько секций l1 для копирования данных между ядром и процессами
-    // Они будут иметь в таблице страниц отдельный тип
-    vir_bytes                      vir_memory_cp_region_addr;
-    vir_bytes                      vir_memory_cp_region_size;
+    // Размеченные в pre_init регионы памяти
+    mmap_region_t                  *kernel_region;
+    mmap_region_t                  *mmap_region;
+    mmap_region_t                  *apt_region;
+    mmap_region_t                  *bki_region;
+    mmap_region_t                  *fdt_region;
+    mmap_region_t                  *arch_pagetables_region;
 } bootstrap_kernel_information_t;
 
 

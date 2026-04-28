@@ -2,10 +2,12 @@
 // Created by dmironov on 22.04.2026.
 //
 
+#include "kernel/kernel.h"
+#include <minix/param.h>
+
 /*
  * Это наша часть отвечающая за маппинг адресов для драйверов внутри ядра
  */
-
 
 /* list of requested physical mapping */
 static kern_phys_map *kern_phys_map_head;
@@ -15,7 +17,7 @@ static int usermapped_glo_index = -1,
 
 extern char usermapped_start, usermapped_end, usermapped_nonglo_start;
 
-int arch_phys_map(const int index, phys_bytes *addr,
+int kernel_phys_map_iter(const int index, phys_bytes *addr,
                   phys_bytes *len, int *flags)
 {
     static int first = 1;
@@ -55,7 +57,7 @@ int arch_phys_map(const int index, phys_bytes *addr,
     return EINVAL;
 }
 
-int arch_phys_map_reply(const int index, const vir_bytes addr)
+int kernel_phys_map_reply(const int index, const vir_bytes addr)
 {
     kern_phys_map *phys_maps;
 

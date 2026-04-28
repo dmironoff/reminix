@@ -62,7 +62,7 @@ typedef struct {
 typedef struct {
     kmutex_t             lock;
     uint32_t            version;                // Версия таблицы для синхронизации
-    phys_bytes          l2_page_size;    // Выравнивание памяти по размеру l2 страницы MMU процессора
+    phys_bytes          page_size;    // Выравнивание памяти по размеру l2 страницы MMU процессора
     phys_bytes          total_mem;          // В это число не будет входить адресное пространство устройств
     phys_bytes          free_mem;           // Остаток свободной физической памяти
     uint32_t            regions_allocated;  // Количество записей для которых выделенна память

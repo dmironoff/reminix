@@ -41,9 +41,6 @@ __asm__(".arch armv7-a\n\t.arch_extension virt"); // Расширенный на
 
 struct kmessages kmessages;
 
-/* pg_utils.c uses this; in this phase, there is a 1:1 mapping. */
-phys_bytes vir2phys(void *addr) { return (phys_bytes) addr; }
-
 
 /* String length used for mb_itoa */
 #define ITOA_BUFFER_SIZE 20
@@ -60,18 +57,14 @@ extern char _kern_unpaged_end;
 extern uint32_t _smp_trampoline_start, _smp_trampoline_end;
 
 // Эти данные нам потребуются для перемещения ядра в памяти
-extern uint32_t _kern_phys_base, _kern_vir_base, _kern_size;
-
-/* Сохранением этого адреса у нас занимается ассемблер в head.S */
-phys_bytes fdt_addr; // Сохраним сюда адрес fdt переданным нам при загрузке
-
+extern uint32_t _kern_phys_base, _kern_vir_base, _kern_size, _smp_trampoline_start;
 
 // Карта памяти для преинициализации системы
 static mmap_t boot_mmap;
 static mmap_region_t boot_mmap_regions[BOOTSTRAP_MMAP_REGIONS];
 
 // Временная структура данных для передачи в основное ядро
-bootstrap_kernel_information_t bki;
+bootstrap_kernel_information_t BKI;
 
 // Временные переменные для качественной сборки
 /* SMP globals */
@@ -194,48 +187,32 @@ static void mmap2apt (mmap_t *mmap, vm_abstract_pagetables_t *apt, vm_abstract_p
  * На бедную функцию pre_init выпала теперь тяжкая доля:
  * Разобрать fdt
  * Настроить процессор и MMU
- * Физически переместить рабочую(не bootstrap) часть ядра в начало оперативной памяти - ну мне так нравится
- *                                   А ещё это уменьшит количество непригодных дыр в памяти
- * Переместить fdt рядышком с ядром
  * Выделить память под общую карту памяти, абстрактные таблицы страниц, физические таблицы страниц
  * Разметить все модули в память ядра, для начала, что бы kmain и vm уже занялись их постепенным запуском
  * Включить MMU
- * Теперь мы в pre_init включаем уже не предварительный, а боевой режим
- * Тоесть kmain уже будет работать на чистой системе, на которой ему не потребуется донастраивать MMU
- *
  * и прыгнуть в kmain передав ему  bootstrap_kernel_information_t
  *
  * Порядок действий:
- * 1. Сохранить аргумент с адресом fdt
- * 2. Сбросить все настройки железа в нужное нам состояние - MMU Disabled + Mode SVC
- * 3. Разметить во временном mmap все регионы переданные в FDT
- * 4. Разметить во временном mmap все регионы загруженных модулей
- * 5. Разметить во временной mmap нахождение ядра и fdt
- * 6. Переместить ядро в его рабочую область
- * 7. Создать временную физическую таблицу страниц с мапингом устройств и физической памяти 1 к 1 для регистра ttbr0
- * 8. Выделить память для нового региона mmap
- * 9. Выделить память для нового региона apt
- * 10. Выделить память для новых физических таблиц виртуальной памяти
- * 11. Включить MMU установив контекст ASID на 0
- * 12. Внести в apt все необходимые данные в том числе маппинг 1 к 1
- * 13. Синхронизировать apt с новыми таблицами
- * 14. Переключить MMU на рабочие таблицы физической памяти
- * 15. Собрать структуру для передачи в основное ядро
- * 16. Сделать прототипы виртуальных таблиц для пользовательского процесса и для VM
- * 16. Прыгнуть в ядро
+ * 1. Сохранить адрес FDT
+ * 2. Привести систему в стартовое состояние
+ * 3. Разобрать FDT и стартовую карту памяти
+ * 4. Включить временный MMU
+ * 5. Инициализировать стартовые структуры данных (mmap, bki, apt, arch_pagetables)
+ * 6. Прыгнуть в ядро
  */
 bootstrap_kernel_information_t *pre_init(int argc, char **argv)
 {
-    int res;
-    int node;
-    int proplen;
-    int boot_module_id = 0;
-    uint32_t *reg;
-    phys_bytes new_kernel_start = 0;
-    mmap_region_t *region;
+    phys_bytes fdt_addr;
+    int node, res;
+    mmap_region_t *kernel_region;
+    mmap_region_t *apt_region;
+    mmap_region_t *mmap_region;
+    mmap_region_t *arch_pagetables_region;
+    mmap_region_t *bki_region;
     mmap_region_t *fdt_region;
 
-    /* Clear BSS */
+
+    /* Зачистим все данные */
     memset(&_edata, 0, (u32_t)&_end - (u32_t)&_edata);
     memset(&_kern_unpaged_edata, 0, (u32_t)&_kern_unpaged_end - (u32_t)&_kern_unpaged_edata);
 
@@ -254,7 +231,7 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
     if ((cpsr & 0x1f) == ARM_CPU_MODE_HYP) {
         // Если мы какого-то хуя в режиме гипервизора,
         // то нужна специальная конструкция что бы прыгнуть в SVC
-        // Нет, мне нравится режим гипервизора, просто пока ReMinix не знает что делать с таким богадством
+        // Нет, мне нравится режим гипервизора, просто пока ReMinix не знает что делать с таким богатством
         cpsr &= (~0x1f);
         cpsr |= ARM_CPU_MODE_SVC;
         asm volatile ("msr spsr_hyp, %0" : : "r"(cpsr));
@@ -271,520 +248,148 @@ bootstrap_kernel_information_t *pre_init(int argc, char **argv)
     // Если MMU уже или всё ещё отключён, то ничего не случится, но u-boot иногда любит оставлять его включённым
     dcache_clean(); /* Очищаем все кеши, просто вталкиваем в оперативку что закешировал процессор */
 
-    // Пункт 2 закончен, мы перевели всю железку в нужное нам для инициализации состояние
-
     // Включаем отладочный вывод в серийный порт.
     bsp_ser_init();
     ser_print("ReMinix ARM32 kernel\r\n");
 
+    // Итак, мы в стартовом состоянии
+
+    // Начнём с fdt
     ser_print_variable("FDT_ADDR", (uint32_t)fdt_addr);
     // Проверка магического числа fdt
     if (fdt_check_header((void *) fdt_addr) < 0) {
         pre_panic("FDT Blob header check fail");
     }
 
-    // Инициализация стартовой карты памяти
+    // Для начала инициализируем нашу стартовую карту памяти, ведь мы будем её заполнять
+    boot_mmap.page_size = ARM_L2_SIZE;
     boot_mmap.regions = boot_mmap_regions;
     boot_mmap.regions_allocated = BOOTSTRAP_MMAP_REGIONS;
-    boot_mmap.l2_page_size = ARM_L2_SIZE;
-    node = fdt_subnode_offset((void *) fdt_addr, 0, "memory");
+    node = fdt_path_offset((void *)fdt_addr, "/memory");
     if (node < 0) {
-        node = fdt_node_offset_by_prop_value((void *) fdt_addr, -1, "device_type", "memory", 7);
+        node = fdt_node_offset_by_prop_value((void *) fdt_addr, 0, "device_type", "memory", strlen("memory"));
         if (node < 0) {
-            ser_print_variable("node", node);
-            pre_panic("Can not get memory information from FDT");
+            ser_print_variable("FDT NODE VALUE:", node);
+            pre_panic("Memory node not found in FDT");
         }
     }
-    reg = (uint32_t *) fdt_getprop((void *) fdt_addr, node, "reg", &proplen);
-    if (proplen <= 0) {
-        ser_print_variable("proplen", proplen);
-        pre_panic("Can not get memory information from FDT");
-    } else {
-        // Я стараюсь выделять всё в маленькие регионы кода, что бы не плодить много переменных в области видимости функции
-        bsp_devices_mmap_t *devices_map;
-        uint32_t devices_map_count = 0;
-        bsp_devices_mmap (devices_map, &devices_map_count);
-        phys_bytes devices_mem_len = 0;
-        phys_bytes mem_len = (phys_bytes) fdt32_to_cpu((fdt32_t)reg[1]);
-
-        for (int i = 0; i < devices_map_count; i++) {
-            devices_mem_len += devices_map[i].size;
+    {
+        int len;
+        fdt32_t *reg;
+        reg = fdt_getprop((void *) fdt_addr, node, "reg", &len);
+        if (len <= 0) {
+            ser_print_variable("Memory reg:", len);
+            pre_panic("Can not get memory info from fdt");
+        }
+        phys_bytes mem_start = fdt32_to_cpu(&reg[0]);
+        phys_bytes mem_size = fdt32_to_cpu(&reg[1]);
+        bsp_devices_mmap_t devices[10];
+        int devices_count;
+        bsp_devices_mmap(devices, devices_count);
+        for (int i = 0; i < devices_count; i++) {
+            mem_size += devices[i].size;
+        }
+        mmap_init(&boot_mmap, ARM_L2_SIZE, mem_size);
+        for (int i = 0; i < devices_count; i++) {
+            mmap_region_t device;
+            mmap_alloc_device(&boot_mmap, devices[i].start, devices[i].size, &device);
         }
 
-        res = mmap_init(&boot_mmap, ARCH_L2_PAGE_SIZE, devices_mem_len + mem_len);
-        if (res < 0) {
-            ser_print_variable("mmap_init", res);
-            ser_print_variable("devices_mem_len", devices_mem_len);
-            ser_print_variable("mem_len", mem_len);
-            pre_panic("Can not init mmap");
-        }
-
-        for (int i = 0; i < devices_map_count; i++) {
-            mmap_region_t *device;
-            res = mmap_alloc_device(&boot_mmap, devices_map[i].start, devices_map[i].size, device);
-            if (res < 0) {
-                ser_print_variable("mmap_alloc_device", res);
-                ser_print_variable("devices_mem_len", devices_mem_len);
-                ser_print_variable("mem_len", mem_len);
-                ser_print_variable("start", devices_map[i].start);
-                ser_print_variable("size", devices_map[i].size);
-                pre_panic("Can not map device region");
-            }
-
-        }
-
-        // Сразу не отходя от кассы мы разметим в памяти где у нас лежит FDT BLOB
-        res = mmap_alloc_region(&boot_mmap, fdt_addr, mmap_align(&boot_mmap, (phys_bytes) fdt_totalsize((void *) fdt_addr)), fdt_region);
-        if (res < 0) {
-            ser_print_variable("mmap_alloc_region", res);
-            ser_print_variable("start", fdt_addr);
-            ser_print_variable("size", fdt_totalsize((void *) fdt_addr));
-            pre_panic("Can not map FDT region");
-        }
-        region->type = MMAP_FDT;
-        bki.fdt_addr = fdt_addr;
-        bki.modules[boot_module_id].type = BOOT_MODULE_FDT;
-        strcpy(bki.modules[boot_module_id].name, "FDT");
-        bki.modules[boot_module_id].addr = region->start;
-        bki.modules[boot_module_id].size = region->size;
-        boot_module_id++;
-
-        // Разметим текущее местонахождение ядра _kern_phys_base, _kern_size;
-        res = mmap_alloc_region(&boot_mmap, (phys_bytes) _kern_phys_base, mmap_align(&boot_mmap, (phys_bytes) _kern_size), region);
-        if (res < 0) {
-            ser_print_variable("mmap_alloc_region", res);
-            ser_print_variable("start", fdt_addr);
-            ser_print_variable("size", fdt_totalsize((void *) fdt_addr));
-            pre_panic("Can not map BOOT_MOD KERNEL region");
-        }
-        region->type = MMAP_BOOT_MOD; //Регион с ядром откуда мы стартовали у нас будет помечен как загрузочный модуль
-        bki.modules[boot_module_id].type = BOOT_MODULE_KERNEL;
-        strcpy(bki.modules[boot_module_id].name, "kernel");
-        bki.modules[boot_module_id].addr = region->start;
-        bki.modules[boot_module_id].size = region->size;
-        boot_module_id++;
     }
 
-    // Пробежимся по модулям
-    node = fdt_path_offset((void *) fdt_addr, "/reminiximages");
+    mmap_alloc_region(&boot_mmap, fdt_addr, mmap_align(&boot_mmap, fdt_totalsize((void *) fdt_addr)), fdt_region);
+
+    // Иницировали карту памяти, теперь заполним её нужным нам содержимым.
+    mmap_alloc_region(&boot_mmap, _kern_phys_base, mmap_align(&boot_mmap, _kern_size), kernel_region);
+    kernel_region->type = MMAP_KERNEL;
+
+    node = fdt_path_offset((void *)fdt_addr, "/reminiximages");
     if (node < 0) {
-        ser_print_variable("node", node);
-        pre_panic("Can not get modules information from FDT");
-    } else {
+        ser_print_variable("ReMinix images node", node);
+        pre_panic("Can not get modules info from fdt");
+    }
+    {
         int subnode;
-        fdt_for_each_subnode(subnode, (void *) fdt_addr, node) {
-            uint32_t addr, size;
-            int len;
-            const char *name = fdt_get_name((void *) fdt_addr, subnode, &proplen);
-            const char *type = fdt_getprop((void *) fdt_addr, subnode, "type", &len);
-            if (len <= 0) {
-                ser_print_variable("fdt_getprop", len);
-                pre_panic("FDT /reminiximages section error: can not get module type.");
-            }
-            reg = (uint32_t *) fdt_getprop((void *) fdt_addr, subnode, "addr", &len);
-            if (len <= 0) {
-                ser_print_variable("fdt_getprop", len);
-                pre_panic("FDT /reminiximages section error: can not get module addr.");
-            }
-            addr = fdt32_to_cpu(reg[0]);
-            reg = (uint32_t *) fdt_getprop((void *) fdt_addr, subnode, "size", &len);
-            if (len <= 0) {
-                ser_print_variable("fdt_getprop", len);
-                pre_panic("FDT /reminiximages section error: can not get module size.");
-            }
-            size = fdt32_to_cpu(reg[0]);
-            res = mmap_alloc_region(&boot_mmap, (phys_bytes) addr, mmap_align(&boot_mmap, (phys_bytes) size), region);
-            if (res < 0) {
-                ser_print_variable("mmap_alloc_region", res);
-                pre_panic("FDT /reminiximages section error: can not map memory region");
-            }
-            region->type = MMAP_BOOT_MOD;
-            if (strcmp(name, "vm")) {
-                bki.modules[boot_module_id].type = BOOT_MODULE_VM;
-            } else {
-                bki.modules[boot_module_id].type = fdt2module_type(type);
-            }
-            strcpy(bki.modules[boot_module_id].name, name);
-            bki.modules[boot_module_id].addr = region->start;
-            bki.modules[boot_module_id].size = region->size;
-            boot_module_id++;
+        int mod = 0;
+        fdt_for_each_subnode(subnode, (void *)fdt_addr, node)
+        {
+            mmap_region_t *module_region;
+            const char *name = fdt_get_name((void *)fdt_addr, subnode, NULL);
+            const char *type = fdt_getprop((void *)fdt_addr, subnode, "type", strlen("type"));
+            fdt32_t *val = fdt_getprop((void *)fdt_addr, subnode, "addr", strlen("addr"));
+            phys_bytes addr = fdt32_to_cpu(*val);
+            val = fdt_getprop((void *)fdt_addr, subnode, "size", strlen("size"));
+            phys_bytes size = fdt32_to_cpu(*val);
+            BKI.modules[mod].type = fdt2module_type(type);
+            BKI.modules[mod].addr = addr;
+            BKI.modules[mod].size = mmap_align(&boot_mmap, size);
+            strcpy(BKI.modules[mod].name, name);
+            mmap_alloc_region(&boot_mmap, addr, mmap_align(&boot_mmap, size), module_region);
+            module_region->type = MMAP_BOOT_MOD;
+            mod++;
         }
     }
-
-    mmap_region_t *new_kernel_region;
-    // Приступаем к пункту 6 - перемещаем ядро
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, _kern_size), new_kernel_region);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for kernel");
+    node = fdt_path_offset((void *)fdt_addr, "/chosen");
+    if (node >= 0) {
+        const char *bootargs = fdt_getprop((void *)fdt_addr, node, "bootargs", strlen("bootargs"));
+        bootargs_to_params(bootargs, BKI.params);
     }
-    new_kernel_region->type = MMAP_KERNEL;
-    new_kernel_start = new_kernel_region->start;
-    memset((void *) new_kernel_region->start, 0, new_kernel_region->size); // Вычистим под ядрышко нашу площадочку
-    memcpy((void *) new_kernel_region->start, (void *) _kern_phys_base, sizeof(char) * _kern_size);
+    mmap_alloc_highest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(mmap_t) + sizeof(mmap_region_t) * 300), mmap_region);
+    mmap_alloc_highest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(vm_abstract_pagetables_t) + sizeof(vm_abstract_pt_t) * 256 + sizeof(vm_abstract_pt_entry_t) * 256 * 30), apt_region);
+    mmap_alloc_highest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(arm_pt_t) * 260), arch_pagetables_region);
+    mmap_alloc_highest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(bootstrap_kernel_information_t)), bki_region);
 
-    // Выделяем память для динамических структур ядра
-    // Инициализировать будем после их разметки во временные таблицы памяти и включения MMU
-    mmap_region_t *new_mmap_region;         // Регион с основной структурой карты памяти
-    mmap_region_t *new_mmap_regions_region; // Регион с пуллом записей о регионах памяти
-    mmap_region_t *new_apt_region;         // Основная структура абстрактной таблицы страниц
-    mmap_region_t *new_apt_tables_region;
-    mmap_region_t *new_apt_l1_region;    // Пулл записей l1
-    mmap_region_t *new_apt_l2_region;    // Пулл записей l2
-    mmap_region_t *new_pt_handlers_region;  // Регион под массив структур описывающих физические таблицы
-    mmap_region_t *new_pt_start_l1_region;  // Регион под первую таблицу l1
-    mmap_region_t *new_pt_start_l2_region;  // Регион под первую таблицу l2
-    mmap_region_t *new_bki_region; // Результаты инициализации передаваемые ядру
-    mmap_region_t *new_smp_trampoline; // Трамплин для старта многоядерных систем
 
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(mmap_t)), new_mmap_region);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for new mmap");
-    }
-
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(mmap_t) * BOOTSTRAP_MMAP_REGIONS), new_mmap_regions_region);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for new mmap regions pull");
-    }
-
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(vm_abstract_pagetables_t)), new_apt_region);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for new apt mmap");
-    }
-
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(vm_abstract_pt_t) * BOOTSTRAP_APT_COUNT), new_apt_tables_region);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for new apt tables pull mmap");
-    }
-
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(vm_abstract_pt_l1_entry_t ) * BOOTSTRAP_APT_L1_COUNT), new_apt_l1_region);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for new apt l1 pull mmap");
-    }
-
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(vm_abstract_pt_l2_entry_t ) * BOOTSTRAP_APT_L2_COUNT), new_apt_l2_region);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for new apt l1 pull mmap");
-    }
-
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(arm_pt_t) * ARM_MAX_PT_HANDLES), new_pt_handlers_region);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for new apt l1 pull mmap");
-    }
-
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(bootstrap_kernel_information_t)), new_bki_region);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for new BKI structure");
-    }
-
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, (phys_bytes) _smp_trampoline_end - _smp_trampoline_start), new_smp_trampoline);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for smp trampoline");
-    }
-    // Сразу скопируем трамплин в новое место
-    memcpy((void *) new_smp_trampoline->start, (void *) _smp_trampoline_start, _smp_trampoline_end - _smp_trampoline_start);
-
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(uint32_t) * ARM_L1_ENTRIES), new_pt_start_l1_region);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for first arm l1 pagetable");
-    }
-
-    res = mmap_alloc_lowest_region(&boot_mmap, mmap_align(&boot_mmap, sizeof(uint32_t) * ARM_L1_ENTRIES * ARM_L2_ENTRIES), new_pt_start_l2_region);
-    if (res < 0) {
-        ser_print_variable("mmap_alloc_lowest_region", res);
-        pre_panic("Can not map new region for first arm l2 pagetable");
-    }
-
-    // Создаём инициализационную карту памяти и включаем MMU
     pg_init(&boot_mmap);
-    vir_bytes vir_addr_mmap = pg_map_high(new_mmap_region);
-    vir_bytes vir_addr_mmap_regions = pg_map_high(new_mmap_regions_region);
-    vir_bytes vir_addr_apt = pg_map_high(new_apt_region);
-    vir_bytes vir_addr_apt_tables = pg_map_high(new_apt_tables_region);
-    vir_bytes vir_addr_apt_l1 = pg_map_high(new_apt_l1_region);
-    vir_bytes vir_addr_apt_l2 = pg_map_high(new_apt_l2_region);
-    vir_bytes vir_addr_pt_handlers = pg_map_high(new_pt_handlers_region);
-    vir_bytes vir_addr_pt_l1 = pg_map_high(new_pt_start_l1_region);
-    vir_bytes vir_addr_pt_l2 = pg_map_high(new_pt_start_l2_region);
-    vir_bytes vir_addr_new_bki = pg_map_high(new_bki_region);
-    vir_bytes vir_addr_new_fdt = pg_map_high(fdt_region);
+    vir_bytes apt_virbase = pg_map_high(apt_region);
+    vir_bytes mmap_virbase = pg_map_high(mmap_region);
+    vir_bytes arch_pagetables_virbase = pg_map_high(arch_pagetables_region);
+    vir_bytes bki_virbase = pg_map_high(bki_region);
+    vir_bytes fdt_virbase = pg_map_high(fdt_region);
     write_ttbr0(pg_get_phys_addr());
     vm_arch_enable_paging();
 
-    // Осталось инициализировать все структуры
-    // Внести текущие данные в apt в том числе мапинг 1 к 1
-    // Создать первую физическую таблицу в виртуальной области ядра
-    // Синхронизировать apt и физическую таблицу
-    // Переключиться на новую таблицу
-    // Создать прототипы адресных пространств
-    // Внести данные в BKI и передать управление в основную часть ядра
+    bootstrap_kernel_information_t *new_bki = (bootstrap_kernel_information_t *) bki_virbase;
+    mmap_t *new_mmap = (mmap_t *) mmap_virbase;
+    new_mmap->regions = (mmap_region_t *) (mmap_virbase + sizeof(mmap_t));
+    new_mmap->regions_allocated = 300;
+    mmap_copy_to_new_location(&boot_mmap, new_mmap);
 
+    vm_abstract_pagetables_t *new_apt = (vm_abstract_pagetables_t *) apt_virbase;
+    new_apt->page_size = ARM_L2_SIZE;
+    new_apt->pages_max_count = ARM_L1_ENTRIES * ARM_L2_ENTRIES;
+    new_apt->tables = (vm_abstract_pt_t *) (apt_virbase + sizeof(vm_abstract_pagetables_t));
+    new_apt->pagetables_allocated = 256;
+    new_apt->entries = (vm_abstract_pt_entry_t *) (apt_virbase + sizeof(vm_abstract_pagetables_t) + sizeof(vm_abstract_pt_t) * 256);
+    new_apt->entries_allocated = 256 * 30;
 
+    mmap_find_region_by_addr(new_mmap, apt_region->start, apt_region);
+    apt_region->type = MMAP_KRNL_APT;
+    mmap_find_region_by_addr(new_mmap, mmap_region->start, mmap_region);
+    mmap_region->type = MMAP_KRNL_MMAP;
+    mmap_find_region_by_addr(new_mmap, bki_region->start, bki_region);
+    bki_region->type = MMAP_BKI;
+    mmap_find_region_by_addr(new_mmap, kernel_region->start, kernel_region);
+    mmap_find_region_by_addr(new_mmap, fdt_region->start, fdt_region);
+    fdt_region->type = MMAP_FDT;
+    mmap_find_region_by_addr(new_mmap, arch_pagetables_region->start, arch_pagetables_region);
+    arch_pagetables_region->type = MMAP_PAGETABLES;
 
-    vm_abstract_pagetables_t *apt = (vm_abstract_pagetables_t *) vir_addr_apt;
-    apt->tables = (vm_abstract_pt_t *) vir_addr_apt_tables;
-    apt->pagetables_allocated = BOOTSTRAP_APT_COUNT;
-    apt->l1_entries = (vm_abstract_pt_l1_entry_t *) vir_addr_apt_l1;
-    apt->l1_entries_allocated = BOOTSTRAP_APT_L1_COUNT;
-    apt->l2_entries = (vm_abstract_pt_l2_entry_t *) vir_addr_apt_l2;
-    apt->l2_entries_allocated = BOOTSTRAP_APT_L2_COUNT;
-    apt->l2_page_size = ARM_L2_SIZE;
-    apt->l1_section_size = ARM_L1_SIZE;
+    memcpy(&BKI, (void *) new_bki, sizeof(bootstrap_kernel_information_t));
+    new_bki->kernel_region = kernel_region;
+    new_bki->apt_region = apt_region;
+    new_bki->bki_region = bki_region;
+    new_bki->mmap_region = mmap_region;
+    new_bki->fdt_region = fdt_region;
+    new_bki->arch_pagetables_region = arch_pagetables_region;
 
-    arm_pt_t *arm_pagetables = (arm_pt_t *) vir_addr_pt_handlers;
-    arm_pagetables[0].proc_ep = 0;
-    arm_pagetables[0].l1_table = (uint32_t *) vir_addr_pt_l1;
-    arm_pagetables[0].l1_phys = new_pt_start_l1_region->start;
-    arm_pagetables[0].l2_tables = (uint32_t *) vir_addr_pt_l2;
-    arm_pagetables[0].l2_phys = new_pt_start_l2_region->start;
-    arm_pagetables[0].status = PT_USED;
-
-    mmap_t *new_mmap = (mmap_t *) vir_addr_mmap;
-    new_mmap->regions = (mmap_region_t *) vir_addr_mmap_regions;
-    new_mmap->regions_allocated = BOOTSTRAP_MMAP_REGIONS;
-    res = mmap_copy_to_new_location(&boot_mmap, new_mmap);
-    if (res < 0) {
-        ser_print_variable("mmap_copy_to_new_location", res);
-        pre_panic("Can not copy mmap to virtual memory");
-    }
-    new_mmap->l2_page_size = ARM_L2_SIZE;
-
-    res = mmap_find_region_by_addr(new_mmap, arm_pagetables[0].l1_phys, arm_pagetables[0].l1_table_region);
-    if (res < 0) {
-        ser_print_variable("mmap_find_region_by_addr", res);
-        pre_panic("Can not find mmap region of start l1 pagetable");
-    }
-    res = mmap_find_region_by_addr(new_mmap, arm_pagetables[0].l2_phys, arm_pagetables[0].l2_tables_region);
-    if (res < 0) {
-        ser_print_variable("mmap_find_region_by_addr", res);
-        pre_panic("Can not find mmap region of start l2 pagetable");
-    }
-
-    vm_abstract_pt_t *new_apt_table;
-    res = apt_make_clean_table(apt, 0, new_apt_table);
-    mmap2apt(new_mmap, apt, new_apt_table); // размапить 1 к 1
-    
-    // Переразмапим в новую apt наше новое ядро
-    res = apt_map_region_to_addr(apt, new_apt_table, new_kernel_region, _kern_vir_base, VM_APF_KERNEL |
-                                                                                           VM_APF_PRESENT | VM_APF_RO);
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map mmap to apt");
-    }
-
-    // Сейчас переразмапим в абстрактную таблицу все наши структуры
-    res = apt_map_region_to_addr(apt, new_apt_table, new_mmap_region, vir_addr_mmap, VM_APF_VM_SHARED |
-                                        VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map mmap to apt");
-    }
-
-    res = apt_map_region_to_addr(apt, new_apt_table, new_mmap_regions_region, vir_addr_mmap_regions, VM_APF_VM_SHARED |
-                                                                                     VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map mmap regions to apt");
-    }
-    res = apt_map_region_to_addr(apt, new_apt_table, new_apt_region, vir_addr_apt, VM_APF_VM_SHARED |
-                                                                                     VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map apt to apt");
-    }
-    res = apt_map_region_to_addr(apt, new_apt_table, new_apt_tables_region, vir_addr_apt_tables, VM_APF_VM_SHARED |
-                                                                                     VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map apt tables to apt");
-    }
-    res = apt_map_region_to_addr(apt, new_apt_table, new_apt_l1_region, vir_addr_apt_l1, VM_APF_VM_SHARED |
-                                                                                     VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map apt l1 to apt");
-    }
-    res = apt_map_region_to_addr(apt, new_apt_table, new_apt_l2_region, vir_addr_apt_l2, VM_APF_VM_SHARED |
-                                                                                     VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map apt l2 to apt");
-    }
-    res = apt_map_region_to_addr(apt, new_apt_table, new_pt_handlers_region, vir_addr_pt_handlers, VM_APF_KERNEL |
-                                                                                     VM_APF_PRESENT | VM_APF_RW );
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map pt handlers to apt");
-    }
-    res = apt_map_region_to_addr(apt, new_apt_table, new_pt_start_l1_region, vir_addr_pt_l1, VM_APF_KERNEL |
-                                                                                     VM_APF_PRESENT | VM_APF_RW);
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map pt l1 to apt");
-    }
-    res = apt_map_region_to_addr(apt, new_apt_table, new_pt_start_l2_region, vir_addr_pt_l2, VM_APF_KERNEL |
-                                                                                     VM_APF_PRESENT | VM_APF_RW);
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map pt l2 to apt");
-    }
-
-    // Виртуальная память для fdt
-    res = apt_map_region_to_addr(apt, new_apt_table, fdt_region, vir_addr_new_fdt, VM_APF_KERNEL |
-                                                                                             VM_APF_PRESENT | VM_APF_RO | VM_APF_USER);
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map pt l2 to apt");
-    }
-
-    // Выделим в текущей "стартовой" apt наше пространство для копирования данных между процессами
-    vir_bytes new_memory_cp_addr = 0;
-    vir_bytes new_memory_cp_size = ARCH_MEMORY_CP_REGION_SIZE;
-    res = apt_alloc_virtual_l1_max_high(apt, new_apt_table, &new_memory_cp_addr, new_memory_cp_size, VM_APF_USER_TO_KERNEL_CP_SPACE, 0);
-
-    if (res < 0) {
-        ser_print_variable("apt_map_phys_to_vir_max_free_end", res);
-        pre_panic("Can not map virtual memory for inter process copy");
-    }
-    
-    // Разметим структуру для BKI
-    res = apt_map_region_to_addr(apt, new_apt_table, new_bki_region, vir_addr_new_bki, VM_APF_KERNEL |
-                                                                                     VM_APF_PRESENT | VM_APF_RW);
-    if (res < 0) {
-        ser_print_variable("apt_map_region_to_addr", res);
-        pre_panic("Can not map BKI to apt");
-    }
-    
-
-    // Вот и всё, теперь нужно засинхронизировать таблицу и загрузить новую таблицу страниц
-    phys_bytes new_pt_root;
-    uint32_t new_pt_handler;
-    res = vm_arch_alloc_pagetable(vir_addr_pt_handlers, new_mmap, apt, new_apt_table, 0, &new_pt_root, &new_pt_handler);
-    if (res < 0) {
-        ser_print_variable("vm_arch_alloc_pagetable", res);
-        pre_panic("Can not alloc new PT");
-    }
-
-    res = vm_arch_apt_to_pt(apt, new_apt_table, vir_addr_pt_handlers, new_pt_handler);
-    if (res < 0) {
-        ser_print_variable("vm_arch_apt_to_pt", res);
-        pre_panic("Can not convert APT to PT");
-    }
-
-    // Помолились и загружаем новую таблицу страниц, сначала скинем кеши
-    dcache_clean();
-    write_ttbr0(new_pt_root);
-
-    // Готовим структуру для передачи основному ядру для завершения инициализации и старта
-    bootstrap_kernel_information_t *new_bki = (bootstrap_kernel_information_t *) vir_addr_new_bki;
-    memcpy((void *)new_bki, &bki, sizeof (bootstrap_kernel_information_t));
-    new_bki->arch_pt_base = vir_addr_pt_handlers;
-    new_bki->fdt_addr = vir_addr_new_fdt;
-    new_bki->mmap = new_mmap;
-    new_bki->apt = apt;
-    new_bki->smp_trampoline = new_smp_trampoline->start;
-    new_bki->bootstrap_start = new_kernel_region->start;
-    new_bki->bootstrap_len = (phys_bytes) &_kern_unpaged_end - _kern_phys_base;
+    new_apt->mmap = new_mmap;
+    new_apt->apt = new_apt;
+    new_bki->fdt_addr = fdt_virbase;
+    new_bki->arch_pagetables = arch_pagetables_virbase;
+    new_bki->smp_trampoline = (phys_bytes) _smp_trampoline_start;
     new_bki->system_cpu_count = bsp_smp_get_cpu_count();
     new_bki->boot_cpu_number = cpuid2cpunr(bsp_smp_get_current_cpu());
-    new_bki->vir_memory_cp_region_addr = new_memory_cp_addr;
-    new_bki->vir_memory_cp_region_size = new_memory_cp_size;
-
-    /*В этом месте я буду создавать прототипы адресных пространств для пользовательского процесса и для VM*/
-    /*ПРОТОТИПИРОВАНИЕ ПАМЯТИ ДЛЯ ПРОЦЕССОВ*/
-    vm_abstract_pt_t *new_user_apt_prototype;
-    vm_abstract_pt_t *new_vm_apt_prototype;
-    apt_make_clean_table(apt, 0, new_user_apt_prototype);
-    // Переразмапим в новую apt наше новое ядро
-    apt_map_region_to_addr(apt, new_user_apt_prototype, new_kernel_region, _kern_vir_base, VM_APF_KERNEL |
-                                                                                        VM_APF_PRESENT | VM_APF_RO);
-
-    // Сейчас переразмапим в абстрактную таблицу все наши структуры
-    apt_map_region_to_addr(apt, new_user_apt_prototype, new_mmap_region, vir_addr_mmap, VM_APF_VM_SHARED |
-                                                                                     VM_APF_PRESENT | VM_APF_RW);
-
-
-    apt_map_region_to_addr(apt, new_user_apt_prototype, new_mmap_regions_region, vir_addr_mmap_regions, VM_APF_VM_SHARED |
-                                                                                                     VM_APF_PRESENT | VM_APF_RW);
-
-    apt_map_region_to_addr(apt, new_user_apt_prototype, new_apt_region, vir_addr_apt, VM_APF_VM_SHARED |
-                                                                                   VM_APF_PRESENT | VM_APF_RW);
-
-    apt_map_region_to_addr(apt, new_user_apt_prototype, new_apt_tables_region, vir_addr_apt_tables, VM_APF_VM_SHARED |
-                                                                                                 VM_APF_PRESENT | VM_APF_RW);
-
-    apt_map_region_to_addr(apt, new_user_apt_prototype, new_apt_l1_region, vir_addr_apt_l1, VM_APF_VM_SHARED |
-                                                                                         VM_APF_PRESENT | VM_APF_RW);
-
-    apt_map_region_to_addr(apt, new_user_apt_prototype, new_apt_l2_region, vir_addr_apt_l2, VM_APF_VM_SHARED |
-                                                                                         VM_APF_PRESENT | VM_APF_RW);
-
-    apt_map_region_to_addr(apt, new_user_apt_prototype, new_pt_handlers_region, vir_addr_pt_handlers, VM_APF_KERNEL |
-                                                                                                   VM_APF_PRESENT | VM_APF_RW );
-
-    apt_map_region_to_addr(apt, new_user_apt_prototype, new_pt_start_l1_region, vir_addr_pt_l1, VM_APF_KERNEL |
-                                                                                             VM_APF_PRESENT | VM_APF_RW);
-
-    apt_map_region_to_addr(apt, new_user_apt_prototype, new_pt_start_l2_region, vir_addr_pt_l2, VM_APF_KERNEL |
-                                                                                             VM_APF_PRESENT | VM_APF_RW);
-    // Виртуальная память для fdt
-    apt_map_region_to_addr(apt, new_user_apt_prototype, fdt_region, vir_addr_new_fdt, VM_APF_KERNEL |
-                                                                                   VM_APF_PRESENT | VM_APF_RO | VM_APF_USER);
-    apt_map_phys_to_vir(apt, new_user_apt_prototype, 0, new_memory_cp_size, new_memory_cp_addr, VM_APF_USER_TO_KERNEL_CP_SPACE |
-                                                                                                     VM_APF_VIRTUAL_ONLY, 0);
-
-    apt_make_clean_table(apt, 0, new_vm_apt_prototype);
-    // Переразмапим в новую apt наше новое ядро
-    apt_map_region_to_addr(apt, new_vm_apt_prototype, new_kernel_region, _kern_vir_base, VM_APF_KERNEL |
-                                                                                           VM_APF_PRESENT | VM_APF_RO);
-
-    // Сейчас переразмапим в абстрактную таблицу все наши структуры
-    apt_map_region_to_addr(apt, new_vm_apt_prototype, new_mmap_region, vir_addr_mmap, VM_APF_VM_SHARED |
-                                                                                        VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-
-
-    apt_map_region_to_addr(apt, new_vm_apt_prototype, new_mmap_regions_region, vir_addr_mmap_regions, VM_APF_VM_SHARED |
-                                                                                                        VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-
-    apt_map_region_to_addr(apt, new_vm_apt_prototype, new_apt_region, vir_addr_apt, VM_APF_VM_SHARED |
-                                                                                      VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-
-    apt_map_region_to_addr(apt, new_vm_apt_prototype, new_apt_tables_region, vir_addr_apt_tables, VM_APF_VM_SHARED |
-                                                                                                             VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-
-    apt_map_region_to_addr(apt, new_vm_apt_prototype, new_apt_l1_region, vir_addr_apt_l1, VM_APF_VM_SHARED |
-                                                                                            VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-
-    apt_map_region_to_addr(apt, new_vm_apt_prototype, new_apt_l2_region, vir_addr_apt_l2, VM_APF_VM_SHARED |
-                                                                                            VM_APF_PRESENT | VM_APF_RW | VM_APF_USER);
-
-    apt_map_region_to_addr(apt, new_vm_apt_prototype, new_pt_handlers_region, vir_addr_pt_handlers, VM_APF_KERNEL |
-                                                                                                      VM_APF_PRESENT | VM_APF_RW );
-
-    apt_map_region_to_addr(apt, new_vm_apt_prototype, new_pt_start_l1_region, vir_addr_pt_l1, VM_APF_KERNEL |
-                                                                                                VM_APF_PRESENT | VM_APF_RW);
-
-    apt_map_region_to_addr(apt, new_vm_apt_prototype, new_pt_start_l2_region, vir_addr_pt_l2, VM_APF_KERNEL |
-                                                                                                VM_APF_PRESENT | VM_APF_RW);
-    // Виртуальная память для fdt
-    apt_map_region_to_addr(apt, new_vm_apt_prototype, fdt_region, vir_addr_new_fdt, VM_APF_KERNEL |
-                                                                                      VM_APF_PRESENT | VM_APF_RO | VM_APF_USER);
-    apt_map_phys_to_vir(apt, new_vm_apt_prototype, 0, new_memory_cp_size, new_memory_cp_addr, VM_APF_USER_TO_KERNEL_CP_SPACE |
-                                                                                                VM_APF_VIRTUAL_ONLY, 0);
-
-    new_bki->apt_user_process_prototype = new_user_apt_prototype;
-    new_bki->apt_vm_process_prototype = new_vm_apt_prototype;
-    new_bki->phys_kernel_base = new_kernel_start;
 
     /* Бля, помоему всё. Полетели */
 	return new_bki;

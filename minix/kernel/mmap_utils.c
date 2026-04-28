@@ -26,7 +26,7 @@ static int mmap_find_undef_region_record(mmap_t *mmap, mmap_region_t *region) {
     for (uint32_t i = 0; i < mmap->regions_allocated; i++) {
         if (mmap->regions[i].type == MMAP_UNDEF) {
             region = &mmap->regions[i];
-            return 1;
+            return OK;
         }
     }
     return MMAP_ERROR_NOT_AVALIBLE_REGIONS;
@@ -40,7 +40,7 @@ static int biteoff(mmap_t *mmap, mmap_region_t *from, phys_bytes start, phys_byt
 
     int res = 0;
 
-    if (start % mmap->l2_page_size || size % mmap->l2_page_size) {
+    if (start % mmap->page_size || size % mmap->page_size) {
         return MMAP_ALIGNMENT_ERROR;
     }
 
@@ -135,7 +135,7 @@ static int biteoff(mmap_t *mmap, mmap_region_t *from, phys_bytes start, phys_byt
         }
     }
 
-    return 1;
+    return OK;
 }
 
 /*
@@ -155,7 +155,7 @@ static int concat(mmap_t *mmap, mmap_region_t *first, mmap_region_t *second) {
     first->next = second->next;
     mmap->regions_count--;
     memset((void *) second, 0, sizeof(mmap_region_t));
-    return 1;
+    return OK;
 }
 
 
@@ -168,7 +168,7 @@ int mmap_find_region_by_addr(mmap_t *mmap, phys_bytes addr, mmap_region_t *regio
     for (iter = mmap->first_region; iter != 0; iter = (mmap_region_t *)iter->next) {
         if (iter->start <= addr && (iter->start + iter->size) > addr) {
             region = iter;
-            return 1;
+            return OK;
         }
     }
 
@@ -181,11 +181,11 @@ int mmap_find_region_by_addr(mmap_t *mmap, phys_bytes addr, mmap_region_t *regio
  * Предполагает, что указатель на массив свободных записей уже установлен
  *
  */
-int mmap_init(mmap_t *mmap, phys_bytes l2_page_size, phys_bytes size) {
+int mmap_init(mmap_t *mmap, phys_bytes page_size, phys_bytes size) {
     int res;
     mmap_region_t *region;
 
-    if (size % l2_page_size) {
+    if (size % page_size) {
         return MMAP_ALIGNMENT_ERROR;
     }
 
@@ -202,10 +202,10 @@ int mmap_init(mmap_t *mmap, phys_bytes l2_page_size, phys_bytes size) {
     mmap->last_region = region;
     mmap->free_mem = size;
     mmap->total_mem = size;
-    mmap->l2_page_size = l2_page_size;
+    mmap->page_size = page_size;
     mmap->version = 0;
 
-    return 1;
+    return OK;
 }
 
 /*
@@ -218,7 +218,7 @@ int mmap_alloc_device(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_regi
     int res;
     mmap_region_t *working_region;
 
-    if (start % mmap->l2_page_size || size % mmap->l2_page_size) {
+    if (start % mmap->page_size || size % mmap->page_size) {
         return MMAP_ALIGNMENT_ERROR;
     }
 
@@ -235,7 +235,7 @@ int mmap_alloc_device(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_regi
             return res;
         }
         mmap->version++;
-        return 1;
+        return OK;
     } else if (working_region->type == MMAP_FREE) {
         if (working_region->size < size) {
             return MMAP_ERROR_INCORRECT_ADDR;
@@ -249,7 +249,7 @@ int mmap_alloc_device(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_regi
         mmap->total_mem -= region->size;
         mmap->free_mem -= region->size;
         mmap->version++;
-        return 1;
+        return OK;
     }
     return MMAP_ERROR_REGION_BUSY;
 }
@@ -264,7 +264,7 @@ int mmap_alloc_dma(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_region_
     int res;
     mmap_region_t *working_region;
 
-    if (start % mmap->l2_page_size || size % mmap->l2_page_size) {
+    if (start % mmap->page_size || size % mmap->page_size) {
         return MMAP_ALIGNMENT_ERROR;
     }
 
@@ -281,7 +281,7 @@ int mmap_alloc_dma(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_region_
             return res;
         }
         mmap->version++;
-        return 1;
+        return OK;
     } else if (working_region->type == MMAP_FREE) {
         if (working_region->size < size) {
             return MMAP_ERROR_INCORRECT_ADDR;
@@ -295,7 +295,7 @@ int mmap_alloc_dma(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_region_
         mmap->total_mem -= region->size;
         mmap->free_mem -= region->size;
         mmap->version++;
-        return 1;
+        return OK;
     }
     return MMAP_ERROR_REGION_BUSY;
 }
@@ -308,7 +308,7 @@ int mmap_alloc_reserved(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_re
     int res;
     mmap_region_t *working_region;
 
-    if (start % mmap->l2_page_size || size % mmap->l2_page_size) {
+    if (start % mmap->page_size || size % mmap->page_size) {
         return MMAP_ALIGNMENT_ERROR;
     }
 
@@ -329,7 +329,7 @@ int mmap_alloc_reserved(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_re
         mmap->total_mem -= region->size;
         mmap->free_mem -= region->size;
         mmap->version++;
-        return 1;
+        return OK;
     }
     return MMAP_ERROR_REGION_BUSY;
 }
@@ -346,7 +346,7 @@ int mmap_copy_to_new_location(mmap_t *mmap, mmap_t *new_mmap) {
     new_mmap->free_mem = mmap->free_mem;
     new_mmap->total_mem = mmap->total_mem;
     new_mmap->version = mmap->version;
-    new_mmap->l2_page_size = mmap->l2_page_size;
+    new_mmap->page_size = mmap->page_size;
     new_mmap->regions_count = mmap->regions_count;
 
     for (iter = (mmap_region_t *) mmap->first_region; iter != 0; iter = (mmap_region_t *) iter->next) {
@@ -376,7 +376,7 @@ static inline int mmap_check_free_size(mmap_t *mmap, phys_bytes start, phys_byte
     mmap_region_t *iter;
     int res;
 
-    if (start % mmap->l2_page_size || size % mmap->l2_page_size) {
+    if (start % mmap->page_size || size % mmap->page_size) {
         return 0;
     }
 
@@ -389,14 +389,14 @@ static inline int mmap_check_free_size(mmap_t *mmap, phys_bytes start, phys_byte
         if (iter->type == MMAP_FREE) {
             if (start == iter->start) {
                 if (iter->size <= size) {
-                    return 1;
+                    return OK;
                 } else {
                     size -= iter->size;
                     start += iter->size;
                 }
             } else {
                 if (iter->size + iter->start >= start + size) {
-                    return 1;
+                    return OK;
                 } else {
                     size = start + size - iter->size + iter->start;
                     start = iter->start + iter->size;
@@ -419,7 +419,7 @@ int mmap_alloc_region(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_regi
     mmap_region_t *tmp;
     int res;
 
-    if (start % mmap->l2_page_size || size % mmap->l2_page_size) {
+    if (start % mmap->page_size || size % mmap->page_size) {
         return MMAP_ALLOCATED;
     }
 
@@ -502,7 +502,7 @@ int mmap_alloc_region(mmap_t *mmap, phys_bytes start, phys_bytes size, mmap_regi
         }
         if (size == 0) {
             mmap->version++;
-            return 1;
+            return OK;
         }
     }
 
@@ -520,7 +520,7 @@ int mmap_alloc_lowest_region(mmap_t *mmap, phys_bytes size, mmap_region_t *regio
     int started = 0;
     mmap_region_t *iter;
 
-    if (size % mmap->l2_page_size) {
+    if (size % mmap->page_size) {
         return MMAP_ALIGNMENT_ERROR;
     }
 
@@ -563,7 +563,7 @@ int mmap_alloc_highest_region(mmap_t *mmap, phys_bytes size, mmap_region_t *regi
     int started = 0;
     mmap_region_t *iter;
 
-    if (size % mmap->l2_page_size) {
+    if (size % mmap->page_size) {
         return MMAP_ALIGNMENT_ERROR;
     }
 
@@ -600,7 +600,7 @@ int mmap_alloc_highest_region(mmap_t *mmap, phys_bytes size, mmap_region_t *regi
  * Освободить память
  * Ядро может освободить любую память кроме DEVICE, DMA и RESERVED
  * Свободные регионы памяти автоматически объеденияются
- * start и size могут попадать на середину занятых регионов, но всегда должны быть выровнены по l2_page_size
+ * start и size могут попадать на середину занятых регионов, но всегда должны быть выровнены по page_size
  * Если область залезает на MMAP_FREE, то это никак не влияет на работу функции
  */
 int mmap_free_memory(mmap_t *mmap, phys_bytes start, phys_bytes size) {
@@ -609,7 +609,7 @@ int mmap_free_memory(mmap_t *mmap, phys_bytes start, phys_bytes size) {
     mmap_region_t  *free_region;
     mmap_region_t  *tmp;
 
-    if (start % mmap->l2_page_size || size % mmap->l2_page_size) {
+    if (start % mmap->page_size || size % mmap->page_size) {
         return MMAP_ALIGNMENT_ERROR;
     }
 
@@ -693,7 +693,7 @@ int mmap_free_memory(mmap_t *mmap, phys_bytes start, phys_bytes size) {
             }
 
             mmap->version++;
-            return 1;
+            return OK;
         }
     }
 
@@ -701,7 +701,7 @@ int mmap_free_memory(mmap_t *mmap, phys_bytes start, phys_bytes size) {
         return res;
     }
 
-    return 1;
+    return OK;
 }
 
 /*
@@ -718,7 +718,7 @@ int mmap_find_next_by_type(mmap_t *mmap, mmap_type_t type, phys_bytes offset, mm
         }
         if (iter->type == type) {
             region = iter;
-            return 1;
+            return OK;
         }
     }
 
@@ -729,5 +729,5 @@ int mmap_find_next_by_type(mmap_t *mmap, mmap_type_t type, phys_bytes offset, mm
  * Выравнивание адреса или размера по странице l2
  */
 phys_bytes mmap_align(mmap_t *mmap, phys_bytes value) {
-    return (value + mmap->l2_page_size) & (~mmap->l2_page_size);
+    return (value + mmap->page_size) & (~mmap->page_size);
 }

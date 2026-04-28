@@ -14,15 +14,11 @@
 #include "arch_proto.h"
 #include "bsp_devices_mmap.h"
 
-static bsp_devices_mmap_t mymap[] = {
-        {
-                .start = 0x0,
-                .size  = 0x40000000,
-        },
-};
 
 void bsp_devices_mmap (bsp_devices_mmap_t *mmap, uint32_t   *count) {
 
-    mmap = mymap;
+    mmap[0].start = 0x0;
+    mmap[0].size = 0x40000000;
     *count = 1;
+
 }

@@ -192,13 +192,13 @@ void smp_ap_init(void) {
     get_cpulocal_var(bill_ptr) = get_cpulocal_var_ptr(idle_proc);
     get_cpulocal_var(proc_ptr) = get_cpulocal_var_ptr(idle_proc);
 
-
     cpu_set_flag(cpu, CPU_IS_READY);
     booted_cpu++;
     spinlock_unlock(boot_lock);
 
     arm_irq_enable(); // включаем прерывашки на ядре)))))) и полетели =)
 
+    printf("CORE %d READY", cpunr);
     switch_to_user();
     NOT_REACHABLE;
 }

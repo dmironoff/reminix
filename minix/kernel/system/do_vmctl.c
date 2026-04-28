@@ -16,12 +16,7 @@
 #include "mmap_utils.h"
 #include "apt_utils.h"
 
-/* Глобальные указатели на рабочие структуры памяти */
-extern mmap_t                   *mmap;
-extern vm_abstract_pagetables_t *apt;
-
-/* Физические таблицы страниц — передаётся во всё архитектурно-зависимое */
-extern vir_bytes arch_pt_base;
+extern struct kinfo kinfo;
 
 extern int do_kyield(struct proc * caller, message * m_ptr);
 
@@ -56,13 +51,13 @@ int do_vmctl(struct proc * caller, message * m_ptr)
       case VMCTL_COMMIT_APT:
           if (kmutex_trylock(p->apt_table->lock)) {
               // сейчас обновим нашу физическую таблицу страниц
-              vm_arch_apt_to_pt(apt, p->apt_table, arch_pt_base, p->pt_handler);
+              vm_arch_apt_to_pt(kinfo.apt, p->apt_table, kinfo.arch_pagetables, p->pt_handler);
               proc_context_shoot_all(p->context_id); // Всегда убиваем кеш по контексту
               // Эта функция уже реализует SMP
               p->apt_version = p->apt_table->version;
               kmutex_unlock(p->apt_table->lock);
           } else {
-              printf("Process %d APT MUTEX Locked while VMCTL_CLEAR_PAGEFAULT\r\n", p->p_nr);
+              printf("do_vmctl: Process %d APT MUTEX Locked while VMCTL_COMMIT_APT\r\n", p->p_nr);
               // Мьютекс заблокирован, это странно, но мы обработаем это так
               // Мы просто переместим процесс в конец очереди, так как при изменении APT были изменена версия
               // Так что при следующем переключении контекста попытка синхронизировать адресное пространство повторится
@@ -78,13 +73,13 @@ int do_vmctl(struct proc * caller, message * m_ptr)
           p->apt_table = m_ptr->SVMCTL_APT;
           if (kmutex_trylock(p->apt_table->lock)) {
               // сейчас обновим нашу физическую таблицу страниц
-              vm_arch_apt_to_pt(apt, p->apt_table, arch_pt_base, p->pt_handler);
+              vm_arch_apt_to_pt(kinfo.apt, p->apt_table, kinfo.arch_pagetables, p->pt_handler);
               proc_context_shoot_all(p->context_id); // Всегда убиваем кеш по контексту
               // Эта функция уже реализует SMP
               p->apt_version = p->apt_table->version;
               kmutex_unlock(p->apt_table->lock);
           } else {
-              printf("Process %d APT MUTEX Locked while VMCTL_CLEAR_PAGEFAULT\r\n", p->p_nr);
+              printf("do_vmctl: Process %d APT MUTEX Locked while VMCTL_SET_APT\r\n", p->p_nr);
               // Мьютекс заблокирован, это странно, но мы обработаем это так
               // Мы просто переместим процесс в конец очереди, так как при изменении APT были изменена версия
               // Так что при следующем переключении контекста попытка синхронизировать адресное пространство повторится
@@ -97,13 +92,13 @@ int do_vmctl(struct proc * caller, message * m_ptr)
 		assert(RTS_ISSET(p,RTS_PAGEFAULT));
         if (kmutex_trylock(p->apt_table->lock)) {
           // сейчас обновим нашу физическую таблицу страниц
-            vm_arch_apt_to_pt(apt, p->apt_table, arch_pt_base, p->pt_handler);
+            vm_arch_apt_to_pt(kinfo.apt, p->apt_table, kinfo.arch_pagetables, p->pt_handler);
             proc_context_shoot_all(p->context_id); // Всегда убиваем кеш по контексту
                                                     // Эта функция уже реализует SMP
             p->apt_version = p->apt_table->version;
             kmutex_unlock(p->apt_table->lock);
         } else {
-          printf("Process %d APT MUTEX Locked while VMCTL_CLEAR_PAGEFAULT\r\n", p->p_nr);
+          printf("do_vmctl: Process %d APT MUTEX Locked while VMCTL_CLEAR_PAGEFAULT\r\n", p->p_nr);
           // Мьютекс заблокирован, это странно, но мы обработаем это так
           // Мы просто переместим процесс в конец очереди, так как при изменении APT были изменена версия
           // Так что при следующем переключении контекста попытка синхронизировать адресное пространство повторится

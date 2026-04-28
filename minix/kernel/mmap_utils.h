@@ -31,7 +31,7 @@ int mmap_find_region_by_addr(mmap_t *mmap, phys_bytes addr, mmap_region_t *regio
  * Предполагает, что указатель на массив свободных записей уже установлен
  *
  */
-int mmap_init(mmap_t *mmap, phys_bytes l2_page_size, phys_bytes size);
+int mmap_init(mmap_t *mmap, phys_bytes page_size, phys_bytes size);
 /*
  * Выделение памяти для устройств
  * Если попадает на свободную память, то порежет регион и уменьшие данные о свободной памяти

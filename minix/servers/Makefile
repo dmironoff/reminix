@@ -1,6 +1,6 @@
 .include <bsd.own.mk>
 
-SUBDIR+=	ds input mib pm rs sched vfs revm
+SUBDIR+=	ds input mib pm rs sched vfs
 
 .if ${MKIMAGEONLY} == "no"
 SUBDIR+=	ipc is devman
