@@ -7,6 +7,9 @@
 > семейный BSP — см. §6. Материал ниже фиксирует текущее (2018 года) состояние
 > пайплайна как референс перед его обобщением/расширением в рамках плана
 > портирования (`docs/porting.md`).
+>
+> Всё, что описано ниже, можно прогнать и без ручной настройки хоста — см.
+> `docs/docker-build.md` (`make -C docker -f build.mk sdimage`).
 
 ## 1. Общая схема
 
@@ -171,3 +174,10 @@ qemu-system-arm -M beaglexm -serial stdio -drive if=sd,cache=writeback,file=mini
 Для сборки под BeagleBone/BeagleBone Black нужно переопределить `U_BOOT_BIN_DIR` и
 `CONSOLE` перед запуском (раскомментировать соответствующие строки или передать
 через окружение/`.settings`, см. `SETTINGS_MINIX` в начале скрипта).
+
+То же самое без ручной настройки хоста, через Docker-окружение (`docs/docker-build.md`):
+
+```sh
+make -C docker -f build.mk sdimage
+make -C docker -f build.mk qemu-sdimage
+```

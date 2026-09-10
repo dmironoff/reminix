@@ -7,6 +7,9 @@
 > единственная архитектура, для которой пайплайн проверен и завершён от начала до
 > конца (жёсткий диск / CD / USB / RAM-образы). См. также `docs/architecture.md`
 > §5–7 и `docs/build-arm32.md` для сравнения с ARM-пайплайном.
+>
+> Всё, что описано ниже, можно прогнать и без ручной настройки хоста — см.
+> `docs/docker-build.md` (`make -C docker -f build.mk hdimage`).
 
 ## 1. Общая схема
 
@@ -73,8 +76,34 @@ sh ${BUILDSH} -j ${JOBS} -m ${ARCH} -O ${OBJ} -D ${DESTDIR} ${BUILDVARS} -U -u r
   соответствует корневому `Makefile`: `distribution` + генерация `sets`).
 
 По итогам этой стадии: полностью собранная и установленная в `DESTDIR` система
-(ядро, серверы, драйверы, юзерленд), плюс tar-архивы наборов (`sets`) в
-`RELEASEDIR=${OBJ}/releasedir/i386/binary`.
+(ядро, серверы, драйверы, юзерленд), плюс tar-архивы наборов (`sets`).
+
+> **Важно про `RELEASEDIR` (проверено на реальной сборке, было наступлено на
+> практике)**: `releasetools/image.defaults` определяет `RELEASEDIR` как
+> `${OBJ}/releasedir/${ARCH}/binary` — но это **не** то значение, которое нужно
+> передавать/экспортировать в `build.sh`. Сам `build.sh` (см. `-R release
+> Set RELEASEDIR to release. [Default: releasedir]` в его `usage()`, и код
+> release-таргета: `setdir=${RELEASEDIR}/${RELEASEMACHINEDIR}/binary/sets`, где
+> `RELEASEMACHINEDIR` — просто имя архитектуры, `i386`) **сам** дописывает
+> `/${ARCH}/binary/sets` поверх `RELEASEDIR`. Если `RELEASEDIR` уже передан
+> "с суффиксом" (как в дефолте `image.defaults`) — что как раз происходит, если
+> эта переменная **экспортирована** в окружение перед вызовом
+> `releasetools/x86_hdimage.sh` (обычная переменная shell, назначенная через
+> `: ${VAR=...}`, экспортированной автоматически не становится, но `docker run
+> -e RELEASEDIR=...` или явный `export RELEASEDIR=...` в оболочке — экспортирует)
+> — `build.sh` удваивает суффикс: наборы оказываются в
+> `${OBJ}/releasedir/i386/binary/i386/binary/sets/`, а не там, где их ищет тот же
+> `image.defaults` через **отдельную**, не связанную с `RELEASEDIR` переменную
+> `SETS_DIR=${OBJ}/releasedir/${ARCH}/binary/sets`. `releasetools/image.functions`
+> в этом случае падает на `cd .../releasedir/i386/binary/sets: No such file or
+> directory`, хотя сама сборка (`make release`) отработала полностью успешно.
+>
+> Правильное значение, которое нужно **экспортировать** в окружение перед
+> запуском `x86_hdimage.sh` (или передавать `build.sh` напрямую как `-R`):
+> `RELEASEDIR=${OBJ}/releasedir` — **без** `/${ARCH}/binary`. Тогда
+> `build.sh` сам допишет `/${ARCH}/binary/sets`, и итоговый путь совпадёт с тем,
+> что ожидает `SETS_DIR`. См. `docker/build.mk` (`CONTAINER_RELDIR`) — там этот
+> нюанс учтён и подробно прокомментирован.
 
 Также именно на этом этапе (через `releasetools/Makefile`, таргет `hdboot`, который
 `make build`/`make release` вызывает как `${MAKEDIRTARGET} releasetools do-hdboot`,
@@ -192,6 +221,13 @@ qemu-system-i386 --enable-kvm -m 256 -hda minix_x86.img
 
 (Если система уже собрана в `../obj.i386`, можно ускорить повтор упаковки образа
 без пересборки: `CREATE_IMAGE_ONLY=1 ./releasetools/x86_hdimage.sh`.)
+
+То же самое без ручной настройки хоста, через Docker-окружение (`docs/docker-build.md`):
+
+```sh
+make -C docker -f build.mk hdimage
+make -C docker -f build.mk qemu-hdimage
+```
 
 ## 7. Что переносится "как есть" на новые x86-подобные цели (amd64)
 

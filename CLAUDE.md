@@ -15,6 +15,10 @@ amd64, arm32, aarch64, risc-v64, mips64 и развитие как микроя�
   разобран по `releasetools/x86_*image.sh`.
 - `docs/build-arm32.md` — процесс сборки SD-образа для текущего ARM-порта (earm,
   BeagleBoard/BeagleBone), разобран по `releasetools/arm_sdimage.sh` и U-Boot.
+- `docs/docker-build.md` — Docker-окружение для сборки (`docker/Dockerfile` +
+  `docker/build.mk`): воспроизводимое хостовое окружение поверх `build.sh`/
+  `releasetools/*.sh`, работающее на любой Linux-машине. Не заменяет систему сборки —
+  описывает только обёртку вокруг неё.
 - `docs/handoff.md` — снимок текущего состояния работы (что сделано, что нет,
   особенности доступа к среде). Перезаписывается каждую сессию — читайте в начале
   новой сессии, чтобы не повторять уже сделанное.
@@ -30,6 +34,8 @@ amd64, arm32, aarch64, risc-v64, mips64 и развитие как микроя�
   `share/`, ...) — унаследованное дерево NetBSD, служит базой userland и
   кросс-тулчейна. Подробности — `docs/architecture.md` §4.
 - `releasetools/` — сборка загрузочных образов (сейчас только под x86 и один ARM BSP).
+- `docker/` — Docker-обёртка над сборкой (`Dockerfile` + `Makefile`), см.
+  `docs/docker-build.md`.
 
 ## Принцип ведения `docs/`
 
