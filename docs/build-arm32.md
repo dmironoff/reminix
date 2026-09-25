@@ -145,6 +145,13 @@ qemu-system-arm -M beaglexm -serial stdio -drive if=sd,cache=writeback,file=mini
 
 ## 6. Важная оговорка про "arm32" в этом дереве
 
+> Про будущее загрузки: на этапе модернизации (`docs/modernization.md` п. 6) U-Boot
+> становится загрузчиком для всех архитектур, а образ ядра и серверов — fitImage.
+> Для ARM это прежде всего замена фиксированной карты адресов из
+> `gen_uEnv.txt.sh` и отдельных `*.elf` на FAT-разделе описанием внутри fitImage;
+> также решается вопрос «форк U-Boot MINIX3 или апстрим» (`docs/porting.md`,
+> «Открытые вопросы»).
+
 То, что в плане портирования (`docs/porting.md`) названо текущим ARM-портом
 (`earm`), на практике — это **порт под один SoC-BSP (TI OMAP3/AM335x,
 BeagleBoard/BeagleBone)**, а не универсальный ARMv7. В коде это видно на трёх
