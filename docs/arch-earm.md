@@ -366,7 +366,8 @@ static inline int32_t psci_call_smc(uint32_t fn, uint32_t a1, uint32_t a2, uint3
 
 ```
 minix/kernel/arch/earm/psci.c        (почти тот же файл пойдёт на aarch64)
-    psci_init(fdt)          найти /psci, выбрать smc/hvc, PSCI_VERSION, PSCI_FEATURES
+    psci_init(fdt)          найти /psci (libfdt в ядре, п. 10 модернизации),
+                            выбрать smc/hvc, PSCI_VERSION, PSCI_FEATURES
     psci_cpu_on(mpidr, entry_pa, ctx)
     psci_cpu_off(), psci_affinity_info(mpidr)
     psci_system_reset(), psci_system_off(), psci_cpu_suspend(state)

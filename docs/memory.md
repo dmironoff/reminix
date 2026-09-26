@@ -235,6 +235,9 @@ void        bm_seal(void);   /* после этого bm_alloc → panic */
 | сам DTB, образ ядра, ramdisk с модулями (fitImage, п. 6) | `bm_reserve` |
 | i386 на переходный период: multiboot mmap | `bm_add` / `bm_reserve`, пока не сделан п. 6 |
 
+FDT разбирается ядерной сборкой libfdt (`docs/modernization.md` п. 10) в
+`pre_init`, до включения страничной адресации.
+
 После этого ядро выделяет через `bm_alloc`: таблицы страниц ядра, стеки CPU,
 trampoline, арену APT (§6.2), стартовый пул страниц для таблиц (§6.5) и память для
 загрузки VM. Затем `bm_seal()`, и `bm_map` уходит VM через `kinfo`.
