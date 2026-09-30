@@ -50,7 +50,14 @@ WORKDIR /usr/src/gcc-${GCC7_VERSION}
 # Fetches pinned gmp/mpfr/mpc source snapshots into the tree -- avoids
 # any dependency on whichever libgmp-dev/libmpfr-dev happen to be
 # packaged for the (much newer) base image.
-RUN ./contrib/download_prerequisites
+# gcc-7's download_prerequisites fetches from ftp://gcc.gnu.org, which no
+# longer answers reliably (wget then hangs forever). The same files are
+# served over HTTPS from the same host; checksums are still verified
+# against contrib/prerequisites.sha512.
+RUN sed -i 's|ftp://gcc.gnu.org/pub/gcc/infrastructure/|https://gcc.gnu.org/pub/gcc/infrastructure/|' \
+        ./contrib/download_prerequisites \
+ && grep -q 'https://gcc.gnu.org/pub/gcc/infrastructure/' ./contrib/download_prerequisites \
+ && ./contrib/download_prerequisites
 RUN mkdir /usr/src/build
 WORKDIR /usr/src/build
 # gcc-7 here is only ever a bootstrap *tool* for nbmake, not a
