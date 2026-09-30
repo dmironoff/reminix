@@ -406,6 +406,10 @@ idt_zero:
  */
 ENTRY(halt_cpu)
 	sti
+	/* in-kernel interrupt handlers compare the saved EIP against this
+	 * label, see SKIP_IDLE_HLT in sconst.h */
+	.globl	_C_LABEL(halt_cpu_hlt)
+_C_LABEL(halt_cpu_hlt):
 	hlt /* interrupts enabled only after this instruction is executed! */
 	/*
 	 * interrupt handlers make sure that the interrupts are disabled when we

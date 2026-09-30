@@ -90,6 +90,7 @@ IMPORT(multiboot_init)
 	PIC_IRQ_HANDLER(irq)						;\
 	movb	$END_OF_INT, %al					;\
 	outb	$INT_CTL	/* reenable interrupts in master pic */	;\
+	SKIP_IDLE_HLT(8*4(%esp))					;\
 	CLEAR_IF(10*4(%esp))						;\
 	popa								;\
 	iret								;
@@ -152,6 +153,7 @@ ENTRY(hwint07)
 	movb	$END_OF_INT, %al					;\
 	outb	$INT_CTL	/* reenable interrupts in master pic */	;\
 	outb	$INT2_CTL	/* reenable slave 8259		  */	;\
+	SKIP_IDLE_HLT(8*4(%esp))					;\
 	CLEAR_IF(10*4(%esp))						;\
 	popa								;\
 	iret								;

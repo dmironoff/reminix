@@ -89,6 +89,21 @@
 	SAVE_TRAP_CTX(displ, %ebp, %esi)		;
 
 /*
+ * An interrupt taken inside the kernel can only interrupt halt_cpu (idle).
+ * Normally the STI interrupt shadow guarantees it is taken after the hlt, so
+ * the saved EIP points past it. If it was nevertheless taken before hlt
+ * executed (observed under KVM), the saved EIP points at the hlt itself;
+ * returning there with IF cleared (CLEAR_IF below) would halt the CPU forever
+ * with a runnable process in the run queue. Skip the hlt in that case.
+ * hlt is a one-byte instruction.
+ */
+#define SKIP_IDLE_HLT(eip)	\
+	cmpl	$_C_LABEL(halt_cpu_hlt), eip				;\
+	jne	9f							;\
+	incl	eip							;\
+9:
+
+/*
  * clear the IF flag in eflags which are stored somewhere in memory, e.g. on
  * stack. iret or popf will load the new value later
  */
