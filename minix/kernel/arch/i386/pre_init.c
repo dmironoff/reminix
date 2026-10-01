@@ -53,9 +53,13 @@ static int mb_set_param(char *bigbuf, char *name, char *value, kinfo_t *cbi)
 				*p = *q;
 			break;
 		}
+		/* skip to the next "name=value": past this string and its NUL.
+		 * (MINIX had an extra p++ here, which made the comparison above
+		 * miss every item but the first one, so a repeated parameter on
+		 * the command line was appended instead of replaced, and the
+		 * first occurrence won in get_value().) */
 		while (*p++)
 			;
-		p++;
 	}
 	
 	for (p = bigbuf; p < bufend && (*p || *(p + 1)); p++)

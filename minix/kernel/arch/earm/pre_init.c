@@ -134,9 +134,9 @@ static int mb_set_param(char *bigbuf,char *name,char *value, kinfo_t *cbi)
 			break;
 		}
 
-		/* find the end of the buffer */
+		/* skip to the next "name=value" (no extra p++: it made repeated
+		 * parameters be appended instead of replaced, see i386/pre_init.c) */
 		while (*p++);
-		p++;
 	}
 	
 
