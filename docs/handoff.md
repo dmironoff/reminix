@@ -7,62 +7,62 @@
 
 ## Дата и контекст
 
-2026-09-30 / 10-01. Начат **этап 0.1** (точка отсчёта тестов). Первые правки кода.
+2026-09-30 / 10-01. **Этап 0.1** (тестовая инфраструктура) — почти завершён.
 
-Что сделано в сессии:
+Сделано в сессии (подробности — `docs/testing.md`, `docs/docker-build.md`):
 
-1. **Точка отсчёта `minix/tests` на i386** (`-smp 1`, KVM, PIO): **100 из 101**.
-   Подробно, с метриками и ожидаемым «шумом» журнала — `docs/testing.md` §2–3.
-2. **Найдена и исправлена ошибка ядра**: зависание в `halt_cpu`, если прерывание
-   принято в «тени» `sti` (под KVM). Правка в `minix/kernel/arch/i386/{klib.S,
-   sconst.h,mpx.S,apic_asm.S}` — `docs/testing.md` §4.1. Проверено: тест 43 —
-   39 с (раньше зависал), полный прогон проходит.
-3. **Найдена и исправлена ошибка `makefs`** (atime/mtime в Rock Ridge `TF`, падение
-   `isofs`): `usr.sbin/makefs/cd9660/iso9660_rrip.c`, перенос из NetBSD trunk —
-   `docs/testing.md` §4.2. **Не проверено** — нужна пересборка и `./run -t isofs`.
-4. **Docker:** `docker/Dockerfile`, стадия `gcc7-builder` — `download_prerequisites`
-   качает по HTTPS вместо зависающего FTP gcc.gnu.org. Проверено: образ собрался.
-5. Документация: создан `docs/testing.md`; ветка — `master` (исправлено в
-   `modernization.md`).
+1. Ручная точка отсчёта `minix/tests` на i386 — 100/101, после исправлений 101/101.
+2. Исправлены ошибки (все проверены прогоном):
+   - ядро i386: зависание в `halt_cpu` при прерывании в «тени» `sti` под KVM
+     (`SKIP_IDLE_HLT`) — `testing.md` §4.1;
+   - `makefs`: atime/mtime в Rock Ridge `TF` (из NetBSD trunk) — §4.2;
+   - test43: гонка с `procfs`, тест не спускается в `procfs`, добавлена
+     диагностика пути — §4.3.
+3. **Автоматический прогон**: `make -C docker -f build.mk test-i386` — QEMU
+   грузит ядро и модули через `-kernel`/`-initrd`, `rc.d/minixtests` по
+   `testrun=1` запускает `run -T` и выключает машину, `docker/run-tests.sh`
+   разбирает TAP. **Первый полный автоматический прогон: 101/101 PASS, ~24 мин.**
+4. Docker: QEMU 11.1.0 из исходников (стадия `qemu-builder`); gcc-7
+   prerequisites по HTTPS; `TOOLDIR=$OBJ/tooldir` (тулчейн больше не
+   пересобирается после обновления ядра хоста); вариант `SMP=yes`
+   (`obj/i386-smp`, `minix_x86_smp.img`).
+5. Документация: `testing.md` (новый), `docker-build.md`, этот файл, `CLAUDE.md`.
 
 ## Доступ к среде
 
-- Консоли на машине пользователя (`device_bash`) нет — не поддерживается в Claude
-  Desktop для Ubuntu. Работа — через файловый мост (`device_list_dir` /
-  `device_stage_files` / `device_commit_files`); сборки и запуски QEMU выполняет
-  владелец и присылает вывод. Код — прямо в `master`
-  (https://github.com/dmironoff/reminix).
-- Подключены две папки: `…/reminix` (основной проект) и `…/reminix(тупик)`
-  (**только чтение**).
-- **Правила для моста:**
-  - после `device_commit_files` перечитывать каталог и сверять размер в байтах;
-    при расхождении перезаписать с `force: true`;
-  - **не запускать запись параллельно с правкой того же файла** в одном блоке
-    вызовов: запись может захватить предыдущую версию (случилось с
-    `iso9660_rrip.c`).
-- Отладка зависшего гостя: монитор QEMU (Ctrl+Alt+2) `gdbserver tcp::1234`, дамп
-  памяти `gdb -batch … dump binary memory obj/dbg/…` (каталог `obj/` не в git и
-  виден мосту). Символы — `obj/i386/minix/kernel/kernel` (без `-g`); таблица
-  `proc[]`: 261 слот × 560 байт. Парсер дампа был в песочнице сессии —
-  при необходимости восстановить по `docs/testing.md` §4.1.
+- Консоли на машине пользователя нет (`device_bash` не поддерживается в Claude
+  Desktop для Ubuntu). Работа — через файловый мост; сборки и QEMU запускает
+  владелец. Код — прямо в `master` (https://github.com/dmironoff/reminix).
+- Подключены: `…/reminix` (проект) и `…/reminix(тупик)` (**только чтение**).
+- **Правила для моста** (выяснено на практике):
+  - мост иногда записывает **предыдущую** версию файла; размер при этом может и
+    совпасть. После каждой записи — `device_stage_files` и **сравнение `md5sum`** с
+    локальной версией; при расхождении записать ещё раз (`force: true`);
+  - не записывать файл параллельно с его правкой в одном блоке вызовов;
+  - файлы с именем `Makefile` мост не пишет (protected) — правку делает владелец
+    (поэтому `docker/build.mk`, а не `docker/Makefile`).
+- Журналы автоматических прогонов — `obj/test-logs/` (читать самому, не просить
+  присылать). Отладка зависшего гостя — `docs/testing.md` §4.1 (gdbserver, дамп
+  `proc[]`).
 
 ## Текущий статус
 
-- **Сборочная среда: готова** (i386, `make -C docker -f build.mk hdimage`).
-- **Этап 0.1: частично.** Ручная точка отсчёта есть (1 CPU). Не сделано: QEMU 11.1
-  в Docker, автоматический прогон, прогон с 4 CPU (`CONFIG_SMP`), каркас тестов на
-  хосте.
+- Сборочная среда: готова. Автоматический прогон i386, 1 CPU: **готов, 101/101**.
+- **Этап 0.1: не сделано** — сборка и прогон с `CONFIG_SMP` на 4 CPU; каркас
+  тестов библиотек на хосте (понадобится к 0.6 и А2–А3).
 - Этапы 0.2–0.6 и далее: не начаты.
 
 ## Изменения, ожидающие коммита у владельца
 
-Предлагаемые отдельные коммиты:
-1. `kernel/i386: не останавливать CPU с IF=0, если прерывание пришло до hlt` —
-   `minix/kernel/arch/i386/{klib.S,sconst.h,mpx.S,apic_asm.S}`;
-2. `makefs: порядок mtime/atime в Rock Ridge TF, как в NetBSD trunk` —
-   `usr.sbin/makefs/cd9660/iso9660_rrip.c` (после проверки `isofs`);
-3. `docker: gcc-7 prerequisites по HTTPS` — `docker/Dockerfile`;
-4. `docs: testing.md, handoff` — `docs/testing.md`, `docs/handoff.md`, `CLAUDE.md`.
+Все проверены полным автоматическим прогоном. Предлагаемые коммиты:
+1. `test43: не обходить procfs, диагностика пути` — `minix/tests/test43.c`;
+2. `docker: QEMU 11.1 из исходников, TOOLDIR в $OBJ/tooldir, SMP-вариант, test-i386` —
+   `docker/Dockerfile`, `docker/build.mk`, `docker/run-tests.sh`,
+   `docker/tests-known-failures.i386`;
+3. `rc.d/minixtests: автоматический прогон тестов по testrun=1` —
+   `etc/rc.d/minixtests`, `etc/rc.d/Makefile`, `distrib/sets/lists/minix-base/mi`;
+4. `docs: автоматический прогон, test43, docker` — `docs/testing.md`,
+   `docs/docker-build.md`, `docs/handoff.md`.
 
 ## Замечено в коде (для будущей работы)
 
@@ -70,26 +70,23 @@
 - `minix/servers/vm/region.h`: `phys_block.refcount` — `u8_t`.
 - `minix/servers/vm/pt.h`: `pt_t` жёстко двухуровневый, на `u32_t`;
   `pagetable.c` — ~50 ветвлений `__i386__`/`__arm__`.
-- `minix/kernel/spinlock.h`: простой спинлок + Big Kernel Lock; SMP только с
-  `CONFIG_SMP` и только для i386.
+- `minix/kernel/spinlock.h`: простой спинлок + BKL; SMP только с `CONFIG_SMP`.
 - `minix/lib/libmthread/pthread_compat.c`: `pthread_mutex_trylock` рекурсивно
   вызывает сам себя.
 - libc без `_REENTRANT`, без TLS, `_lwp_*` в `MISSING_SYSCALLS`.
-- Таймер LAPIC — one-shot, перевзводится в `idle()`; сейчас i386 в QEMU работает
-  через 8259 (IOAPIC замаскирован).
+- i386 в QEMU работает через 8259 (IOAPIC замаскирован); таймер LAPIC — one-shot.
+- Тест 2, вероятно, оставляет после себя процессы (см. `testing.md` §4.3) —
+  не проверено.
 
 ## Следующие шаги
 
-1. **Владельцу:** пересобрать (`make -C docker -f build.mk hdimage`), загрузиться
-   с DMA (пункт 6 меню, см. `docs/testing.md` §1), выполнить `./run -t isofs` и
-   `for t in 43 71 74 79; do time ./run -t $t; done`, прислать журнал; затем коммиты (выше).
-2. **Этап 0.1 (Claude):** QEMU 11.1.0 в `docker/Dockerfile` (из исходников);
-   автоматический прогон: пункт `boot.cfg` с последовательной консолью и DMA,
-   запуск `run -T` при загрузке, выключение, разбор TAP на хосте, цель
-   `test-i386 SMP=1|4` в `docker/build.mk`; сборка с `CONFIG_SMP` и прогон на
-   4 CPU (проверить `SKIP_IDLE_HLT` на AP).
-3. Этап 0.2 — аудит 64-битных типов; 0.3 — `kyield`; 0.4–0.6 — dtc/DTS/libfdt
-   (`docs/modernization.md`).
-4. Открытые вопросы — `docs/modernization.md`, «Открытые вопросы».
+1. **Владельцу:** коммиты (выше); на ночь — `make -C docker -f build.mk hdimage
+   SMP=yes && make -C docker -f build.mk test-i386 SMP=yes CPUS=4` (первая сборка
+   MINIX с `CONFIG_SMP` за много лет — может не собраться/не загрузиться, это и
+   есть результат).
+2. **Claude:** быстрая цель «пересобрать только ядро и серверы и запустить
+   test-i386» (цикл минуты вместо часов) — до начала этапа А.
+3. По результату SMP-прогона — разбор, затем закрыть 0.1 (каркас тестов на хосте).
+4. Этап 0.2 — аудит 64-битных типов; 0.3 — `kyield`; 0.4–0.6 — dtc/DTS/libfdt.
 5. Мелкие огрехи в `docs/architecture.md`: «form» вместо «fork» (§1), артефакт
    `vfs? / ipc/` и дублирующийся `MAKEDEV` в дереве §3.

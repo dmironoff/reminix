@@ -42,7 +42,7 @@ EFI-варианта x86, `git`/`curl` для получения форка U-Bo
 | `perl`, `python3` | `releasetools/sort_set.pl`; сборочные скрипты GRUB используют python. |
 | `autoconf`, `automake`, `pkg-config`, `gettext`, `texinfo` | Нужны только для EFI-варианта x86 (`fetch_and_build_grub` реально собирает GRUB из исходников — это отдельный autotools-проект, не часть дерева ReMinix). |
 | `zlib1g-dev`, `libssl-dev` | Линкуются в бутстрапящиеся хостовые `binutils`/`gcc`/`llvm` из `tools/`. |
-| `qemu-system-x86`, `qemu-system-arm`, `qemu-system-misc`, `qemu-utils` | Запуск получившихся образов. Этот набор Ubuntu-метапакетов целиком покрывает всю дорожную карту портирования: `qemu-system-x86` — i386/amd64, `qemu-system-arm` — arm/aarch64, `qemu-system-misc` — risc-v64/mips64. |
+| `qemu-utils` + библиотеки времени выполнения QEMU (`libglib2.0-0t64`, `libpixman-1-0`, `libfdt1`, `libslirp0`) | `qemu-img` из пакета; сами эмуляторы — QEMU 11.1.0, собранный в стадии `qemu-builder` (§2.2). |
 | `sudo`, `less`, `vim-tiny`, `locales` | Удобства для интерактивной работы (`make -C docker -f build.mk shell`), не влияют на сборку. |
 
 Namespace-пакетов из `universe`/`multiverse` (в первую очередь `qemu-system-*`) нет в
@@ -110,6 +110,19 @@ old-releases-зеркало или PPA до следующего раза, ко�
 не задеть остальные шаги (в первую очередь — сборку GRUB, у которой
 `./configure` сам ищет `CC` в окружении).
 
+### 2.2 Отдельная стадия: QEMU 11.1.0 из исходников (`qemu-builder`)
+
+В Ubuntu 24.04 — QEMU 8.2; проекту нужен актуальный выпуск (`-M orangepi-pc`,
+свежий i386/x86_64), версия фиксируется (`ARG QEMU_VERSION`, таблица версий —
+`docs/devicetree.md` §1). Стадия `qemu-builder` качает
+`https://download.qemu.org/qemu-<версия>.tar.xz`, собирает только нужные цели
+(`i386-softmmu`, `x86_64-softmmu`, `arm-softmmu`, `aarch64-softmmu`; riscv64/mips64
+добавить при начале этих портов) с `--enable-kvm --enable-slirp`, без
+документации, в `/opt/qemu`. Финальный образ копирует `/opt/qemu`, ставит его
+первым в `PATH` и при сборке проверяет `qemu-system-i386 --version` (падение
+здесь означает нехватку библиотеки времени выполнения). Первая сборка образа —
+плюс 10–20 минут, дальше слой кэшируется.
+
 ## 3. Где живёт состояние сборки
 
 `build.sh`/`releasetools/*.sh` тратят часы на первую сборку тулчейна и мира — если
@@ -130,6 +143,16 @@ old-releases-зеркало или PPA до следующего раза, ко�
 - `obj` (без слэша, без расширения) уже присутствует в корневом `.gitignore` как
   паттерн, действующий на любой глубине — так что `obj/i386`, `obj/evbearm-el` и
   т.д. автоматически не попадают в git, ничего дополнительно настраивать не нужно.
+- **Кросс-тулчейн — в `obj/<ARCH>[-smp]/tooldir`** (`build.sh -T`, а для
+  `releasetools` — `CROSS_TOOLS`). По умолчанию `build.sh` называет каталог
+  `tooldir.<uname -s>-<uname -r>-<uname -m>`, то есть по версии ядра хоста, и после
+  каждого обновления ядра Ubuntu собирал тулчейн заново. При смене `TOOLDIR` у
+  существующего `OBJ` удалить `$OBJ/tools`: иначе `build.sh -u` сочтёт
+  инструменты установленными и новый каталог останется неполным
+  (`don't know how to make …/tooldir/bin/nbfile`).
+- **SMP-вариант** (`SMP=yes`): `-V CONFIG_SMP=y -V CONFIG_MAX_CPUS=8` попадают в
+  `CPPFLAGS` всего дерева (`share/mk/bsd.own.mk`), поэтому отдельный `obj/i386-smp`
+  со своим тулчейном и образ `minix_x86_smp.img`.
 - Из этого следует практическое правило: разные `ARCH` не пересекаются
   (`obj/i386` и `obj/evbearm-el` — разные деревья), а `make -C docker -f build.mk clean-obj
   ARCH=<arch>` даёt чистую пересборку конкретной архитектуры без пересборки
@@ -150,6 +173,9 @@ make -C docker -f build.mk build BUILD_TARGET=release            # эквива�
 make -C docker -f build.mk hdimage                  # releasetools/x86_hdimage.sh → obj/i386/.../minix_x86.img
 make -C docker -f build.mk sdimage                  # releasetools/arm_sdimage.sh → minix_arm_sd.img (BeagleBoard-xM)
 
+make -C docker -f build.mk hdimage SMP=yes          # то же с CONFIG_SMP -> minix_x86_smp.img
+make -C docker -f build.mk test-i386                # автоматический прогон minix/tests (docs/testing.md §1)
+make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=43,71
 make -C docker -f build.mk qemu-hdimage             # qemu-system-i386 -hda minix_x86.img (KVM, если /dev/kvm доступен)
 make -C docker -f build.mk qemu-sdimage             # qemu-system-arm -M beaglexm ...
 
@@ -220,6 +246,8 @@ bind-mount'ами. На машине с несколькими разработ�
 | `tools/binutils` (`gold`): `'string' in namespace 'std'` | `HOST_CXX=/opt/gcc-7/bin/g++-7`, см. §2.1 |
 | `x86_hdimage.sh` не находил `sets` (задвоенный суффикс `RELEASEDIR`) | `RELEASEDIR=${OBJ}/releasedir` без `/<arch>/binary`, см. `docs/build-x86.md` §3 |
 | `qemu-hdimage`: нет прав на `/dev/kvm` | `--group-add` с GID группы `kvm` хоста, явный `format=raw` |
+| `download_prerequisites` gcc-7 висит на `ftp://gcc.gnu.org` | замена на `https://` в стадии `gcc7-builder` |
+| тулчейн пересобирался после обновления ядра хоста | фиксированный `TOOLDIR=$OBJ/tooldir` |
 
 Два пункта из этой таблицы — свойства самой системы сборки, а не обёртки, и
 актуальны при запуске `build.sh`/`releasetools/*.sh` на голом хосте без Docker:
