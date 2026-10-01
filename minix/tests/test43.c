@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 int max_error = 3;
@@ -93,6 +94,23 @@ static void check_realpath(const char *path, int expected_errno)
 	/* run realpath */
 	errno = 0;
 	resolved_path = realpath(path, buffer);
+
+	/* report the path on any mismatch; without it failures of this test
+	 * cannot be diagnosed */
+	if ((expected_errno || expected_errno2) ?
+	    (resolved_path != NULL || (errno != expected_errno &&
+	    errno != expected_errno2)) : (resolved_path == NULL)) {
+		char cwd[PATH_MAX + 1];
+		int saved_errno = errno;
+
+		if (getcwd(cwd, sizeof(cwd)) == NULL)
+			strcpy(cwd, "?");
+		fprintf(stderr, "test43: realpath(\"%s\") in \"%s\": "
+		    "result %s, errno %d, expected %d or %d\n",
+		    path, cwd, resolved_path ? resolved_path : "NULL",
+		    saved_errno, expected_errno, expected_errno2);
+		errno = saved_errno;
+	}
 
 	/* do we get errors when expected? */
 	if (expected_errno || expected_errno2)
@@ -191,6 +209,7 @@ static void check_realpath_recurse(const char *path, int depth)
 	struct dirent *dirent;
 	char pathsub[PATH_MAX + 1];
 	struct stat st;
+	struct statvfs stvfs;
 
 	/* check with the path itself */
 	check_realpath_step_by_step(path, 0);
@@ -207,6 +226,13 @@ static void check_realpath_recurse(const char *path, int depth)
 		return;
 	}
 	if (!S_ISDIR(st.st_mode))
+		return;
+
+	/* don't descend into procfs: its entries (/proc/<pid>) come and go
+	 * while we walk them, e.g. when a child left behind by a previous test
+	 * exits, and realpath() on a vanished entry legitimately fails */
+	if (statvfs(path, &stvfs) == 0 &&
+	    strcmp(stvfs.f_fstypename, "procfs") == 0)
 		return;
 
 	/* loop through subdirectories (including . and ..) */
