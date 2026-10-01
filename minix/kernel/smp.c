@@ -202,9 +202,28 @@ static void smp_schedule_sync(struct proc * p, unsigned task)
 	BKL_LOCK();
 }
 
+/*
+ * Is the process (possibly) executing on its CPU right now? A process that is
+ * not runnable any more may still be running there: RTS flags set from
+ * another CPU (e.g. RTS_SIGNALED by cause_sig() on behalf of sys_kill) only
+ * dequeue it, the CPU running it notices at its next kernel entry. Until
+ * then the process keeps running in user mode and its saved context in the
+ * process table is stale -- and will be overwritten when it enters the
+ * kernel. So stopping such a process must also go through the remote CPU.
+ */
+static int proc_is_running_remote(struct proc * p)
+{
+	return p->p_cpu != cpuid && get_cpu_var(p->p_cpu, proc_ptr) == p;
+}
+
 void smp_schedule_stop_proc(struct proc * p)
 {
-	if (proc_is_runnable(p))
+	/* ReMinix: also when not runnable but still running, see above. Before,
+	 * PM could stop a signaled process and write its signal context (sys_
+	 * sigsend) while it was still executing on another CPU: the context
+	 * was lost and the process went on making calls PM did not expect
+	 * (assert in PM do_sigprocmask, test41). */
+	if (proc_is_runnable(p) || proc_is_running_remote(p))
 		smp_schedule_sync(p, SCHED_IPI_STOP_PROC);
 	else
 		RTS_SET(p, RTS_PROC_STOP);
@@ -213,7 +232,7 @@ void smp_schedule_stop_proc(struct proc * p)
 
 void smp_schedule_vminhibit(struct proc * p)
 {
-	if (proc_is_runnable(p))
+	if (proc_is_runnable(p) || proc_is_running_remote(p))
 		smp_schedule_sync(p, SCHED_IPI_VM_INHIBIT);
 	else
 		RTS_SET(p, RTS_VMINHIBIT);
@@ -284,8 +303,10 @@ void smp_sched_handler(void)
  */
 void smp_ipi_sched_handler(void)
 {
+	extern unsigned dbg_cpu_events[][4];
 	struct proc * curr;
 
+	dbg_cpu_events[cpuid][2]++;
 	ipi_ack();
 
 	curr = get_cpulocal_var(proc_ptr);

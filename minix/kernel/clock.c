@@ -42,6 +42,23 @@ static minix_timer_t *clock_timers;	/* queue of CLOCK timers */
 static int32_t adjtime_delta = 0;
 
 /*
+ * ReMinix debugging: with the boot parameter tickdebug=N every CPU prints a
+ * line every N of its own clock ticks: how many ticks it got, how many of
+ * them hit a process other than IDLE, and which process is current. Used to
+ * see whether the local timers of the APs tick and charge their processes.
+ */
+static unsigned tick_debug;
+
+/*
+ * ReMinix debugging, always on (cheap): per CPU event counters, read from a
+ * post-mortem dump (docker/qemu-postmortem.py): [0] timer_int_handler,
+ * [1] context_stop_idle, [2] SMP schedule IPI handler, [3] idle() halts.
+ */
+unsigned dbg_cpu_events[CONFIG_MAX_CPUS][4];
+static unsigned tick_debug_ticks[CONFIG_MAX_CPUS];
+static unsigned tick_debug_busy[CONFIG_MAX_CPUS];
+
+/*
  * Initialize the clock variables.
  */
 void
@@ -51,6 +68,10 @@ init_clock(void)
 
 	/* Initialize clock information structure. */
 	memset(&kclockinfo, 0, sizeof(kclockinfo));
+
+	value = env_get("tickdebug");
+	if (value != NULL)
+		tick_debug = atoi(value);
 
 	/* Get clock tick frequency. */
 	value = env_get("hz");
@@ -112,6 +133,21 @@ int timer_int_handler(void)
 
 	p = get_cpulocal_var(proc_ptr);
 	billp = get_cpulocal_var(bill_ptr);
+
+	dbg_cpu_events[cpuid][0]++;
+
+	if (tick_debug) {
+		unsigned c = cpuid;
+
+		tick_debug_ticks[c]++;
+		if (p->p_endpoint != IDLE)
+			tick_debug_busy[c]++;
+		if (tick_debug_ticks[c] % tick_debug == 0)
+			printf("tick cpu%u: %u ticks, %u busy, now %s/%d "
+			    "(p_cpu %u, utime %u)\n", c, tick_debug_ticks[c],
+			    tick_debug_busy[c], p->p_name, p->p_endpoint,
+			    p->p_cpu, (unsigned) p->p_user_time);
+	}
 
 	p->p_user_time++;
 

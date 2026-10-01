@@ -192,6 +192,15 @@ static void idle(void)
 #ifdef CONFIG_SMP
 	get_cpulocal_var(cpu_is_idle) = 1;
 	/* we don't need to keep time on APs as it is handled on the BSP */
+	/*
+	 * ReMinix, OPEN ISSUE (docs/testing.md 5.1): this stop (and the
+	 * apic_eoi() inside stop_local_timer()) is what keeps APs working at
+	 * all -- with the timer left running the AP's LAPIC stops delivering
+	 * interrupts after the first tick. Side effect: the one-shot timer is
+	 * re-armed for a full tick at every wakeup, so a process on an AP that
+	 * blocks more often than once a tick is never charged CPU time (no
+	 * utime, no ITIMER_VIRTUAL/PROF: test41 fails on real SMP).
+	 */
 	if (cpuid != bsp_cpu_id)
 		stop_local_timer();
 	else
@@ -205,6 +214,10 @@ static void idle(void)
 	}
 
 	/* start accounting for the idle time */
+	{
+		extern unsigned dbg_cpu_events[][4];
+		dbg_cpu_events[cpuid][3]++;
+	}
 	context_stop(proc_addr(KERNEL));
 #if !SPROFILE
 	halt_cpu();

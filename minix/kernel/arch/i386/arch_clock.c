@@ -350,10 +350,13 @@ void context_stop(struct proc * p)
 
 void context_stop_idle(void)
 {
+	extern unsigned dbg_cpu_events[][4];
 	int is_idle;
 #ifdef CONFIG_SMP
 	unsigned cpu = cpuid;
 #endif
+
+	dbg_cpu_events[cpuid][1]++;
 
 	is_idle = get_cpu_var(cpu, cpu_is_idle);
 	get_cpu_var(cpu, cpu_is_idle) = 0;
