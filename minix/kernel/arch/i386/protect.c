@@ -151,6 +151,49 @@ static struct gate_table_s gate_table_exceptions[] = {
 	{ NULL, 0, 0}
 };
 
+/*
+ * Program the fast system call MSRs (SYSENTER, SYSCALL) for 'cpu'. MSRs are
+ * per CPU: this must run ON that CPU. ReMinix: tss_init() is also called by
+ * the BSP for every CPU (tss_init_all() in arch_smp.c), which used to leave
+ * the BSP with the SYSENTER stack and SYSCALL entry of the LAST CPU, and the
+ * APs with none -- see smp_init() and ap_finish_booting().
+ */
+void tss_init_msrs(unsigned cpu)
+{
+	/* Set up Intel SYSENTER support if available. */
+	if(minix_feature_flags & MKF_I386_INTEL_SYSENTER) {
+	  ia32_msr_write(INTEL_MSR_SYSENTER_CS, 0, KERN_CS_SELECTOR);
+  	  ia32_msr_write(INTEL_MSR_SYSENTER_ESP, 0, tss[cpu].sp0);
+  	  ia32_msr_write(INTEL_MSR_SYSENTER_EIP, 0, (u32_t) ipc_entry_sysenter);
+  	}
+
+	/* Set up AMD SYSCALL support if available. */
+	if(minix_feature_flags & MKF_I386_AMD_SYSCALL) {
+		u32_t msr_lo, msr_hi;
+
+		/* set SYSCALL ENABLE bit in EFER MSR */
+		ia32_msr_read(AMD_MSR_EFER, &msr_hi, &msr_lo);
+		msr_lo |= AMD_EFER_SCE;
+		ia32_msr_write(AMD_MSR_EFER, msr_hi, msr_lo);
+
+		/* set STAR register value */
+#define set_star_cpu(forcpu) if(cpu == forcpu) {				\
+		ia32_msr_write(AMD_MSR_STAR,					\
+		  ((u32_t)USER_CS_SELECTOR << 16) | (u32_t)KERN_CS_SELECTOR,	\
+		  (u32_t) ipc_entry_syscall_cpu ## forcpu); }
+		set_star_cpu(0);
+		set_star_cpu(1);
+		set_star_cpu(2);
+		set_star_cpu(3);
+		set_star_cpu(4);
+		set_star_cpu(5);
+		set_star_cpu(6);
+		set_star_cpu(7);
+		assert(CONFIG_MAX_CPUS <= 8);
+  	}
+
+}
+
 int tss_init(unsigned cpu, void * kernel_stack)
 {
 	struct tss_s * t = &tss[cpu];
@@ -180,37 +223,7 @@ int tss_init(unsigned cpu, void * kernel_stack)
 	 */
 	*((reg_t *)(t->sp0 + 1 * sizeof(reg_t))) = cpu;
 
-	/* Set up Intel SYSENTER support if available. */
-	if(minix_feature_flags & MKF_I386_INTEL_SYSENTER) {
-	  ia32_msr_write(INTEL_MSR_SYSENTER_CS, 0, KERN_CS_SELECTOR);
-  	  ia32_msr_write(INTEL_MSR_SYSENTER_ESP, 0, t->sp0);
-  	  ia32_msr_write(INTEL_MSR_SYSENTER_EIP, 0, (u32_t) ipc_entry_sysenter);
-  	}
-
-	/* Set up AMD SYSCALL support if available. */
-	if(minix_feature_flags & MKF_I386_AMD_SYSCALL) {
-		u32_t msr_lo, msr_hi;
-
-		/* set SYSCALL ENABLE bit in EFER MSR */
-		ia32_msr_read(AMD_MSR_EFER, &msr_hi, &msr_lo);
-		msr_lo |= AMD_EFER_SCE;
-		ia32_msr_write(AMD_MSR_EFER, msr_hi, msr_lo);
-
-		/* set STAR register value */
-#define set_star_cpu(forcpu) if(cpu == forcpu) {				\
-		ia32_msr_write(AMD_MSR_STAR,					\
-		  ((u32_t)USER_CS_SELECTOR << 16) | (u32_t)KERN_CS_SELECTOR,	\
-		  (u32_t) ipc_entry_syscall_cpu ## forcpu); }
-		set_star_cpu(0);
-		set_star_cpu(1);
-		set_star_cpu(2);
-		set_star_cpu(3);
-		set_star_cpu(4);
-		set_star_cpu(5);
-		set_star_cpu(6);
-		set_star_cpu(7);
-		assert(CONFIG_MAX_CPUS <= 8);
-  	}
+	tss_init_msrs(cpu);
 
 	return SEG_SELECTOR(index);
 }

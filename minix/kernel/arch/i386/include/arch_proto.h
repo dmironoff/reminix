@@ -248,6 +248,7 @@ reg_t read_ebp(void);
  * sets up TSS for a cpu and assigns kernel stack and cpu id
  */
 int tss_init(unsigned cpu, void * kernel_stack);
+void tss_init_msrs(unsigned cpu);
 
 void int_gate_idt(unsigned vec_nr, vir_bytes offset, unsigned dpl_type);
 

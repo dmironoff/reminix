@@ -233,6 +233,9 @@ static void ap_finish_booting(void)
 
 	printf("CPU %d is up\n", cpu);
 
+	/* SYSENTER/SYSCALL MSRs are per CPU, nobody has set ours yet */
+	tss_init_msrs(cpu);
+
 	cpu_identify();
 
 	lapic_enable(cpu);
@@ -308,6 +311,10 @@ void smp_init (void)
 	 * wasn't set yet. apicid2cpuid initialized in mps_init()
 	 */
 	bsp_cpu_id = apicid2cpuid[apicid()];
+
+	/* tss_init_all() programmed this CPU's MSRs for every CPU in turn,
+	 * the last one won: set the BSP's own again (protect.c) */
+	tss_init_msrs(bsp_cpu_id);
 
 	if (!lapic_enable(bsp_cpu_id)) {
 		printf("ERROR : failed to initialize BSP Local APIC\n");
