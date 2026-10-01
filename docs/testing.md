@@ -14,7 +14,14 @@ make -C docker -f build.mk test-i386                     # все тесты, 1 
 make -C docker -f build.mk test-i386 TESTS=1,2,43        # выбранные
 make -C docker -f build.mk hdimage SMP=yes               # SMP-сборка (obj/i386-smp)
 make -C docker -f build.mk test-i386 SMP=yes CPUS=4      # прогон на 4 CPU
+make -C docker -f build.mk test-i386 SMP=yes CPUS=4 KARGS=no_apic=1  # SMP-ядро на 1 CPU
 ```
+
+SMP: ядро по умолчанию грузится с `no_apic=1`, и SMP-ядро уходит в
+однопроцессорный режим на 8259 (`smp_single_cpu_fallback`, BKL при этом
+работает). Поэтому при `CPUS>1` `run-tests.sh` сам добавляет `no_apic=0`;
+`KARGS` — дополнительные аргументы ядра (свой `no_apic=` в `KARGS` отменяет
+автоматический). Настоящий SMP узнаётся по строкам `CPU N is up` в журнале.
 
 Как устроено (`docker/run-tests.sh`, `etc/rc.d/minixtests`):
 - QEMU 11.1 (из Docker-образа) грузит ядро и модули из
@@ -57,6 +64,29 @@ script -c "qemu-system-i386 -enable-kvm -m 1024 -smp 1 \
   выполняются `isofs`, `vnd`, `rmib`, `relpol`. Один тест: `./run -t 43`.
 - Alt+F1..F4 в окне QEMU перехватывает GNOME — переключать консоли через монитор
   QEMU (Ctrl+Alt+2): `sendkey alt-f2`.
+
+## 1б. Зависание: автоматический post-mortem
+
+Если консоль молчит `HANG_IDLE` секунд (по умолчанию 600; в TAP-режиме тест
+печатает только по завершении, поэтому значение больше самого долгого теста)
+или прогон дольше `TEST_TIMEOUT`, `run-tests.sh` вызывает
+`docker/qemu-postmortem.py`: через монитор QEMU останавливает машину и пишет в
+`obj/test-logs/<журнал>.postmortem/`:
+
+- `monitor.txt` — `info registers`, `info lapic` и стек (`x/64xw $esp`) каждого
+  CPU, `info pic`, `info irq`;
+- `symbols.txt` (`nm -n -S`) и `kernel` — копия ELF ядра для `objdump -d`;
+- `<символ>.bin` — память ядра: `proc`, `priv`, `__cpu_local_vars`, стеки ядра
+  (`k_stacks_start`), замки, `kinfo`, `kmess`…;
+- `bkl.txt` (только SMP-ядро) — владелец BKL и последние 64 захвата/освобождения
+  с местом вызова и функцией уровнем выше. Пишется ядром: `BKL_LOCK/UNLOCK` идут
+  через `bkl_lock()/bkl_unlock()` (`minix/kernel/smp.c`); попытка CPU взять уже
+  свой BKL отмечается как `RE-LOCK`.
+
+Разбор: адреса из стека и `EIP` — по `symbols.txt`; цепочка кадров — по `%ebp`
+(ядро собрано с указателями кадра; входные заглушки обнуляют `%ebp`). Под
+`cpuN` с `EIP=000fd0b1`, `CR0=0x11`, `HLT=1` — AP, которые MINIX не запускал
+(стоят в SeaBIOS).
 
 ## 2. Точка отсчёта (2026-09-30)
 
@@ -180,10 +210,62 @@ MODIFY и `st_mtime` в слот ACCESS. Сервер `isofs` читает по�
 загрузки» — нет; режим TAP — нет; загрузка через `-kernel` и `snapshot=on` — нет.
 Решающим было отличие в наборе тестов (43 после 2), а не в окружении.
 
+### 4.4 SMP: окно с IF=1 в `restore_user_context_sysenter` (исправлено 2026-10-01)
+
+**Симптом.** SMP-ядро изредка зависало при загрузке; CPU0 крутится в
+`arch_spinlock_lock(&big_kernel_lock)`.
+
+**Причина.** Возврат в пользовательский режим через `sysexit`: `popf` загружал
+PSW процесса с IF=1 ещё в ядре, уже после `context_stop(KERNEL)` (BKL отпущен).
+Прерывание в этом окне шло путём «прерывание в ядре» →
+`context_stop_idle()` → BKL взят, и `sysexit` уносил его в пользовательский
+режим. В `restore_user_context_syscall` то же окно, да ещё на пользовательском
+стеке. Ошибка из оригинального MINIX.
+
+**Исправление** (`minix/kernel/arch/i386/mpx.S`): IF сбрасывается в значении до
+`popf`; прерывания включает `sti` (тень `sti` покрывает `sysexit`) или сам
+`sysret`.
+
+### 4.5 Повторный параметр ядра не заменял прежний (исправлено 2026-10-01)
+
+**Симптом.** `KARGS=no_apic=1` при `CPUS>1` не действовал: в строке было
+`no_apic=0 … no_apic=1`, выигрывал первый.
+
+**Причина.** `mb_set_param()` (`arch/i386/pre_init.c`, `arch/earm/pre_init.c`)
+при поиске существующего ключа делал лишний `p++` после конца строки и
+сравнивал со сдвигом все записи, кроме первой: дубликат дописывался в конец, а
+`get_value()` возвращает первое вхождение. Ошибка из оригинального MINIX.
+
+**Исправление:** лишний `p++` убран (оба файла).
+
+### 4.6 SMP: `hlt` без обработчика — ядро без BKL и с IF=1 (исправлено 2026-10-01)
+
+**Симптом.** После 4.4 SMP-ядро (и в однопроцессорном режиме) продолжало
+зависать: CPU0 в `hlt` получает прерывание, `context_stop_idle()` ждёт BKL,
+который занят им же.
+
+**Как найдено.** `bkl.txt`: перед зависанием два `unlock` подряд из `idle()` без
+`lock` между ними — `halt_cpu()` вернулся, не пройдя ни через один обработчик
+(`hlt` закончился иначе: NMI, SMI, ложное пробуждение виртуального CPU), и
+оставил IF=1. Дальше ядро работает без BKL с разрешёнными прерываниями;
+прерывание до следующего `hlt` берёт BKL, `idle()` засыпает, держа его, и
+следующее прерывание из `hlt` блокирует CPU на себе.
+
+**Исправление:**
+- `klib.S`, `halt_cpu`: `cli` после `hlt` — в ядро никогда не возвращаемся с
+  IF=1 (`SKIP_IDLE_HLT` из 4.1 теперь переводит на `cli`);
+- `proc.c`, `idle()` (SMP): если после `halt_cpu()` `cpu_is_idle` ещё стоит,
+  обработчика не было — `idle()` сам вызывает `context_stop_idle()` (учёт idle
+  и BKL).
+
+После 4.4–4.6: SMP-ядро в однопроцессорном режиме (`CPUS=4 KARGS=no_apic=1`) —
+PASS 101/101 (два прогона), обычное ядро — PASS 101/101.
+
 ## 5. Связанные документы
 
 - `docs/modernization.md` — критерий «тесты прошли», шаг 0.1.
-- `docker/run-tests.sh`, `etc/rc.d/minixtests`, `docker/tests-known-failures.i386`.
+- `docker/run-tests.sh`, `docker/qemu-postmortem.py`, `etc/rc.d/minixtests`,
+  `docker/tests-known-failures.i386`.
 - `docs/docker-build.md` — сборка образа.
 - `docs/build-x86.md` — `boot.cfg` и пункты меню загрузчика.
 - `docs/arch-i386.md` — `mpx.S`, `klib.S`, пути прерываний.
