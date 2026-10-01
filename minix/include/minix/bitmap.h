@@ -1,6 +1,14 @@
 #ifndef _BITMAP_H
 #define _BITMAP_H
 
+/* Self-contained: bitchunk_t and CHAR_BIT are needed by the macros below and
+ * by bits_fill() (CONFIG_SMP), and users such as <minix/drivers.h> include
+ * this header before <sys/types.h> and <limits.h>. */
+#ifndef __ASSEMBLY__
+#include <sys/types.h>		/* bitchunk_t (_NETBSD_SOURCE) */
+#include <limits.h>		/* CHAR_BIT */
+#endif
+
 /* Bit map operations to manipulate bits of a simple mask variable. */
 #define bit_set(mask, n)	((mask) |= (1 << (n)))
 #define bit_unset(mask, n)	((mask) &= ~(1 << (n)))

@@ -13,6 +13,10 @@
 #include <machine/cmos.h>
 #include <machine/bios.h>
 
+/* kernel.h must come first: spinlock.h includes kernel.h, which with
+ * CONFIG_SMP includes smp.h, which needs the spinlock.h macros -- starting
+ * from spinlock.h leaves SPINLOCK_DECLARE undefined in smp.h */
+#include "kernel/kernel.h"
 #include "kernel/spinlock.h"
 #include "kernel/smp.h"
 #include "apic.h"
