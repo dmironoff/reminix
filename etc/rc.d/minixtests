@@ -1,0 +1,61 @@
+#!/bin/sh
+#
+# ReMinix: unattended regression test run for automated testing under QEMU
+# (docker/build.mk, target test-i386; docs/testing.md).
+#
+# Does nothing unless the kernel command line contains testrun=1. Then it
+# runs the minix-posix suite in TAP mode on the console, prints begin/end
+# markers for the host-side parser and powers the machine off.
+#
+#   testrun=1            enable
+#   testlist=43,71,sh1   optional: run only these tests (comma separated,
+#                        names as accepted by "run -t")
+#   testdelay=N          optional: seconds to wait before starting (30)
+#
+# Runs synchronously as the last rc script: getty is started by init only
+# after rc has finished, and getty revokes the console, so output of a
+# background job would be lost. The delay lets the system settle after
+# all daemons have started (devmand, syslogd, cron, inetd): tests walking
+# the whole file system (test43) fail if files vanish under them.
+
+# PROVIDE: minixtests
+# REQUIRE: LOGIN inetd local
+
+$_rc_subr_loaded . /etc/rc.subr
+
+name="minixtests"
+start_cmd="minixtests_start"
+stop_cmd=":"
+
+minixtests_start()
+{
+	[ "`/bin/sysenv testrun 2>/dev/null`" = "1" ] || return 0
+
+	list="`/bin/sysenv testlist 2>/dev/null | tr ',' ' '`"
+	delay="`/bin/sysenv testdelay 2>/dev/null`"
+
+	echo "minixtests: starting in ${delay:-30}s"
+	sleep ${delay:-30}
+
+	echo "REMINIX-TESTS-BEGIN"
+	if cd /usr/tests/minix-posix; then
+		if [ -n "$list" ]; then
+			./run -T -t "$list"
+		else
+			./run -T
+		fi
+		status=$?
+	else
+		status=127
+	fi
+	echo "REMINIX-TESTS-END status=$status"
+
+	# Let TTY drain its output queue to the (slow) serial line before
+	# powering off, otherwise the last lines are lost.
+	sleep 5
+	sync
+	/sbin/halt -p
+}
+
+load_rc_config $name
+run_rc_command "$1"

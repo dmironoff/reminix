@@ -154,6 +154,7 @@
 ./etc/rc.d/ipsec                                        minix-base
 ./etc/rc.d/local                                        minix-base
 ./etc/rc.d/minixrc                                      minix-base
+./etc/rc.d/minixtests                                   minix-base
 ./etc/rc.d/mountcritlocal                               minix-base
 ./etc/rc.d/mountcritremote                              minix-base
 ./etc/rc.d/named                                        minix-base
