@@ -7,7 +7,10 @@ FSCK=/bin/fsck_mfs
 ACPI=/service/acpi
 
 if [ X`sysenv arch` = Xi386 ]
-then	if [ -e $ACPI -a -n "`sysenv acpi`" ]
+then	# In APIC mode (no_apic=0) PCI routes interrupts through ACPI and
+	# panics without it ("Cannot use APIC mode without ACPI"), so start
+	# ACPI then even if acpi= is not set.
+	if [ -e $ACPI ] && [ -n "`sysenv acpi`" -o "`sysenv no_apic`" = 0 ]
 	then
 		minix-service -c up $ACPI
 	fi
