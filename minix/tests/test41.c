@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/wait.h>
+#include <sys/times.h>
 #include <sys/syslimits.h>
 #include <signal.h>
 #include <unistd.h>
@@ -218,7 +219,8 @@ void test_zero()
 /* test actual timer functioning */
 void test_timer()
 {
-  struct itimerval it;
+  struct itimerval it, left;
+  struct tms tms0, tms1;
 
   subtest = 4;
 
@@ -229,14 +231,25 @@ void test_timer()
   if (setitimer(timer, &it, NULL)) my_e(2);
 
   signals = 0;
+  times(&tms0);
   busy_wait(1);
+  times(&tms1);
+  getitimer(timer, &left);
 
   FILLITIMER(it, 0, 0, 0, 0);
   if (setitimer(timer, &it, NULL)) my_e(3);
 
   /* we don't know how many signals we'll actually get in practice,
    * so these checks more or less cover the extremes of the acceptable */
-  if (signals < 2) my_e(4);
+  if (signals < 2) {
+	/* ReMinix diagnostics: was the busy loop charged any CPU time? */
+	fprintf(stderr, "test41: timer %s: %d signals; utime %ld stime %ld "
+	    "ticks (hz %ld); left %ld.%06ld\n", names[timer], signals,
+	    (long) (tms1.tms_utime - tms0.tms_utime),
+	    (long) (tms1.tms_stime - tms0.tms_stime), system_hz,
+	    (long) left.it_value.tv_sec, (long) left.it_value.tv_usec);
+	my_e(4);
+  }
   if (signals > system_hz * 2) my_e(5);
 
   /* only for REAL timer can we check against the clock */
@@ -361,6 +374,17 @@ int do_check()
 
   busy_wait(60);
 
+  {
+	/* ReMinix diagnostics: the timer should have killed us by now */
+	struct tms t;
+
+	times(&t);
+	getitimer(timer, &it);
+	fprintf(stderr, "test41: do_check timer %d: still alive after 60s; "
+	    "utime %ld stime %ld ticks; left %ld.%06ld\n", timer,
+	    (long) t.tms_utime, (long) t.tms_stime,
+	    (long) it.it_value.tv_sec, (long) it.it_value.tv_usec);
+  }
   return(83);
 }
 
