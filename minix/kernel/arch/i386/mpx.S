@@ -405,8 +405,15 @@ ENTRY(restore_user_context_sysenter)
 	mov	AXREG(%ebp), %eax	/* trap return value */
 	mov	BXREG(%ebp), %ebx	/* secondary return value */
 
-        /* restore PSW */
+        /* restore PSW, but keep IF clear: popf with the user's IF=1 would
+         * open an interrupt window while we are still in the kernel, after
+         * context_stop(KERNEL) has already released the BKL. The in-kernel
+         * interrupt path takes it for "idle" accounting, and sysexit then
+         * leaves to user space with the BKL held -- the next kernel entry
+         * spins forever (SMP kernels, docs/testing.md). The sti below enables
+         * interrupts only after sysexit (sti shadow). */
         movl    PSWREG(%ebp), %edi      /* load desired PSW to EDI */
+        andl    $~IF_MASK, %edi
         push    %edi
         popf
 
@@ -421,8 +428,11 @@ ENTRY(restore_user_context_syscall)
 	 */
 	mov	4(%esp), %ebp		/* retrieve proc ptr arg */
 
-        /* restore PSW (before we switch to user stack!) */
+        /* restore PSW (before we switch to user stack!), IF kept clear as
+         * in restore_user_context_sysenter above: an interrupt here would
+         * also run on the user stack. Legacy mode sysret sets IF itself. */
         movl    PSWREG(%ebp), %edi      /* load desired PSW to EDI */
+        andl    $~IF_MASK, %edi
         push    %edi
         popf
 
