@@ -83,6 +83,41 @@ RUN /usr/src/gcc-${GCC7_VERSION}/configure \
     && rm -rf /usr/src/gcc-${GCC7_VERSION} /usr/src/build
 
 # ---------------------------------------------------------------------
+# QEMU from upstream sources, pinned by version (docs/devicetree.md §1).
+# Ubuntu 24.04 ships QEMU 8.2; the project needs a current release for
+# -M orangepi-pc (reference ARM board) and a recent i386/x86_64. Only the
+# system emulators the project uses are built; add riscv64/mips64 here
+# when those ports start.
+FROM ${BASE_IMAGE} AS qemu-builder
+ARG DEBIAN_FRONTEND=noninteractive
+ARG QEMU_VERSION=11.1.0
+RUN set -eu; \
+    . /etc/os-release; \
+    { \
+      printf 'deb http://archive.ubuntu.com/ubuntu %s main restricted universe multiverse\n' "$VERSION_CODENAME"; \
+      printf 'deb http://archive.ubuntu.com/ubuntu %s-updates main restricted universe multiverse\n' "$VERSION_CODENAME"; \
+      printf 'deb http://security.ubuntu.com/ubuntu %s-security main restricted universe multiverse\n' "$VERSION_CODENAME"; \
+    } > /etc/apt/sources.list
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential pkg-config ninja-build python3 python3-venv \
+        flex bison wget ca-certificates xz-utils bzip2 \
+        libglib2.0-dev libpixman-1-dev libfdt-dev libslirp-dev zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /usr/src
+RUN wget -q https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz \
+    && tar xf qemu-${QEMU_VERSION}.tar.xz \
+    && rm qemu-${QEMU_VERSION}.tar.xz
+WORKDIR /usr/src/qemu-${QEMU_VERSION}/build
+RUN ../configure \
+        --prefix=/opt/qemu \
+        --target-list=i386-softmmu,x86_64-softmmu,arm-softmmu,aarch64-softmmu \
+        --enable-kvm --enable-slirp --enable-fdt=system \
+        --disable-docs --disable-werror \
+    && make -j"$(nproc)" \
+    && make install \
+    && /opt/qemu/bin/qemu-system-i386 --version
+
+# ---------------------------------------------------------------------
 # Final image
 # ---------------------------------------------------------------------
 FROM ${BASE_IMAGE}
@@ -133,13 +168,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         # bootstraps out of tools/ ---
         zlib1g-dev \
         libssl-dev \
-        # --- QEMU: boots the images releasetools/*image.sh produces,
-        # covers every architecture on the porting roadmap (i386/amd64,
-        # arm/aarch64, riscv, mips) ---
-        qemu-system-x86 \
-        qemu-system-arm \
-        qemu-system-misc \
+        # --- QEMU: the emulators themselves come from the qemu-builder
+        # stage above (/opt/qemu); here only qemu-img and the shared
+        # libraries the self-built emulators link against ---
         qemu-utils \
+        libglib2.0-0t64 \
+        libpixman-1-0 \
+        libfdt1 \
+        libslirp0 \
         # --- quality of life for interactive `make -C docker shell` use ---
         sudo \
         less \
@@ -177,6 +213,11 @@ ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 # HOST_CC/HOST_CXX variables this build system reads for its own
 # host-tool builds should point at gcc-7/g++-7.
 COPY --from=gcc7-builder /opt/gcc-7 /opt/gcc-7
+COPY --from=qemu-builder /opt/qemu /opt/qemu
+# Self-built QEMU first in PATH; fail the image build right here if a
+# runtime library is missing.
+ENV PATH="/opt/qemu/bin:${PATH}"
+RUN qemu-system-i386 --version && qemu-system-arm --version
 ENV PATH="${PATH}:/opt/gcc-7/bin"
 ENV HOST_CC=/opt/gcc-7/bin/gcc-7
 ENV HOST_CXX=/opt/gcc-7/bin/g++-7

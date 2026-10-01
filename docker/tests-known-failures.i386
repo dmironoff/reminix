@@ -1,0 +1,7 @@
+# Known failures of minix/tests on i386 (docker/run-tests.sh, docs/testing.md).
+# One test name per line, as printed by "run -T" ("43", "isofs", "sh1", ...),
+# optionally followed by "# reason". A failure listed here does not fail the
+# automated run; a listed test that passes is reported, so the entry can be
+# removed. Every entry needs a reason and a reference (docs/testing.md §4).
+#
+# 2026-10-01: empty -- 101 of 101 pass (-smp 1, KVM).

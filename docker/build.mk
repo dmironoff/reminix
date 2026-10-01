@@ -3,7 +3,7 @@
 # Ничего не меняет и не подменяет в самой системе сборки (build.sh,
 # releasetools/*.sh) — только даёт воспроизводимое хостовое окружение
 # (см. Dockerfile) и удобные команды поверх него. Подробности и
-# обоснование выбора пакетов — docs/docker-build.md.
+# обоснование выбора пакетов — docs/docker-build.md, тесты — docs/testing.md.
 #
 # Запускать из корня репозитория:
 #
@@ -12,15 +12,20 @@
 #   make -C docker -f build.mk shell ARCH=evbearm-el     # то же, под другую архитектуру
 #   make -C docker -f build.mk build ARCH=amd64 BUILD_TARGET=tools
 #   make -C docker -f build.mk hdimage                   # собрать minix_x86.img (i386, releasetools/x86_hdimage.sh)
+#   make -C docker -f build.mk hdimage SMP=yes           # то же с CONFIG_SMP -> minix_x86_smp.img
+#   make -C docker -f build.mk test-i386                 # автоматический прогон minix/tests, 1 CPU
+#   make -C docker -f build.mk test-i386 SMP=yes CPUS=4  # то же на SMP-ядре, 4 CPU
+#   make -C docker -f build.mk test-i386 TESTS=43,71     # только выбранные тесты
 #   make -C docker -f build.mk sdimage                   # собрать minix_arm_sd.img (evbearm-el/BeagleBoard-xM)
 #   make -C docker -f build.mk qemu-hdimage              # запустить x86-образ в QEMU
 #   make -C docker -f build.mk qemu-sdimage              # запустить ARM SD-образ в QEMU
 #   make -C docker -f build.mk clean-obj ARCH=i386       # снести obj/i386 и пересобрать с нуля
 #
 # Состояние сборки (объектные файлы, DESTDIR, releasedir) живёт в
-# obj/<ARCH> внутри репозитория — эта директория уже покрыта
-# .gitignore (шаблон "obj") и переживает между запусками контейнера,
-# так что бутстрап тулчейна не повторяется на каждый вызов.
+# obj/<ARCH>[-smp] внутри репозитория — эта директория уже покрыта
+# .gitignore (шаблон "obj") и переживает между запусками контейнера.
+# Кросс-тулчейн — в obj/<ARCH>[-smp]/tooldir, имя не зависит от версии ядра
+# хоста (см. CONTAINER_TOOLDIR ниже).
 
 SHELL := /bin/sh
 
@@ -33,28 +38,49 @@ JOBS         ?= $(shell nproc 2>/dev/null || echo 1)
 BUILD_TARGET ?= release
 BUILDVARS    ?=
 
+# SMP=yes: сборка с CONFIG_SMP (флаг идёт в CPPFLAGS всего дерева, см.
+# share/mk/bsd.own.mk), поэтому отдельный объектный каталог и образ.
+SMP          ?= no
+MAX_CPUS     ?= 8
+
+# Прогон тестов (test-i386).
+CPUS         ?= $(if $(filter yes,$(SMP)),4,1)
+TESTS        ?=
+TEST_TIMEOUT ?= 5400
+
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
 
 REPO_ROOT      := $(abspath $(CURDIR)/..)
 CONTAINER_REPO := /work/reminix
 
+FLAVOR      = $(if $(filter yes,$(SMP)),-smp,)
+SMP_VARS    = $(if $(filter yes,$(SMP)),-V CONFIG_SMP=y -V CONFIG_MAX_CPUS=$(MAX_CPUS),)
+IMG_NAME    = $(if $(filter yes,$(SMP)),minix_x86_smp.img,minix_x86.img)
+
 # Через "=" (не ":="), чтобы честно пересчитывались при
 # ARCH-переопределении конкретной цели (см. hdimage/sdimage ниже).
-CONTAINER_OBJ    = $(CONTAINER_REPO)/obj/$(ARCH)
+CONTAINER_OBJ    = $(CONTAINER_REPO)/obj/$(ARCH)$(FLAVOR)
 CONTAINER_DEST   = $(CONTAINER_OBJ)/destdir.$(ARCH)
 # ВАЖНО: RELEASEDIR должен быть "голым" (без .../$(ARCH)/binary) --
 # build.sh сам добавляет "${RELEASEMACHINEDIR}/binary/sets" при сборке
-# release-наборов (см. build.sh: `-R release  Set RELEASEDIR to
-# release. [Default: releasedir]` и `setdir=${RELEASEDIR}/${RELEASEMACHINEDIR}/binary/sets`
-# в реализации release-таргета). Если передать уже с суффиксом (как
-# по ошибке делали раньше, повторяя дефолт releasetools/image.defaults
-# -- у него РАЗНЫЕ переменные RELEASEDIR и SETS_DIR, и только SETS_DIR
-# включает "$(ARCH)/binary/sets"), build.sh удвоит суффикс и
-# releasetools/x86_hdimage.sh не найдёт наборы по ожидаемому пути
-# (SETS_DIR считается отдельно, из OBJ/ARCH напрямую, и с удвоенным
-# RELEASEDIR никогда не совпадёт). См. docs/build-x86.md §2/§3.
+# release-наборов. Если передать уже с суффиксом (как в дефолте
+# releasetools/image.defaults), build.sh удвоит суффикс и
+# releasetools/x86_hdimage.sh не найдёт наборы. См. docs/build-x86.md §3.
 CONTAINER_RELDIR = $(CONTAINER_OBJ)/releasedir
+
+# Кросс-тулчейн. По умолчанию build.sh кладёт его в
+# $OBJ/tooldir.<uname -s>-<uname -r>-<uname -m>, то есть имя зависит от
+# версии ядра хоста: после каждого обновления ядра Ubuntu тулчейн
+# собирался заново. Фиксируем имя: $OBJ/tooldir (-T для build.sh,
+# CROSS_TOOLS для releasetools/image.defaults). Свой для каждого OBJ:
+# инструменты всё равно собираются в $OBJ/tools, а общий TOOLDIR ломался бы
+# при параллельных сборках.
+# ВАЖНО: при смене TOOLDIR у существующего OBJ удалить $OBJ/tools, иначе
+# build.sh -u сочтёт инструменты установленными и новый TOOLDIR останется
+# неполным ("don't know how to make .../tooldir/bin/nbfile").
+CONTAINER_TOOLDIR = $(CONTAINER_OBJ)/tooldir
+ALL_BUILDVARS     = -T $(CONTAINER_TOOLDIR) $(SMP_VARS) $(BUILDVARS)
 
 # /dev/kvm on the host is normally root:kvm mode 0660 -- --device=/dev/kvm
 # alone gets the node into the container, but our unprivileged "builder"
@@ -79,14 +105,16 @@ DOCKER_RUN_BASE = docker run --rm \
 	-e OBJ=$(CONTAINER_OBJ) \
 	-e DESTDIR=$(CONTAINER_DEST) \
 	-e RELEASEDIR=$(CONTAINER_RELDIR) \
+	-e CROSS_TOOLS=$(CONTAINER_TOOLDIR)/bin \
+	-e BUILDVARS="$(ALL_BUILDVARS)" \
 	-e JOBS=$(JOBS)
 
 DOCKER_RUN = $(DOCKER_RUN_BASE) $(IMAGE)
 
-.PHONY: help image shell build hdimage sdimage qemu-hdimage qemu-sdimage clean-obj clean-image
+.PHONY: help image shell build hdimage sdimage test-i386 qemu-hdimage qemu-sdimage clean-obj clean-image
 
 help:
-	@sed -n '2,22p' $(lastword $(MAKEFILE_LIST))
+	@sed -n '2,/^$$/p' $(lastword $(MAKEFILE_LIST))
 
 image:
 	docker build \
@@ -97,7 +125,7 @@ image:
 		.
 
 shell: image
-	$(DOCKER_RUN_BASE) -it $(IMAGE) bash
+	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) -it $(IMAGE) bash
 
 # Прямой вызов build.sh — без упаковки в конкретный образ диска.
 # Годится и для "как есть" непортированных пока архитектур (amd64 и
@@ -106,25 +134,41 @@ shell: image
 build: image
 	$(DOCKER_RUN) bash -lc '\
 		mkdir -p "$$OBJ" && \
-		sh build.sh -j "$$JOBS" -m "$$ARCH" -O "$$OBJ" -D "$$DESTDIR" $(BUILDVARS) -U -u $(BUILD_TARGET)'
+		sh build.sh -j "$$JOBS" -m "$$ARCH" -O "$$OBJ" -D "$$DESTDIR" $$BUILDVARS -U -u $(BUILD_TARGET)'
 
 # Архитектура зафиксирована в самих releasetools-скриптах (см.
 # docs/build-x86.md / docs/build-arm32.md) — здесь только пробрасываем
 # соответствующий ARCH, чтобы obj/<arch> совпадал с тем, что построит
-# сам скрипт.
+# сам скрипт. BUILDVARS (с -T и SMP-флагами) скрипты передают build.sh.
 hdimage: ARCH := i386
 hdimage: image
-	$(DOCKER_RUN) bash -lc './releasetools/x86_hdimage.sh'
+	$(DOCKER_RUN) bash -lc 'mkdir -p "$$OBJ" && IMG=$(IMG_NAME) ./releasetools/x86_hdimage.sh'
 
 sdimage: ARCH := evbearm-el
 sdimage: image
-	$(DOCKER_RUN) bash -lc './releasetools/arm_sdimage.sh'
+	$(DOCKER_RUN) bash -lc 'mkdir -p "$$OBJ" && ./releasetools/arm_sdimage.sh'
+
+# Автоматический прогон minix/tests (docs/testing.md): ядро и модули из
+# DESTDIR грузятся QEMU напрямую (multiboot), корневая ФС — из образа
+# (snapshot=on, образ не меняется), rc.d/minixtests запускает "run -T" и
+# выключает машину. Журнал — obj/test-logs/. Образ не пересобирается:
+# сначала hdimage (с тем же SMP=).
+test-i386: ARCH := i386
+test-i386: image
+	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) $(IMAGE) bash docker/run-tests.sh \
+		$(CONTAINER_DEST)/boot/minix/.temp \
+		$(IMG_NAME) \
+		$(CPUS) \
+		"$(TESTS)" \
+		$(TEST_TIMEOUT) \
+		obj/test-logs/i386$(FLAVOR)-cpu$(CPUS)-$(shell date +%Y%m%d-%H%M%S).log \
+		docker/tests-known-failures.i386
 
 qemu-hdimage: ARCH := i386
 qemu-hdimage: image
 	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) $(IMAGE) bash -lc \
-		'test -f minix_x86.img || { echo "minix_x86.img не найден -- сначала: make -C docker -f build.mk hdimage" >&2; exit 1; }; \
-		 qemu-system-i386 $(if $(KVM_DEVICE),--enable-kvm,) -m 256 -drive file=minix_x86.img,format=raw,if=ide'
+		'test -f $(IMG_NAME) || { echo "$(IMG_NAME) не найден -- сначала: make -C docker -f build.mk hdimage" >&2; exit 1; }; \
+		 qemu-system-i386 $(if $(KVM_DEVICE),--enable-kvm,) -m 256 -drive file=$(IMG_NAME),format=raw,if=ide'
 
 qemu-sdimage: ARCH := evbearm-el
 qemu-sdimage: image
@@ -133,7 +177,7 @@ qemu-sdimage: image
 		 qemu-system-arm -M beaglexm -serial stdio -drive if=sd,cache=writeback,file=minix_arm_sd.img'
 
 clean-obj:
-	rm -rf $(REPO_ROOT)/obj/$(ARCH)
+	rm -rf $(REPO_ROOT)/obj/$(ARCH)$(FLAVOR)
 
 clean-image:
 	-docker rmi $(IMAGE)
