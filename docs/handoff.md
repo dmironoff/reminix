@@ -5,6 +5,17 @@
 > `docs/memory.md` / `docs/threads.md` / `docs/testing.md` / `docs/build-*.md` /
 > `docs/docker-build.md`.
 
+> **НАЧАТЬ СЕССИЮ С КОНТРОЛЬНЫХ ПРОГОНОВ.** Код этой сессии закоммичен **без
+> проверки целиком** (после §4.8 и возврата остановки таймера AP в `idle()`).
+> Первым делом владельцу:
+> ```
+> make -C docker -f build.mk hdimage && make -C docker -f build.mk test-i386
+> make -C docker -f build.mk hdimage SMP=yes && make -C docker -f build.mk test-i386 SMP=yes CPUS=4 KARGS=no_apic=1
+> make -C docker -f build.mk test-i386 SMP=yes CPUS=2 HANG_IDLE=300
+> ```
+> Ожидается: 101/101; 101/101; всё, кроме 41 (`testing.md` §5.1). Любое другое
+> расхождение — регрессия этой сессии, разбирать до новой работы.
+
 ## Дата и контекст
 
 2026-10-01. **Этап 0.1** (тестовая инфраструктура): автоматический прогон на 1 CPU
@@ -53,9 +64,8 @@
 
 ## Текущий статус
 
-- Последнее состояние кода **как целое не прогонялось**: после §4.8 и возврата
-  исходного поведения таймера AP в `idle()` (§5.1) нужны контрольные прогоны
-  (см. «Следующие шаги», п. 1).
+- Последнее состояние кода **закоммичено, но как целое не прогонялось** — см.
+  пометку в начале файла.
 - **Открыто** (`testing.md` §5):
   - §5.1 — LAPIC AP: если не останавливать таймер AP в простое, AP глохнет после
     первого тика (KVM: висит ISR 240; TCG: LAPIC выглядит сброшенным). Из-за
@@ -66,20 +76,9 @@
   после закрытия §5.1.
 - Этап 0.1: не сделано — каркас тестов библиотек на хосте. Этапы 0.2–0.6: не начаты.
 
-## Изменения, ожидающие коммита у владельца
+## Коммиты
 
-С прошлой сессии (если ещё не закоммичено): `test43.c`, `docker/Dockerfile`,
-`docker/tests-known-failures.i386`, `etc/rc.d/minixtests`, `etc/rc.d/Makefile`,
-`distrib/sets/lists/minix-base/mi`, `docs/docker-build.md`, `CLAUDE.md`.
-
-Этой сессии:
-- ядро: `minix/include/minix/bitmap.h`, `minix/kernel/arch/i386/arch_smp.c`,
-  `mpx.S`, `klib.S`, `pre_init.c`, `protect.c`, `arch_clock.c`,
-  `include/arch_proto.h`, `minix/kernel/arch/earm/pre_init.c`,
-  `minix/kernel/proc.c`, `smp.c`, `spinlock.h`, `clock.c`;
-- `minix/drivers/storage/ramdisk/rc`, `minix/tests/test41.c`;
-- `docker/run-tests.sh`, `docker/qemu-postmortem.py`, `docker/build.mk`;
-- `docs/testing.md`, `docs/handoff.md`.
+Всё из этой сессии закоммичено владельцем (2026-10-01, без контрольных прогонов).
 
 ## Замечено в коде (для будущей работы)
 
@@ -95,10 +94,7 @@
 
 ## Следующие шаги
 
-1. **Владельцу — контрольные прогоны текущего кода** (затем коммит):
-   `hdimage` + `test-i386` (1 CPU, 101/101); `hdimage SMP=yes` +
-   `test-i386 SMP=yes CPUS=4 KARGS=no_apic=1` (101/101);
-   `test-i386 SMP=yes CPUS=2 HANG_IDLE=300` (ожидается: всё, кроме 41).
+1. **Контрольные прогоны** — см. пометку в начале файла.
 2. §5.1: разобрать инициализацию LAPIC на AP (начать с TCG: почему SPIV/LDR CPU1
    в состоянии сброса); затем учёт процессорного времени по TSC.
 3. §5.2: калибровка LAPIC и TSC опросом канала 2 PIT.
