@@ -16,6 +16,8 @@
 #   make -C docker -f build.mk test-i386                 # автоматический прогон minix/tests, 1 CPU
 #   make -C docker -f build.mk test-i386 SMP=yes CPUS=4  # то же на SMP-ядре, 4 CPU
 #   make -C docker -f build.mk test-i386 TESTS=43,71     # только выбранные тесты
+#   make -C docker -f build.mk test-i386 HANG_IDLE=120   # зависание = 120 с тишины (дамп в *.postmortem/)
+#   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 KARGS=no_smp=1  # доп. аргументы ядра
 #   make -C docker -f build.mk sdimage                   # собрать minix_arm_sd.img (evbearm-el/BeagleBoard-xM)
 #   make -C docker -f build.mk qemu-hdimage              # запустить x86-образ в QEMU
 #   make -C docker -f build.mk qemu-sdimage              # запустить ARM SD-образ в QEMU
@@ -47,6 +49,12 @@ MAX_CPUS     ?= 8
 CPUS         ?= $(if $(filter yes,$(SMP)),4,1)
 TESTS        ?=
 TEST_TIMEOUT ?= 5400
+# секунд тишины на консоли, после которых прогон считается зависшим
+# (снимается post-mortem: docker/qemu-postmortem.py)
+HANG_IDLE    ?= 600
+# дополнительные аргументы ядра (при CPUS>1 run-tests.sh сам добавляет
+# no_apic=0, иначе SMP-ядро стартует в однопроцессорном режиме)
+KARGS        ?=
 
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
@@ -155,7 +163,7 @@ sdimage: image
 # сначала hdimage (с тем же SMP=).
 test-i386: ARCH := i386
 test-i386: image
-	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) $(IMAGE) bash docker/run-tests.sh \
+	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) -e HANG_IDLE=$(HANG_IDLE) -e KARGS="$(KARGS)" $(IMAGE) bash docker/run-tests.sh \
 		$(CONTAINER_DEST)/boot/minix/.temp \
 		$(IMG_NAME) \
 		$(CPUS) \

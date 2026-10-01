@@ -15,7 +15,9 @@
 #   IMAGE     disk image from x86_hdimage.sh
 #   CPUS      number of virtual CPUs (-smp)
 #   TESTLIST  "" for the whole suite, or comma separated names ("43,71,sh1")
-#   TIMEOUT   seconds before the run is declared hung
+#   TIMEOUT   seconds before the whole run is declared hung
+#             (env HANG_IDLE: seconds of console silence, default 600)
+#             (env KARGS: extra kernel arguments; CPUS>1 adds no_apic=0)
 #   LOG       where to write the full serial console log
 #   KNOWN     file with known failures, one test name per line, # comments
 #
@@ -39,6 +41,15 @@ mods=$(ls "$MODDIR"/mod[0-9][0-9]_* 2>/dev/null | sort | paste -sd, -)
 
 append="rootdevname=c0d0p0 console=tty00 testrun=1"
 [ -n "$LIST" ] && append="$append testlist=$LIST"
+# The kernel defaults to no_apic=1, which makes an SMP kernel fall back to
+# a single CPU on the 8259 PIC: the other CPUs would never be started.
+# KARGS can override this (KARGS=no_apic=1 tests the single CPU fallback).
+case " ${KARGS:-} " in
+*" no_apic="*) ;;
+*) [ "$CPUS" -gt 1 ] && append="$append no_apic=0" ;;
+esac
+# extra kernel arguments (env KARGS, e.g. "no_smp=1" or "no_apic=1")
+[ -n "${KARGS:-}" ] && append="$append $KARGS"
 
 accel=tcg
 [ -w /dev/kvm ] && accel=kvm
@@ -46,16 +57,66 @@ accel=tcg
 mkdir -p "$(dirname "$LOG")"
 echo ">>> $(qemu-system-i386 --version | head -1)"
 echo ">>> ${CPUS} CPU, accel=${accel}, timeout ${TMO}s, tests: ${LIST:-all}"
+echo ">>> kernel args: $append"
 echo ">>> log: $LOG"
 
+# Hang detection: the run is declared hung if the console stays silent for
+# HANG_IDLE seconds (in TAP mode a test prints only when it finishes, so this
+# must exceed the longest single test) or the whole run exceeds TIMEOUT.
+# On a hang the state of all CPUs and the key kernel memory is saved through
+# the QEMU monitor (qemu-postmortem.py) before QEMU is killed.
+HANG_IDLE=${HANG_IDLE:-600}
+monsock=$(mktemp -u /tmp/reminix-mon.XXXXXX)
+pmdir="${LOG%.log}.postmortem"
+here=$(cd "$(dirname "$0")" && pwd)
+
 start=$(date +%s)
-timeout --foreground -k 10 "$TMO" \
-	qemu-system-i386 -machine pc,accel="$accel" -m 1024 -smp "$CPUS" \
-		-display none -monitor none -serial stdio -no-reboot \
-		-drive file="$IMG",format=raw,if=ide,snapshot=on \
-		-kernel "$MODDIR/kernel" -initrd "$mods" -append "$append" \
-		</dev/null | tee "$LOG"
-qemu_status=${PIPESTATUS[0]}
+: > "$LOG"
+qemu-system-i386 -machine pc,accel="$accel" -m 1024 -smp "$CPUS" \
+	-display none -monitor unix:"$monsock",server,nowait \
+	-serial file:"$LOG" -no-reboot \
+	-drive file="$IMG",format=raw,if=ide,snapshot=on \
+	-kernel "$MODDIR/kernel" -initrd "$mods" -append "$append" \
+	</dev/null &
+qemu_pid=$!
+tail -n +1 -f --pid=$qemu_pid "$LOG" &
+tail_pid=$!
+
+hung=no
+last_size=-1
+last_change=$start
+while kill -0 $qemu_pid 2>/dev/null; do
+	sleep 5
+	now=$(date +%s)
+	size=$(stat -c %s "$LOG" 2>/dev/null || echo 0)
+	if [ "$size" != "$last_size" ]; then
+		last_size=$size
+		last_change=$now
+	fi
+	if [ $((now - last_change)) -ge "$HANG_IDLE" ] || [ $((now - start)) -ge "$TMO" ]; then
+		hung=yes
+		break
+	fi
+done
+
+if [ "$hung" = yes ]; then
+	echo
+	echo ">>> no console output for $((now - last_change))s (run time $((now - start))s): saving post-mortem"
+	python3 "$here/qemu-postmortem.py" "$monsock" "$MODDIR/kernel" "$pmdir" "$CPUS" ||
+		echo ">>> post-mortem capture failed"
+	kill $qemu_pid 2>/dev/null
+	sleep 2
+	kill -9 $qemu_pid 2>/dev/null
+	wait $qemu_pid 2>/dev/null
+	qemu_status=124
+else
+	wait $qemu_pid
+	qemu_status=$?
+fi
+sleep 1
+kill $tail_pid 2>/dev/null
+wait $tail_pid 2>/dev/null
+rm -f "$monsock"
 elapsed=$(( $(date +%s) - start ))
 
 # ---- analysis ---------------------------------------------------------
@@ -96,8 +157,9 @@ fi
 
 verdict=0
 if [ "$complete" = no ]; then
-	if [ "$qemu_status" = 124 ] || [ "$qemu_status" = 137 ]; then
-		echo "RESULT: HANG (no end marker within ${TMO}s)"
+	if [ "$qemu_status" = 124 ]; then
+		echo "RESULT: HANG (console silent ${HANG_IDLE}s or run over ${TMO}s)"
+		echo "post-mortem: $pmdir"
 	else
 		echo "RESULT: CRASH (QEMU exited with status $qemu_status before all results were in)"
 	fi
