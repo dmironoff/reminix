@@ -413,8 +413,13 @@ _C_LABEL(halt_cpu_hlt):
 	hlt /* interrupts enabled only after this instruction is executed! */
 	/*
 	 * interrupt handlers make sure that the interrupts are disabled when we
-	 * get here so we take only _one_ interrupt after halting the CPU
+	 * get here so we take only _one_ interrupt after halting the CPU.
+	 * But hlt can also end without any of our handlers having run, or
+	 * through one that restores IF=1 (NMI, SMI, a spurious wakeup of a
+	 * virtual CPU): never return to the kernel with interrupts enabled.
+	 * idle() then finishes the idle accounting and takes the BKL itself.
 	 */
+	cli
 	ret
 
 /*===========================================================================*/

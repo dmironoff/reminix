@@ -226,6 +226,18 @@ static void idle(void)
 	 * end of accounting for the idle task does not happen here, the kernel
 	 * is handling stuff for quite a while before it gets back here!
 	 */
+#ifdef CONFIG_SMP
+	/*
+	 * ... normally: the interrupt that woke us up has done it in
+	 * context_stop_idle(), which also took the BKL. If hlt ended without
+	 * such an interrupt (see halt_cpu), we are still "idle" and do NOT hold
+	 * the BKL: the kernel would run unlocked, and the next in-kernel
+	 * interrupt would take the BKL behind our back and let us halt with it
+	 * held -- a deadlock (docs/testing.md).
+	 */
+	if (get_cpulocal_var(cpu_is_idle))
+		context_stop_idle();
+#endif
 }
 
 /*===========================================================================*
