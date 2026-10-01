@@ -37,7 +37,20 @@ void arch_spinlock_unlock(atomic_t * sl);
 
 #endif /* CONFIG_SMP */
 
+#if defined(CONFIG_SMP) && CONFIG_MAX_CPUS > 1
+/*
+ * ReMinix: the BKL goes through bkl_lock()/bkl_unlock() (smp.c), which
+ * record the owner and the last lock/unlock events for post-mortem analysis
+ * (docker/qemu-postmortem.py, docs/testing.md) and detect a CPU re-locking
+ * the BKL it already holds.
+ */
+void bkl_lock(void);
+void bkl_unlock(void);
+#define BKL_LOCK()	bkl_lock()
+#define BKL_UNLOCK()	bkl_unlock()
+#else
 #define BKL_LOCK()	spinlock_lock(&big_kernel_lock)
 #define BKL_UNLOCK()	spinlock_unlock(&big_kernel_lock)
+#endif
 
 #endif /* __SPINLOCK_H__ */

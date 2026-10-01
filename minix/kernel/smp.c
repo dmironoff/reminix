@@ -27,6 +27,97 @@ static volatile unsigned ap_cpus_booted;
 SPINLOCK_DEFINE(big_kernel_lock)
 SPINLOCK_DEFINE(boot_lock)
 
+/*
+ * BKL debugging (ReMinix). Plain globals, so that a post-mortem memory dump
+ * shows who holds the lock and how it got there:
+ *
+ *   bkl_owner_cpu, bkl_owner_pc	current holder (cpu -1: free), and the
+ *					return address of its bkl_lock() call
+ *   bkl_trace[]			ring of the last BKL_TRACE_LEN lock and
+ *					unlock events, bkl_trace_seq counts them
+ *   bkl_relock_pc, bkl_relock_owner	first time a CPU tried to take the BKL
+ *					it already held: the call site and the
+ *					site that had taken it
+ *
+ * Events are recorded while the lock is held (after taking it, before
+ * releasing it), so the ring needs no lock of its own.
+ */
+#define BKL_TRACE_LEN	64
+#define BKL_OP_UNLOCK	0
+#define BKL_OP_LOCK	1
+
+struct bkl_event {
+	u32_t	seq;
+	u32_t	pc;		/* return address of bkl_lock/bkl_unlock */
+	u32_t	caller;		/* return address of the function that
+				 * called BKL_LOCK/UNLOCK (0 if unknown) */
+	u16_t	cpu;
+	u16_t	op;		/* BKL_OP_* */
+};
+
+volatile u32_t bkl_owner_cpu = (u32_t) -1;
+volatile u32_t bkl_owner_pc;
+volatile u32_t bkl_trace_seq;
+volatile u32_t bkl_relock_pc;
+volatile u32_t bkl_relock_owner;
+struct bkl_event bkl_trace[BKL_TRACE_LEN];
+
+/*
+ * Return address one frame further up, through the frame pointer chain (the
+ * kernel is built with frame pointers). The frame of the BKL_LOCK caller
+ * must lie a little above ours on the same stack; anything else (the entry
+ * stubs set %ebp to 0, an AP may start with garbage in it) is not followed.
+ */
+#define BKL_FRAME_SPAN	8192
+
+static inline u32_t bkl_caller(const u32_t *fp)
+{
+	const u32_t *up = (const u32_t *) fp[0]; /* frame of the BKL_LOCK caller */
+
+	if (up <= fp || (u32_t) up - (u32_t) fp >= BKL_FRAME_SPAN ||
+			((u32_t) up & 3))
+		return 0;
+	return up[1];
+}
+
+static void bkl_record(u32_t pc, u32_t caller, unsigned op)
+{
+	struct bkl_event *e = &bkl_trace[bkl_trace_seq % BKL_TRACE_LEN];
+
+	e->seq = bkl_trace_seq;
+	e->pc = pc;
+	e->caller = caller;
+	e->cpu = cpuid;
+	e->op = op;
+	bkl_trace_seq++;
+}
+
+__attribute__((noinline)) void bkl_lock(void)
+{
+	u32_t pc = (u32_t) __builtin_return_address(0);
+
+	if (big_kernel_lock.val && bkl_owner_cpu == cpuid && !bkl_relock_pc) {
+		/* about to deadlock on ourselves; remember where, and spin
+		 * anyway so that the hang can be analysed */
+		bkl_relock_owner = bkl_owner_pc;
+		bkl_relock_pc = pc;
+	}
+	arch_spinlock_lock((atomic_t *) &big_kernel_lock);
+	bkl_owner_cpu = cpuid;
+	bkl_owner_pc = pc;
+	bkl_record(pc, bkl_caller(__builtin_frame_address(0)), BKL_OP_LOCK);
+}
+
+__attribute__((noinline)) void bkl_unlock(void)
+{
+	u32_t pc = (u32_t) __builtin_return_address(0);
+
+	bkl_record(pc, bkl_caller(__builtin_frame_address(0)), BKL_OP_UNLOCK);
+	bkl_owner_cpu = (u32_t) -1;
+	bkl_owner_pc = pc;	/* last releaser, while the lock is free */
+	arch_spinlock_unlock((atomic_t *) &big_kernel_lock);
+}
+
 void wait_for_APs_to_finish_booting(void)
 {
 	unsigned n = 0;
