@@ -18,6 +18,8 @@
 #   TIMEOUT   seconds before the whole run is declared hung
 #             (env HANG_IDLE: seconds of console silence, default 600)
 #             (env KARGS: extra kernel arguments; CPUS>1 adds no_apic=0)
+#             (env SNAPSHOT_AT: seconds; snapshot of the running system)
+#             (env ACCEL: tcg or kvm instead of the automatic choice)
 #   LOG       where to write the full serial console log
 #   KNOWN     file with known failures, one test name per line, # comments
 #
@@ -53,6 +55,8 @@ esac
 
 accel=tcg
 [ -w /dev/kvm ] && accel=kvm
+# env ACCEL=tcg|kvm overrides (TCG: to tell guest bugs from KVM effects)
+[ -n "${ACCEL:-}" ] && accel=$ACCEL
 
 mkdir -p "$(dirname "$LOG")"
 echo ">>> $(qemu-system-i386 --version | head -1)"
@@ -85,9 +89,21 @@ tail_pid=$!
 hung=no
 last_size=-1
 last_change=$start
+snap_done=no
 while kill -0 $qemu_pid 2>/dev/null; do
 	sleep 5
 	now=$(date +%s)
+	# env SNAPSHOT_AT=N: one snapshot of the running system after N seconds
+	# (same contents as a post-mortem, the machine continues afterwards)
+	if [ -n "${SNAPSHOT_AT:-}" ] && [ "$snap_done" = no ] &&
+	   [ $((now - start)) -ge "$SNAPSHOT_AT" ]; then
+		snap_done=yes
+		echo
+		echo ">>> snapshot at $((now - start))s: ${LOG%.log}.snapshot"
+		python3 "$here/qemu-postmortem.py" "$monsock" "$MODDIR/kernel" \
+			"${LOG%.log}.snapshot" "$CPUS" cont ||
+			echo ">>> snapshot failed"
+	fi
 	size=$(stat -c %s "$LOG" 2>/dev/null || echo 0)
 	if [ "$size" != "$last_size" ]; then
 		last_size=$size

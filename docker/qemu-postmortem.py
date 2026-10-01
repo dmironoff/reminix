@@ -6,7 +6,9 @@ Talks to the QEMU human monitor over a unix socket, saves the state of every
 virtual CPU and the interesting kernel memory regions, so that a hang can be
 analysed offline without anybody attaching a debugger by hand.
 
-usage: qemu-postmortem.py MONITOR_SOCKET KERNEL_ELF OUTDIR NCPUS
+usage: qemu-postmortem.py MONITOR_SOCKET KERNEL_ELF OUTDIR NCPUS [cont]
+
+With "cont" the machine is resumed afterwards (a snapshot of a running system).
 
 Writes into OUTDIR:
   monitor.txt     info cpus / registers / lapic / stack per CPU, info pic, info irq
@@ -34,6 +36,10 @@ REGIONS = [
     # BKL debugging, smp.c (SMP kernels only)
     "bkl_owner_cpu", "bkl_owner_pc", "bkl_trace_seq", "bkl_trace",
     "bkl_relock_pc", "bkl_relock_owner",
+    # clock debugging (tickdebug=N), APIC timer calibration
+    "tick_debug_ticks", "tick_debug_busy", "lapic_bus_freq",
+    # per CPU [timer_int_handler, context_stop_idle, sched IPI, idle halts]
+    "dbg_cpu_events",
     ("k_stacks_start", "k_stacks_end"),
 ]
 MAX_REGION = 4 << 20
@@ -130,10 +136,11 @@ def bkl_report(outdir, syms):
 
 
 def main():
-    if len(sys.argv) != 5:
+    if len(sys.argv) not in (5, 6) or (len(sys.argv) == 6 and sys.argv[5] != "cont"):
         print(__doc__, file=sys.stderr)
         return 2
     sock, kernel, outdir, ncpus = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+    resume = len(sys.argv) == 6
     os.makedirs(outdir, exist_ok=True)
 
     syms, nm_out = kernel_symbols(kernel)
@@ -178,6 +185,8 @@ def main():
         res = mon.cmd('memsave 0x%x %d "%s"' % (addr, size, path))
         saved.append("%-20s 0x%08x %8d %s" % (name, addr, size, res.strip()))
     report.append("### saved regions (name, address, size)\n" + "\n".join(saved) + "\n")
+    if resume:
+        mon.cmd("cont")
 
     with open(os.path.join(outdir, "monitor.txt"), "w") as f:
         f.write("\n".join(report))

@@ -55,6 +55,10 @@ HANG_IDLE    ?= 600
 # дополнительные аргументы ядра (при CPUS>1 run-tests.sh сам добавляет
 # no_apic=0, иначе SMP-ядро стартует в однопроцессорном режиме)
 KARGS        ?=
+# снимок работающей системы (как post-mortem) через SNAPSHOT_AT секунд
+SNAPSHOT_AT  ?=
+# tcg|kvm вместо автоматического выбора (KVM, если доступен)
+ACCEL        ?=
 
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
@@ -163,7 +167,7 @@ sdimage: image
 # сначала hdimage (с тем же SMP=).
 test-i386: ARCH := i386
 test-i386: image
-	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) -e HANG_IDLE=$(HANG_IDLE) -e KARGS="$(KARGS)" $(IMAGE) bash docker/run-tests.sh \
+	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) -e HANG_IDLE=$(HANG_IDLE) -e KARGS="$(KARGS)" -e SNAPSHOT_AT=$(SNAPSHOT_AT) -e ACCEL=$(ACCEL) $(IMAGE) bash docker/run-tests.sh \
 		$(CONTAINER_DEST)/boot/minix/.temp \
 		$(IMG_NAME) \
 		$(CPUS) \
