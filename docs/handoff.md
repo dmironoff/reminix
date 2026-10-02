@@ -3,31 +3,30 @@
 > Этот файл перезаписывается каждую сессию. Не храните здесь архитектурные решения —
 > они идут в `docs/architecture.md` / `docs/porting.md` / `docs/modernization.md` /
 > `docs/memory.md` / `docs/threads.md` / `docs/testing.md` / `docs/build-*.md` /
-> `docs/docker-build.md` / `docs/types-audit.md`.
+> `docs/docker-build.md` / `docs/types-audit.md` / `docs/messages.md`.
 
 ## Дата и контекст
 
-2026-10-02, поздний вечер. Этап 0.2 дополнен **путеводителем по сообщениям IPC**
-(`docs/messages.md`). Аудит типов (`docs/types-audit.md`, модуль `abi64`,
-`scan64.py`) закоммичен и запушен: `038580154`.
-
-## Где лежит работа (не закоммичено — коммит по команде владельца)
-
-Worktree `.claude/worktrees/messages`, ветка `worktree-messages` от `038580154`
-(= `origin/master`). Изменения без коммита: `docs/messages.md` (новый, ~4100
-строк), ссылки на него в `CLAUDE.md`, `docs/modernization.md` (0.2),
-`docs/types-audit.md` §5, этот файл. Код не менялся.
+2026-10-02, конец дня. **Этап 0.2 выполнен полностью:** аудит 64-битных типов
+(`docs/types-audit.md`, модуль `minix/tests/host/abi64`, `scan64.py`) и
+путеводитель по сообщениям IPC (`docs/messages.md`). Всё закоммичено и запушено в
+`origin/master`; временных веток и worktree нет. Код системы в этапе 0.2 не
+менялся (только тесты на хосте и документы).
 
 ## Сделано в сессии
 
-- Опись всех 256 типов `ipc.h`: поля, смещения i386/x86_64 (clang
-  `-fdump-record-layouts` на дереве `abi64/mkinc.sh`), 129 псевдонимов общих
-  раскладок (`com.h`, `vboxif.h`), прямые обращения к `m*_*` (PCI, `IOMMU_MAP`).
-- Для каждого типа — направление, `m_type`, отправитель/получатель, назначение
-  каждого поля по коду, пометки «64» (А/Ф/Р/С/У/Ж/В); разбор шёл пятью группами
-  параллельно, найденные ошибки перепроверены при сведении.
-- Итог: А 132, Р 90, С 62, В 116, Ж 30, У 23, Ф 16 полей; 13 ошибок протоколов
-  (`messages.md` §12), 10 мёртвых типов (§13), выводы для переработки (§14).
+- Аудит 64-битных типов (`038580154`): проход clang по всему дереву в режимах
+  m32/m64/p64 (`scan64.py`), тест раскладок `abi64` (TAP `# TODO` + «храповик»),
+  ручной разбор — 323 места в `types-audit.md`; `phys_addr_t` = `uint64_t`
+  поставлен под вопрос (`memory.md` §10 вопрос 7).
+- Путеводитель по сообщениям (`427e07137` и далее):
+  - опись всех 256 типов `ipc.h`: поля, смещения i386/x86_64 (clang
+    `-fdump-record-layouts` на дереве `abi64/mkinc.sh`), 129 псевдонимов общих
+    раскладок (`com.h`, `vboxif.h`), прямые обращения к `m*_*` (PCI, `IOMMU_MAP`);
+  - для каждого типа — направление, `m_type`, отправитель/получатель, назначение
+    каждого поля по коду, пометки «64» (А/Ф/Р/С/У/Ж/В);
+  - итог: А 132, Р 90, С 62, В 116, Ж 30, У 23, Ф 16 полей; 13 ошибок протоколов
+    (`messages.md` §12), 10 мёртвых типов (§13), выводы для переработки (§14).
 
 ## Итог прогонов
 
@@ -58,18 +57,41 @@ Worktree `.claude/worktrees/messages`, ветка `worktree-messages` от `0385
 - **Решения владельца, нужные до А1** (`types-audit.md` §9): тип физического
   адреса (§9.1, `memory.md` §10 в. 7); раскладка сообщений на 64 битах (§9.2).
 
+## Отложенные исправления (решение владельца 2026-10-02: «на потом»)
+
+Найдены в этапе 0.2, **не исправлены**; подробности — `docs/messages.md` §12 и
+`docs/types-audit.md` §8 (последний абзац). Каждое — отдельным коммитом с
+проверкой `host-test` + `test-i386`.
+
+1. **`do_vsafecopy`** (`minix/kernel/system/do_safecopy.c:399-419`) — нет проверки
+   `0 <= els <= SCPVEC_NR` перед копированием в статический `vec[SCPVEC_NR]`:
+   переполнение буфера ядра по запросу процесса с правом `SYS_VSAFECOPY`.
+   **Самое срочное.**
+2. **`TTY_FKEY_CONTROL`** — libsys (`minix/lib/libsys/fkey_ctl.c:24-25`) читает
+   ответ как `mess_tty_lsys_fkey_ctl` (смещения 0/4), TTY пишет в поля запроса
+   (смещения 4/8): вызывающий получает код запроса вместо маски.
+3. `minix/fs/ptyfs/ptyfs.c:59` — `snprintf(name, sizeof(name), …)` (размер
+   указателя вместо `size`).
+4. `minix/servers/vfs/mount.c:113` — копируется `sizeof(mount_label)` вместо
+   `label_len`.
+5. Протоколы «на совпадении смещений»: `BUSC_PCI_RESCAN` (`m1_i1`/`m2_i1`),
+   `IOMMU_MAP` (`m2_*`/`m1_*`), `VM_RS_CTL_LEN` (`int`-поле, запись через
+   `size_t *`), `RS_UPDATE` (`m_rs_req.addr` поверх `m_rs_update`).
+6. Сообщения не обнуляются перед отправкой (`vfs/request.c`, `fwd_msg()`,
+   `do_reboot()` `RTCDEV_PWR_OFF`, `sched_nice()`, PM `SIGS_SIGNAL_RECEIVED`) —
+   мусор стека уходит другому процессу.
+7. Дешёвые 64-битные правки, не зависящие от решений: `u64.h` (`ex64lo` →
+   `uint32_t`), `libfsdriver/call.c:241` (`data.ptr = buf`), `iovec_s_t`/`iovec_t`
+   libbdev↔libblockdriver, `int`↔`ssize_t` в прототипах (ext2, libfsdriver,
+   memory/fbd/vnd/mmcblk, ipc, getdents), `kinfo.vm_allocated_bytes` (`int`).
+8. Мелочи из `messages.md` §12: `do_irqctl.c:166` (`1 << notify_id`),
+   `SVMCTL_MRG_EP2/ADDR2` не заполняются ядром, `req_lookup` `path_size`,
+   `req_peek` паника при позиции ≥ 4 ГБ, обрезка размеров в `sys_umap`/`sys_sprof`.
+
 ## Замечено в коде (для будущей работы)
 
-64-битные и >4 ГБ-проблемы — в `docs/types-audit.md`; ошибки протоколов сообщений —
-`docs/messages.md` §12. Срочное:
-- **`do_vsafecopy` (`kernel/system/do_safecopy.c:399-419`) не проверяет число
-  элементов** перед копированием в `vec[SCPVEC_NR]` — переполнение буфера ядра
-  по запросу любого процесса с правом `SYS_VSAFECOPY`.
-- `TTY_FKEY_CONTROL`: libsys читает ответ не по тем смещениям (`fkey_ctl.c:24-25`).
-- `ptyfs.c:59` `snprintf(name, sizeof(name), …)`; `vfs/mount.c:113` копирует
-  `sizeof(mount_label)` вместо длины метки.
-
-Не связанные с типами:
+64-битные и >4 ГБ-проблемы — `docs/types-audit.md`; протоколы сообщений —
+`docs/messages.md`. Не связанные с типами:
 - `minix/lib/libmthread/pthread_compat.c`: `pthread_mutex_trylock` рекурсивно
   вызывает сам себя.
 - SMP i386: IOAPIC направляет все IRQ на BSP; IPI планировщика EOI-ится дважды
@@ -88,10 +110,13 @@ Worktree `.claude/worktrees/messages`, ветка `worktree-messages` от `0385
 
 ## Следующие шаги
 
-1. Коммит путеводителя (worktree → `master`) — по команде владельца.
-2. Исправить `do_vsafecopy` (проверка `0 <= els <= SCPVEC_NR`) и
-   `TTY_FKEY_CONTROL` — отдельными коммитами, с тестом (`test-i386`).
-3. Решения по `types-audit.md` §9.1–9.2 (тип физ. адреса, сообщения) — с опорой
-   на `messages.md` §14.
-4. Этап 0.3 — `kyield`; параллельно 0.4 — импорт `dtc`/libfdt.
+1. **Решения владельца** по `types-audit.md` §9.1 (тип физического адреса,
+   `memory.md` §10 вопрос 7) и §9.2 (сообщения на 64 битах; материал —
+   `messages.md` §14). Нужны до А1 и до шага MSG.
+2. **Этап 0.3 — `kyield`** (`modernization.md` п. 1, `threads.md`); проверка —
+   `test-i386` на 1 и 4 CPU.
+3. Параллельно (не пересекается по коду) — **этап 0.4**: импорт `dtc` v1.8.1 и
+   libfdt (`devicetree.md` §3).
+4. Отложенные исправления (раздел выше) — когда владелец скажет; первым —
+   `do_vsafecopy`.
 5. §5.7 — только если проявится снова.
