@@ -29,7 +29,7 @@ make build (корневой Makefile) → releasetools do-hdboot
         │    см. docs/build-x86.md §3)
         ▼
 releasetools/arm_sdimage.sh
-        ├─ fetch_u-boot.sh   → клонирует/обновляет форк U-Boot MINIX3 под нужный коммит
+        ├─ fetch_u-boot.sh   → получает форк U-Boot MINIX3 (зеркало на GitHub) на нужный коммит в $OBJ/u-boot
         ├─ gen_uEnv.txt.sh   → генерирует uEnv.txt (команды U-Boot для загрузки)
         └─ сборка SD-образа: FAT-раздел (U-Boot + ядро + модули) + root/usr/home (MFS)
 ```
@@ -62,36 +62,37 @@ releasetools/arm_sdimage.sh
   существовал, но не был путём по умолчанию на момент заморозки проекта. Это важно
   учитывать при планировании тулчейна для aarch64/risc-v64 (см. `docs/porting.md`).
 
-## 3. Целевая плата (BSP) — жёстко задана в скрипте
+## 3. Целевая плата (BSP) — `BOARD`
 
-```sh
-# Beagleboard-xm
-: ${U_BOOT_BIN_DIR=build/omap3_beagle/}
-: ${CONSOLE=tty02}
+С 2026-10-02 плата выбирается переменной `BOARD` (имена — как у машин QEMU; у
+плат TI машины в апстримном QEMU нет, см. §5):
 
-# BeagleBone (and black)  — закомментировано, вариант на выбор
-#: ${U_BOOT_BIN_DIR=build/am335x_evm/}
-#: ${CONSOLE=tty00}
-```
+| `BOARD` | Плата | `U_BOOT_BIN_DIR` | `CONSOLE` | Образ |
+|---|---|---|---|---|
+| `beaglexm` (по умолчанию в скрипте) | BeagleBoard-xM (TI OMAP3) | `build/omap3_beagle/` | `tty02` | `minix_arm_beaglexm.img` |
+| `beaglebone` | BeagleBone / BeagleBone Black (TI AM335x) | `build/am335x_evm/` | `tty00` | `minix_arm_beaglebone.img` |
+| `orangepi-pc` | Orange Pi PC (Plus) | — | — | ошибка: BSP и загрузка — шаги Б1/Б2 |
 
-Скрипт по умолчанию собирает образ под **BeagleBoard-xM** (TI OMAP3), с
-альтернативой BeagleBone/BeagleBone Black (TI AM335x) через переключение
-переменных — обе платы соответствуют `minix/kernel/arch/earm/bsp/ti/*`
-(см. `docs/architecture.md` §7). Других BSP в этом скрипте не предусмотрено —
-добавление платы вне семейства TI OMAP потребует и нового `bsp/<vendor>/` в ядре,
-и веток в этом скрипте (или его переработки в параметризуемый вид).
+Обе платы TI соответствуют `minix/kernel/arch/earm/bsp/ti/*` (см.
+`docs/architecture.md` §7). Через Docker: `make -C docker -f build.mk sdimage
+BOARD=beaglebone`; `BOARD` обязателен.
 
 ## 4. U-Boot — отдельный проект, не часть основного дерева
 
-`fetch_u-boot.sh` клонирует **форк U-Boot, поддерживаемый самим проектом MINIX3**
-(`git://git.minix3.org/u-boot`, ветка `minix`), на зафиксированный коммит:
+`fetch_u-boot.sh` получает **форк U-Boot, поддерживаемый самим проектом MINIX3**
+(ветка `minix`), на зафиксированный коммит. Исходный сервер
+`git://git.minix3.org/u-boot` больше не работает (на нём и падала сборка
+`sdimage`). С 2026-10-02 используется зеркало
+`https://github.com/Stichting-MINIX-Research-Foundation/u-boot.git` (переменная
+`UBOOT_REPO_URL`). Скачивается только нужный коммит (`git fetch --depth 1`,
+~100 МБ, ~15 с), в `$OBJ/u-boot` (`U_BOOT_DIR`), а не в дерево исходников:
 
 ```sh
 U_BOOT_GIT_VERSION=cb5178f12787c690cb1c888d88733137e5a47b15
 ```
 
 Собранные бинарники (`MLO` — first-stage bootloader TI OMAP, `u-boot.img` — сам
-U-Boot) берутся из `${RELEASETOOLSDIR}/u-boot/build/<плата>/`. **U-Boot нужно
+U-Boot) берутся из `${U_BOOT_DIR}/build/<плата>/`. **U-Boot нужно
 собрать отдельно и заранее** (его сборка не описана в этих скриптах — предполагается
 готовый чекаут с уже собранными бинарниками; сама сборка U-Boot под ARM-тулчейн —
 отдельная задача, не покрытая `build.sh`). Это первое, на что стоит обратить
@@ -143,12 +144,14 @@ U-Boot) берутся из `${RELEASETOOLSDIR}/u-boot/build/<плата>/`. **U
    (`nbinstallboot`/`bootxx_minixfs3`) — вместо этого весь бутстрэп идёт через
    `MLO`/`u-boot.img` на FAT-разделе, читаемые ROM-загрузчиком платы напрямую.
 
-Команда, которую скрипт печатает в конце:
-```
-qemu-system-arm -M beaglexm -serial stdio -drive if=sd,cache=writeback,file=minix_arm_sd.img
-```
-(`-M beaglexm` — конкретно модель BeagleBoard-xM в QEMU; для BeagleBone-варианта
-потребуется другая модель машины QEMU, в скрипте не подставляется автоматически.)
+**QEMU.** Раньше скрипт предлагал `qemu-system-arm -M beaglexm …`. Машина
+`beaglexm` была только в форке Linaro (qemu-linaro, заброшен ~2014); в
+апстримном QEMU (у нас 11.1) нет ни BeagleBoard-xM, ни BeagleBone, и собрать её
+нельзя. Проверено 2026-10-02 (`qemu-system-arm -M help` в контейнере): из наших
+плат есть только `orangepi-pc`. Решение владельца (2026-10-02): образы для плат TI
+только собираются и проверяются на железе. Тестовая среда earm (`test-earm`,
+`run-earm`) строится на `orangepi-pc` и заработает с загрузкой MINIX на этой плате
+(Б1/Б2).
 
 ## 6. Важная оговорка про "arm32" в этом дереве
 
@@ -177,21 +180,16 @@ ARMv7-уровень (регистры, MMU, обработка исключен
 env) по образцу того, как это устроено в самом NetBSD (`sys/arch/arm` — общий
 ARM-код, `sys/arch/evbarm` — конкретные платы).
 
-## 7. Итоговый мини-рецепт (BeagleBoard-xM, с нуля)
+## 7. Итоговый мини-рецепт
+
+Через Docker-окружение (`docs/docker-build.md`):
 
 ```sh
-cd reminix
-JOBS=$(nproc) ./releasetools/arm_sdimage.sh   # соберёт всё, скачает/обновит u-boot, создаст minix_arm_sd.img
-qemu-system-arm -M beaglexm -serial stdio -drive if=sd,cache=writeback,file=minix_arm_sd.img
+make -C docker -f build.mk sdimage BOARD=beaglexm     # → minix_arm_beaglexm.img
+make -C docker -f build.mk sdimage BOARD=beaglebone   # → minix_arm_beaglebone.img
 ```
 
-Для сборки под BeagleBone/BeagleBone Black нужно переопределить `U_BOOT_BIN_DIR` и
-`CONSOLE` перед запуском (раскомментировать соответствующие строки или передать
-через окружение/`.settings`, см. `SETTINGS_MINIX` в начале скрипта).
-
-То же самое без ручной настройки хоста, через Docker-окружение (`docs/docker-build.md`):
-
-```sh
-make -C docker -f build.mk sdimage
-make -C docker -f build.mk qemu-sdimage
-```
+Без Docker: `BOARD=beaglebone JOBS=$(nproc) ./releasetools/arm_sdimage.sh`
+(сборка earm идёт GCC: `BUILDVARS=-V MKGCCCMDS=yes -V MKLLVM=no`, Docker-обёртка
+добавляет их сама). Запуск — на плате; в QEMU — только `orangepi-pc` после Б1/Б2
+(`make -C docker -f build.mk run-earm BOARD=orangepi-pc`).

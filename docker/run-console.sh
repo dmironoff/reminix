@@ -10,13 +10,16 @@
 # session does is written back to the image.
 #
 # usage: run-console.sh MODDIR IMAGE CPUS LOG
-#   MODDIR  directory with kernel and modNN_* (destdir/boot/minix/.temp)
-#   IMAGE   disk image from x86_hdimage.sh
+#   MODDIR  i386: directory with kernel and modNN_* (destdir/boot/minix/.temp)
+#           earm: directory with the kernel ELF (symbols for snapshots only)
+#   IMAGE   disk image from x86_hdimage.sh / SD image from arm_sdimage.sh
 #   CPUS    number of virtual CPUs (-smp)
 #   LOG     where to write the full serial console log
 #           (env KARGS: extra kernel arguments; CPUS>1 adds no_apic=0)
 #           (env SNAPSHOT_AT: seconds; one snapshot of the running system)
 #           (env ACCEL: tcg or kvm instead of the automatic choice)
+#           (env TARGET: i386 (default) or earm; earm needs env MACHINE, the
+#            QEMU machine of the board; U-Boot on the SD image boots MINIX)
 #           (env PANIC_RE: lines of the serial console or of the VGA screen
 #            (polled every 10 s; kernel panics show up only there) that
 #            trigger an automatic snapshot; extended regexp, default
@@ -40,11 +43,14 @@ fi
 
 MODDIR=$1 IMG=$2 CPUS=$3 LOG=$4
 
+TARGET=${TARGET:-i386}
 [ -f "$MODDIR/kernel" ] || { echo "run-console: no kernel in $MODDIR" >&2; exit 2; }
 [ -f "$IMG" ] || { echo "run-console: no image $IMG" >&2; exit 2; }
 
-mods=$(ls "$MODDIR"/mod[0-9][0-9]_* 2>/dev/null | sort | paste -sd, -)
-[ -n "$mods" ] || { echo "run-console: no boot modules in $MODDIR" >&2; exit 2; }
+if [ "$TARGET" = i386 ]; then
+	mods=$(ls "$MODDIR"/mod[0-9][0-9]_* 2>/dev/null | sort | paste -sd, -)
+	[ -n "$mods" ] || { echo "run-console: no boot modules in $MODDIR" >&2; exit 2; }
+fi
 
 append="rootdevname=c0d0p0 console=tty00"
 case " ${KARGS:-} " in
@@ -54,8 +60,27 @@ esac
 [ -n "${KARGS:-}" ] && append="$append $KARGS"
 
 accel=tcg
-[ -w /dev/kvm ] && accel=kvm
+[ "$TARGET" = i386 ] && [ -w /dev/kvm ] && accel=kvm
 [ -n "${ACCEL:-}" ] && accel=$ACCEL
+
+case "$TARGET" in
+i386)
+	qemu_cmd=(qemu-system-i386 -machine pc,accel="$accel" -m 1024 -smp "$CPUS"
+		-drive file="$IMG",format=raw,if=ide,snapshot=on
+		-kernel "$MODDIR/kernel" -initrd "$mods" -append "$append")
+	;;
+earm)
+	[ -n "${MACHINE:-}" ] || { echo "run-console: TARGET=earm needs MACHINE" >&2; exit 2; }
+	# kernel arguments go through U-Boot on earm (step B2); the system
+	# boots with the ones in the image
+	append="(from U-Boot on the SD image)"
+	[ -n "${KARGS:-}" ] && echo "run-console: TARGET=earm: KARGS ignored until step B2" >&2
+	qemu_cmd=(qemu-system-arm -machine "$MACHINE",accel="$accel" -m 1024 -smp "$CPUS"
+		-drive file="$IMG",format=raw,if=sd,snapshot=on)
+	;;
+*)
+	echo "run-console: unknown TARGET=$TARGET" >&2; exit 2 ;;
+esac
 
 PANIC_RE=${PANIC_RE-panic}
 
@@ -67,8 +92,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 # QEMU puts the terminal into raw mode: end our own lines with CR LF.
 say() { printf '\r\n>>> %s\r\n' "$*"; }
 
-say "$(qemu-system-i386 --version | head -1)"
-say "${CPUS} CPU, accel=${accel}, kernel args: $append"
+say "$("${qemu_cmd[0]}" --version | head -1)"
+say "${TARGET}${MACHINE:+ ($MACHINE)}, ${CPUS} CPU, accel=${accel}, kernel args: $append"
 say "log: $LOG"
 say "Ctrl-A x: quit at once; make -C docker -f build.mk test-snapshot | test-stop from another terminal"
 
@@ -118,12 +143,10 @@ start=$(date +%s)
 # A background job of a non-interactive shell gets /dev/null as stdin unless
 # redirected explicitly: hand the terminal to QEMU through fd 3.
 exec 3<&0
-qemu-system-i386 -machine pc,accel="$accel" -m 1024 -smp "$CPUS" \
+"${qemu_cmd[@]}" \
 	-display none -monitor unix:"$monsock",server,nowait \
 	-chardev stdio,id=con,mux=on,signal=off,logfile="$LOG",logappend=off \
 	-serial chardev:con -no-reboot \
-	-drive file="$IMG",format=raw,if=ide,snapshot=on \
-	-kernel "$MODDIR/kernel" -initrd "$mods" -append "$append" \
 	<&3 &
 qemu_pid=$!
 exec 3<&-
@@ -165,7 +188,7 @@ while kill -0 $qemu_pid 2>/dev/null; do
 	fi
 	# A kernel panic goes to the VGA screen only (the serial console is
 	# driven by TTY, which is dead by then): look at the screen as well.
-	if [ -n "$PANIC_RE" ] && [ $((now - vga_checked)) -ge 10 ]; then
+	if [ "$TARGET" = i386 ] && [ -n "$PANIC_RE" ] && [ $((now - vga_checked)) -ge 10 ]; then
 		vga_checked=$now
 		vga=$(python3 "$here/qemu-vga.py" "$monsock" /tmp/reminix-vga.$$ 2>/dev/null)
 		n=$(printf '%s\n' "$vga" | grep -cE -- "$PANIC_RE")

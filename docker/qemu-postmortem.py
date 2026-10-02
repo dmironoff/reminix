@@ -9,6 +9,8 @@ analysed offline without anybody attaching a debugger by hand.
 usage: qemu-postmortem.py MONITOR_SOCKET KERNEL_ELF OUTDIR NCPUS [cont]
 
 With "cont" the machine is resumed afterwards (a snapshot of a running system).
+env TARGET=earm (as set by run-tests.sh / run-console.sh): no x86-only parts
+(LAPIC, PIC, the stack through $esp, the VGA screen).
 
 Writes into OUTDIR:
   monitor.txt     info cpus / registers / lapic / stack per CPU, info pic, info irq
@@ -173,6 +175,7 @@ def main():
     # keep the exact kernel binary for offline disassembly (objdump -d)
     shutil.copy(kernel, os.path.join(outdir, "kernel"))
 
+    x86 = os.environ.get("TARGET", "i386") == "i386"
     mon = Monitor(sock)
     mon.cmd("stop")                     # freeze all vCPUs for a consistent view
     report = []
@@ -180,12 +183,15 @@ def main():
     for cpu in range(ncpus):
         mon.cmd("cpu %d" % cpu)
         report.append("### cpu %d: info registers\n" % cpu + mon.cmd("info registers"))
+        if not x86:
+            continue
         report.append("### cpu %d: info lapic\n" % cpu + mon.cmd("info lapic"))
         # raw stack of the vCPU (virtual addresses through its own CR3);
         # return addresses can be looked up in symbols.txt
         report.append("### cpu %d: stack (x/64xw $esp)\n" % cpu + mon.cmd("x/64xw $esp"))
     mon.cmd("cpu 0")
-    report.append("### info pic\n" + mon.cmd("info pic"))
+    if x86:
+        report.append("### info pic\n" + mon.cmd("info pic"))
     report.append("### info irq\n" + mon.cmd("info irq"))
 
     saved = []
@@ -209,8 +215,9 @@ def main():
         res = mon.cmd('memsave 0x%x %d "%s"' % (addr, size, path))
         saved.append("%-20s 0x%08x %8d %s" % (name, addr, size, res.strip()))
     # VGA text mode screen, 80x25 (char, attribute) pairs, physical 0xb8000
-    vga = os.path.join(os.path.abspath(outdir), "vga.bin")
-    mon.cmd('pmemsave 0xb8000 4000 "%s"' % vga)
+    if x86:
+        vga = os.path.join(os.path.abspath(outdir), "vga.bin")
+        mon.cmd('pmemsave 0xb8000 4000 "%s"' % vga)
     report.append("### saved regions (name, address, size)\n" + "\n".join(saved) + "\n")
     if resume:
         mon.cmd("cont")

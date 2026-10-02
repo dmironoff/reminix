@@ -52,11 +52,12 @@ amd64, arm32, aarch64, risc-v64, mips64 и развитие как микроя�
   кросс-тулчейна. Подробности — `docs/architecture.md` §4.
 - `releasetools/` — сборка загрузочных образов (сейчас только под x86 и один ARM BSP).
 - `docker/` — Docker-обёртка над сборкой (`Dockerfile` + `build.mk`), готова и
-  проверена на i386: `make -C docker -f build.mk hdimage`. См. `docs/docker-build.md`.
+  проверена на i386: `make -C docker -f build.mk hdimage`, быстрая пересборка
+  ядра и серверов без `build.sh` — `quick`. См. `docs/docker-build.md`.
   Тесты в QEMU — `make -C docker -f build.mk test-i386 [SMP=yes CPUS=N]`; дамп
   машины в любой момент — Ctrl-C, `test-snapshot`, `test-stop`
   (`docs/testing.md` §1, §1б). Интерактивная консоль с журналом и снимками —
-  `run-i386` (§1в). Журналы и дампы — `obj/test-logs/`. Все цели и параметры —
+  `run-i386` (§1в); earm — `sdimage`/`test-earm`/`run-earm` с `BOARD=` (§1г). Журналы и дампы — `obj/test-logs/`. Все цели и параметры —
   `make -C docker -f build.mk help`; справку (`#>` в `build.mk`) обновлять при
   каждом изменении `build.mk`.
 

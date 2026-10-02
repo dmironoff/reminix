@@ -11,8 +11,10 @@
 # suite in TAP mode on the serial console and power the machine off.
 #
 # usage: run-tests.sh MODDIR IMAGE CPUS TESTLIST TIMEOUT LOG KNOWN
-#   MODDIR    directory with kernel and modNN_* (destdir/boot/minix/.temp)
-#   IMAGE     disk image from x86_hdimage.sh
+#   MODDIR    i386: directory with kernel and modNN_* (destdir/boot/minix/.temp)
+#             earm: directory with the kernel ELF (obj/.../minix/kernel), only
+#             for the symbols of snapshots and post-mortems
+#   IMAGE     disk image from x86_hdimage.sh / SD image from arm_sdimage.sh
 #   CPUS      number of virtual CPUs (-smp)
 #   TESTLIST  "" for the whole suite, or comma separated names ("43,71,sh1")
 #   TIMEOUT   seconds before the whole run is declared hung
@@ -20,6 +22,8 @@
 #             (env KARGS: extra kernel arguments; CPUS>1 adds no_apic=0)
 #             (env SNAPSHOT_AT: seconds; snapshot of the running system)
 #             (env ACCEL: tcg or kvm instead of the automatic choice)
+#             (env TARGET: i386 (default) or earm; earm needs env MACHINE,
+#              the QEMU machine of the board, and boots the SD image)
 #   LOG       where to write the full serial console log
 #   KNOWN     file with known failures, one test name per line, # comments
 #
@@ -41,11 +45,14 @@ fi
 
 MODDIR=$1 IMG=$2 CPUS=$3 LIST=$4 TMO=$5 LOG=$6 KNOWN=$7
 
+TARGET=${TARGET:-i386}
 [ -f "$MODDIR/kernel" ] || { echo "run-tests: no kernel in $MODDIR" >&2; exit 2; }
 [ -f "$IMG" ] || { echo "run-tests: no image $IMG" >&2; exit 2; }
 
-mods=$(ls "$MODDIR"/mod[0-9][0-9]_* 2>/dev/null | sort | paste -sd, -)
-[ -n "$mods" ] || { echo "run-tests: no boot modules in $MODDIR" >&2; exit 2; }
+if [ "$TARGET" = i386 ]; then
+	mods=$(ls "$MODDIR"/mod[0-9][0-9]_* 2>/dev/null | sort | paste -sd, -)
+	[ -n "$mods" ] || { echo "run-tests: no boot modules in $MODDIR" >&2; exit 2; }
+fi
 
 append="rootdevname=c0d0p0 console=tty00 testrun=1"
 [ -n "$LIST" ] && append="$append testlist=$LIST"
@@ -60,13 +67,36 @@ esac
 [ -n "${KARGS:-}" ] && append="$append $KARGS"
 
 accel=tcg
-[ -w /dev/kvm ] && accel=kvm
+[ "$TARGET" = i386 ] && [ -w /dev/kvm ] && accel=kvm
 # env ACCEL=tcg|kvm overrides (TCG: to tell guest bugs from KVM effects)
 [ -n "${ACCEL:-}" ] && accel=$ACCEL
 
+# QEMU command line of the target, without the serial console
+case "$TARGET" in
+i386)
+	qemu_cmd=(qemu-system-i386 -machine pc,accel="$accel" -m 1024 -smp "$CPUS"
+		-drive file="$IMG",format=raw,if=ide,snapshot=on
+		-kernel "$MODDIR/kernel" -initrd "$mods" -append "$append")
+	;;
+earm)
+	[ -n "${MACHINE:-}" ] || { echo "run-tests: TARGET=earm needs MACHINE" >&2; exit 2; }
+	# On earm U-Boot loads the kernel from the SD card and hands it the
+	# kernel arguments; delivering testrun/testlist/KARGS through the U-Boot
+	# environment comes with the Orange Pi boot path (docs/modernization.md
+	# B2). Without them the tests would never start.
+	echo "run-tests: TARGET=earm: kernel arguments ($append) cannot be passed" \
+	    "to MINIX yet -- they go through U-Boot, which comes with step B2" >&2
+	exit 2
+	qemu_cmd=(qemu-system-arm -machine "$MACHINE",accel="$accel" -m 1024 -smp "$CPUS"
+		-drive file="$IMG",format=raw,if=sd,snapshot=on)
+	;;
+*)
+	echo "run-tests: unknown TARGET=$TARGET" >&2; exit 2 ;;
+esac
+
 mkdir -p "$(dirname "$LOG")"
-echo ">>> $(qemu-system-i386 --version | head -1)"
-echo ">>> ${CPUS} CPU, accel=${accel}, timeout ${TMO}s, tests: ${LIST:-all}"
+echo ">>> $("${qemu_cmd[0]}" --version | head -1)"
+echo ">>> ${TARGET}${MACHINE:+ ($MACHINE)}, ${CPUS} CPU, accel=${accel}, timeout ${TMO}s, tests: ${LIST:-all}"
 echo ">>> kernel args: $append"
 echo ">>> log: $LOG"
 
@@ -127,11 +157,9 @@ take_snapshot() {
 
 start=$(date +%s)
 : > "$LOG"
-qemu-system-i386 -machine pc,accel="$accel" -m 1024 -smp "$CPUS" \
+"${qemu_cmd[@]}" \
 	-display none -monitor unix:"$monsock",server,nowait \
 	-serial file:"$LOG" -no-reboot \
-	-drive file="$IMG",format=raw,if=ide,snapshot=on \
-	-kernel "$MODDIR/kernel" -initrd "$mods" -append "$append" \
 	</dev/null &
 qemu_pid=$!
 tail -n +1 -f --pid=$qemu_pid "$LOG" &

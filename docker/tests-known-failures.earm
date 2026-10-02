@@ -1,0 +1,4 @@
+# Known failures of minix/tests on earm (docker/run-tests.sh, docs/testing.md).
+# One test name per line, as printed by "run -T" ("43", "isofs", "sh1", ...),
+# optionally followed by "# reason". A failure listed here does not fail the
+# run. Empty until earm tests can run (docs/modernization.md, step B2).

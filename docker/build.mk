@@ -25,15 +25,31 @@
 #>   build           build.sh для ARCH, без образа диска      [ARCH BUILD_TARGET BUILDVARS JOBS]
 #>   hdimage         образ диска i386: minix_x86.img, с SMP=yes — minix_x86_smp.img
 #>                   (releasetools/x86_hdimage.sh)            [SMP MAX_CPUS JOBS BUILDVARS]
-#>   sdimage         SD-образ earm (BeagleBoard-xM): minix_arm_sd.img
+#>   sdimage         SD-образ earm для платы BOARD: minix_arm_<BOARD>.img
+#>                   (releasetools/arm_sdimage.sh; U-Boot платы TI — готовые MLO/u-boot.img
+#>                   из дерева u-boot MINIX, зеркало на GitHub, в obj/evbearm-el/u-boot)
+#>                   BOARD=beaglexm | beaglebone; orangepi-pc — после Б1/Б2   [BOARD JOBS]
+#>   quick           быстрая пересборка: только каталоги QUICK_DIRS (ядро, серверы,
+#>                   драйверы, ФС, сеть, minix/lib) + загрузочные модули + освежение
+#>                   образа без build.sh (секунды–минуты вместо 5–10 мин).  Нужен
+#>                   полный hdimage с тем же SMP= раньше.  Новые файлы, списки
+#>                   наборов, /etc от скриптов образа — только через hdimage
+#>                   (docker/quick-build.sh)                  [SMP QUICK_DIRS JOBS]
 #>
-#> ТЕСТЫ (minix/tests в QEMU, i386; сначала hdimage с тем же SMP=)
-#>   test-i386       автоматический прогон, журнал obj/test-logs/i386[-smp]-cpuN-<дата>.log,
+#> ТЕСТЫ (minix/tests в QEMU; i386 — сначала hdimage с тем же SMP=, earm — sdimage BOARD=)
+#>   test-i386       автоматический прогон i386, журнал obj/test-logs/i386[-smp]-cpuN-<дата>.log,
 #>                   итог — в <журнал>.result.  Ctrl-C: дамп и остановка (второй — без дампа)
 #>                   [SMP CPUS TESTS HANG_IDLE TEST_TIMEOUT KARGS SNAPSHOT_AT ACCEL]
-#>   test-snapshot   из другого терминала: снимок идущего test-i386/run-i386
-#>                   в <журнал>.snapshot-<N>s/, система работает дальше
+#>   test-earm       то же на машине QEMU платы BOARD (TCG), журнал
+#>                   obj/test-logs/earm-<BOARD>-cpuN-<дата>.log.  Машина есть только у
+#>                   orangepi-pc; параметры ядра (testrun) на earm передаёт U-Boot — до Б2
+#>                   цель сообщает об этом и завершается
+#>                   [BOARD CPUS TESTS HANG_IDLE TEST_TIMEOUT KARGS SNAPSHOT_AT]
+#>   test-snapshot   из другого терминала: снимок идущего test-*/run-* в
+#>                   <журнал>.snapshot-<N>s/, система работает дальше
 #>   test-stop       из другого терминала: дамп в <журнал>.postmortem/ и остановка
+#>                   (обе — для любой архитектуры, рассчитаны на один запущенный
+#>                   тестовый контейнер; при нескольких — отказ)
 #>
 #> ЗАПУСК СИСТЕМЫ
 #>   run-i386        загрузить систему в QEMU с консолью MINIX на последовательном
@@ -46,8 +62,9 @@
 #>                   Ctrl-C уходит в MINIX; Ctrl-A x — выйти из QEMU сразу; Ctrl-A h — клавиши QEMU.
 #>                   Ввод можно подать конвейером:  (sleep 90; echo root; sleep 5; echo top) | make ...
 #>                   [SMP CPUS KARGS SNAPSHOT_AT ACCEL PANIC_RE]
+#>   run-earm        то же для earm: машина QEMU платы BOARD, консоль — её UART
+#>                   [BOARD CPUS SNAPSHOT_AT PANIC_RE]
 #>   qemu-hdimage    старый запуск: QEMU с загрузчиком из образа, без журнала и дампов [SMP]
-#>   qemu-sdimage    QEMU beaglexm с SD-образом earm
 #>
 #> ПАРАМЕТРЫ (по умолчанию)
 #>   ARCH=i386          архитектура: i386, evbearm-el, ...
@@ -56,7 +73,10 @@
 #>   JOBS=<nproc>       параллельность build.sh
 #>   BUILD_TARGET=release   цель build.sh для "build" (tools, distribution, release, ...)
 #>   BUILDVARS=         доп. аргументы build.sh (-V VAR=value ...)
-#>   CPUS=1 (4 при SMP=yes)   число виртуальных CPU; при CPUS>1 ядру добавляется no_apic=0
+#>   CPUS=1 (4 при SMP=yes; 4 для earm)   число виртуальных CPU; i386: при CPUS>1 ядру
+#>                      добавляется no_apic=0
+#>   BOARD=             earm: beaglexm | beaglebone | orangepi-pc (имена машин QEMU; у плат TI
+#>                      машины в апстримном QEMU нет — для них только sdimage)
 #>   TESTS=             список тестов через запятую (43,71,sh1); пусто — все
 #>   HANG_IDLE=600      секунд тишины консоли до признания зависания (дамп).
 #>                      SMP: полный прогон — 1800 (тест 70 долго молчит), TESTS=41 — не меньше 200
@@ -64,14 +84,20 @@
 #>   KARGS=             доп. аргументы ядра: no_apic=1 (SMP-ядро на 1 CPU), tickdebug=N, ...
 #>   SNAPSHOT_AT=       через N секунд снять один снимок работающей системы
 #>   ACCEL=             tcg | kvm вместо автовыбора (KVM, если есть /dev/kvm)
-#>   PANIC_RE=panic     run-i386: regexp строк консоли и экрана VGA для автоснимка; пусто — выключить
+#>   QUICK_DIRS="minix/lib minix/kernel minix/servers minix/fs minix/net minix/drivers"
+#>                      quick: что пересобирать (каталоги дерева, по порядку)
+#>   PANIC_RE=panic     run-*: regexp строк консоли (и экрана VGA на i386) для автоснимка;
+#>                      пусто — выключить
 #>
 #> ПРИМЕРЫ
 #>   make -C docker -f build.mk hdimage SMP=yes
 #>   make -C docker -f build.mk test-i386 SMP=yes CPUS=2 HANG_IDLE=1800
 #>   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=31,31,31
 #>   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 KARGS=no_apic=1
+#>   make -C docker -f build.mk quick SMP=yes QUICK_DIRS="minix/kernel minix/net/uds"
 #>   make -C docker -f build.mk run-i386 SMP=yes CPUS=4
+#>   make -C docker -f build.mk sdimage BOARD=beaglebone
+#>   make -C docker -f build.mk run-earm BOARD=orangepi-pc
 #>   make -o image -C docker -f build.mk test-i386       # не трогать Docker-образ
 #>   Долгий прогон, не привязанный к терминалу:
 #>   (setsid nohup make -o image -C docker -f build.mk test-i386 ... > obj/test-logs/run.out 2>&1 < /dev/null &)
@@ -114,6 +140,18 @@ SNAPSHOT_AT  ?=
 ACCEL        ?=
 # метка контейнера test-i386, по ней его находят test-snapshot / test-stop
 TEST_LABEL   := reminix-test=1
+# earm: плата (sdimage, test-earm, run-earm). Имена — как у машин QEMU; у
+# плат TI машины в апстримном QEMU нет, их образы только собираются.
+BOARD        ?=
+EARM_BOARDS  := beaglexm beaglebone orangepi-pc
+QEMU_MACHINE_orangepi-pc := orangepi-pc
+EARM_IMG      = minix_arm_$(BOARD).img
+# проверки BOARD (раскрываются только в рецептах целей earm)
+need_board    = $(if $(filter $(BOARD),$(EARM_BOARDS)),,$(error BOARD= обязателен: $(EARM_BOARDS)))
+need_machine  = $(if $(QEMU_MACHINE_$(BOARD)),,$(error BOARD=$(BOARD): в апстримном QEMU нет такой машины -- только сборка образа, проверка на плате))
+
+# quick: каталоги дерева для быстрой пересборки (docker/quick-build.sh)
+QUICK_DIRS   ?= minix/lib minix/kernel minix/servers minix/fs minix/net minix/drivers
 # run-i386: строки консоли, по которым снимается автоматический снимок
 # (расширенное регулярное выражение; пусто — выключено)
 PANIC_RE     ?= panic
@@ -153,7 +191,10 @@ CONTAINER_RELDIR = $(CONTAINER_OBJ)/releasedir
 # build.sh -u сочтёт инструменты установленными и новый TOOLDIR останется
 # неполным ("don't know how to make .../tooldir/bin/nbfile").
 CONTAINER_TOOLDIR = $(CONTAINER_OBJ)/tooldir
-ALL_BUILDVARS     = -T $(CONTAINER_TOOLDIR) $(SMP_VARS) $(BUILDVARS)
+# earm собирается GCC (docs/build-arm32.md §2): то же, что по умолчанию задаёт
+# releasetools/arm_sdimage.sh, но его значение BUILDVARS перекрывается нашим
+EARM_BUILDVARS    = -V MKGCCCMDS=yes -V MKLLVM=no
+ALL_BUILDVARS     = -T $(CONTAINER_TOOLDIR) $(SMP_VARS) $(if $(filter evbearm-el,$(ARCH)),$(EARM_BUILDVARS)) $(BUILDVARS)
 
 # /dev/kvm on the host is normally root:kvm mode 0660 -- --device=/dev/kvm
 # alone gets the node into the container, but our unprivileged "builder"
@@ -184,7 +225,7 @@ DOCKER_RUN_BASE = docker run --rm \
 
 DOCKER_RUN = $(DOCKER_RUN_BASE) $(IMAGE)
 
-.PHONY: help image shell build hdimage sdimage test-i386 run-i386 test-snapshot test-stop qemu-hdimage qemu-sdimage clean-obj clean-image
+.PHONY: help image shell build hdimage quick sdimage test-i386 run-i386 test-snapshot test-stop qemu-hdimage test-earm run-earm clean-obj clean-image
 
 help:
 	@sed -n 's/^#> \{0,1\}//p' $(lastword $(MAKEFILE_LIST))
@@ -217,9 +258,16 @@ hdimage: ARCH := i386
 hdimage: image
 	$(DOCKER_RUN) bash -lc 'mkdir -p "$$OBJ" && IMG=$(IMG_NAME) ./releasetools/x86_hdimage.sh'
 
+# Быстрая пересборка без build.sh: каталоги QUICK_DIRS, загрузочные модули и
+# освежение образа из рабочего каталога последнего hdimage.
+quick: ARCH := i386
+quick: image
+	$(DOCKER_RUN) bash -lc 'IMG=$(IMG_NAME) QUICK_DIRS="$(QUICK_DIRS)" bash docker/quick-build.sh'
+
 sdimage: ARCH := evbearm-el
 sdimage: image
-	$(DOCKER_RUN) bash -lc 'mkdir -p "$$OBJ" && ./releasetools/arm_sdimage.sh'
+	$(need_board)
+	$(DOCKER_RUN) bash -lc 'mkdir -p "$$OBJ" && BOARD=$(BOARD) IMG=$(EARM_IMG) ./releasetools/arm_sdimage.sh'
 
 # Автоматический прогон minix/tests (docs/testing.md): ядро и модули из
 # DESTDIR грузятся QEMU напрямую (multiboot), корневая ФС — из образа
@@ -250,20 +298,54 @@ run-i386: image
 		$(CPUS) \
 		obj/test-logs/i386$(FLAVOR)-cpu$(CPUS)-console-$(shell date +%Y%m%d-%H%M%S).log
 
+# earm: то же, что test-i386 / run-i386, на машине QEMU платы BOARD (TCG,
+# образ SD с snapshot=on). Символы для дампа -- из ELF ядра earm. Параметры
+# ядра (testrun, KARGS) на earm передаёт U-Boot -- появится с загрузкой
+# Orange Pi (Б2), до тех пор test-earm сообщает об этом и завершается.
+test-earm run-earm: CPUS := $(if $(filter command line environment,$(origin CPUS)),$(CPUS),4)
+
+test-earm: ARCH := evbearm-el
+test-earm: image
+	$(need_board)
+	$(need_machine)
+	$(DOCKER_RUN_BASE) --label $(TEST_LABEL) -e TARGET=earm -e MACHINE=$(QEMU_MACHINE_$(BOARD)) -e HANG_IDLE=$(HANG_IDLE) -e KARGS="$(KARGS)" -e SNAPSHOT_AT=$(SNAPSHOT_AT) $(IMAGE) bash docker/run-tests.sh \
+		$(CONTAINER_OBJ)/minix/kernel \
+		$(EARM_IMG) \
+		$(CPUS) \
+		"$(TESTS)" \
+		$(TEST_TIMEOUT) \
+		obj/test-logs/earm-$(BOARD)-cpu$(CPUS)-$(shell date +%Y%m%d-%H%M%S).log \
+		docker/tests-known-failures.earm
+
+run-earm: ARCH := evbearm-el
+run-earm: image
+	$(need_board)
+	$(need_machine)
+	$(DOCKER_RUN_BASE) --label $(TEST_LABEL) -i $(TTY_FLAG) -e TARGET=earm -e MACHINE=$(QEMU_MACHINE_$(BOARD)) -e KARGS="$(KARGS)" -e SNAPSHOT_AT=$(SNAPSHOT_AT) -e PANIC_RE="$(PANIC_RE)" $(IMAGE) bash docker/run-console.sh \
+		$(CONTAINER_OBJ)/minix/kernel \
+		$(EARM_IMG) \
+		$(CPUS) \
+		obj/test-logs/earm-$(BOARD)-cpu$(CPUS)-console-$(shell date +%Y%m%d-%H%M%S).log
+
 # Управление идущим прогоном из другого терминала (docs/testing.md §1б).
 # Контейнер test-i386 помечен меткой TEST_LABEL; run-tests.sh — его PID 1 и
 # обрабатывает сигналы сам: USR1 — снимок работающей машины
 # (<журнал>.snapshot-<N>s/), TERM — post-mortem (<журнал>.postmortem/) и
 # остановка, как Ctrl-C. docker kill -s, а не docker stop: тот через 10 с
 # шлёт SIGKILL, и дамп может не успеть.
+# Общие для всех архитектур; рассчитаны на один запущенный тестовый
+# контейнер (test-*/run-*), при нескольких -- отказ.
+one_test_container = ids=$$(docker ps -q --filter label=$(TEST_LABEL)); \
+	n=$$(echo $$ids | wc -w); \
+	if [ "$$n" -eq 0 ]; then echo "$@: no running test-*/run-* container"; exit 1; fi; \
+	if [ "$$n" -gt 1 ]; then echo "$@: $$n test containers running ($$ids), expected one"; exit 1; fi
+
 test-snapshot:
-	@ids=$$(docker ps -q --filter label=$(TEST_LABEL)); \
-	if [ -z "$$ids" ]; then echo "test-snapshot: no running test-i386"; exit 1; fi; \
+	@$(one_test_container); \
 	docker kill -s USR1 $$ids >/dev/null && echo "snapshot requested: $$ids"
 
 test-stop:
-	@ids=$$(docker ps -q --filter label=$(TEST_LABEL)); \
-	if [ -z "$$ids" ]; then echo "test-stop: no running test-i386"; exit 1; fi; \
+	@$(one_test_container); \
 	docker kill -s TERM $$ids >/dev/null && echo "stop requested: $$ids"
 
 qemu-hdimage: ARCH := i386
@@ -271,12 +353,6 @@ qemu-hdimage: image
 	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) $(IMAGE) bash -lc \
 		'test -f $(IMG_NAME) || { echo "$(IMG_NAME) не найден -- сначала: make -C docker -f build.mk hdimage" >&2; exit 1; }; \
 		 qemu-system-i386 $(if $(KVM_DEVICE),--enable-kvm,) -m 256 -drive file=$(IMG_NAME),format=raw,if=ide'
-
-qemu-sdimage: ARCH := evbearm-el
-qemu-sdimage: image
-	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc \
-		'test -f minix_arm_sd.img || { echo "minix_arm_sd.img не найден -- сначала: make -C docker -f build.mk sdimage" >&2; exit 1; }; \
-		 qemu-system-arm -M beaglexm -serial stdio -drive if=sd,cache=writeback,file=minix_arm_sd.img'
 
 clean-obj:
 	rm -rf $(REPO_ROOT)/obj/$(ARCH)$(FLAVOR)

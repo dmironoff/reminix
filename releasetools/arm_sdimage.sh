@@ -25,7 +25,7 @@ fi
 : ${BUILDSH=build.sh}
 
 : ${SETS="minix-base minix-comp minix-games minix-man minix-tests tests"}
-: ${IMG=minix_arm_sd.img}
+: ${IMG=minix_arm_${BOARD:-beaglexm}.img}
 
 # ARM definitions:
 : ${BUILDVARS=-V MKGCCCMDS=yes -V MKLLVM=no}
@@ -33,13 +33,27 @@ fi
 #: ${BUILDVARS=-V MKLIBCXX=no -V MKKYUA=no -V MKATF=no -V MKLLVMCMDS=no}
 : ${FAT_SIZE=$((    10*(2**20) / 512))} # This is in sectors
 
-# Beagleboard-xm
-: ${U_BOOT_BIN_DIR=build/omap3_beagle/}
-: ${CONSOLE=tty02}
-
-# BeagleBone (and black)
-#: ${U_BOOT_BIN_DIR=build/am335x_evm/}
-#: ${CONSOLE=tty00}
+# Board (names as in QEMU where it has the machine): selects the prebuilt
+# u-boot of the MINIX u-boot tree and the console.
+: ${BOARD=beaglexm}
+case "${BOARD}" in
+beaglexm)	# BeagleBoard-xM
+	: ${U_BOOT_BIN_DIR=build/omap3_beagle/}
+	: ${CONSOLE=tty02}
+	;;
+beaglebone)	# BeagleBone and BeagleBone Black
+	: ${U_BOOT_BIN_DIR=build/am335x_evm/}
+	: ${CONSOLE=tty00}
+	;;
+orangepi-pc)	# Orange Pi PC (Plus): BSP and U-Boot + FIT boot not there yet
+	echo "BOARD=orangepi-pc: not supported yet (docs/modernization.md, steps B1/B2)" >&2
+	exit 1
+	;;
+*)
+	echo "Unknown BOARD=${BOARD}: beaglexm, beaglebone (orangepi-pc: later)" >&2
+	exit 1
+	;;
+esac
 
 #
 # We host u-boot binaries.
@@ -106,9 +120,11 @@ echo "Creating specification files..."
 create_input_spec
 create_protos "usr home"
 
-# Download the stage 1 bootloader and u-boot
+# Get the stage 1 bootloader and u-boot (prebuilt, MINIX u-boot tree) into
+# the object tree
 #
-${RELEASETOOLSDIR}/fetch_u-boot.sh -o ${RELEASETOOLSDIR}/u-boot -n $U_BOOT_GIT_VERSION
+: ${U_BOOT_DIR=${OBJ}/u-boot}
+${RELEASETOOLSDIR}/fetch_u-boot.sh -o ${U_BOOT_DIR} -n $U_BOOT_GIT_VERSION
 
 # Clean image
 if [ -f ${IMG} ]	# IMG might be a block device
@@ -142,8 +158,8 @@ _HOME_SIZE=$(${CROSS_TOOLS}/nbmkfs.mfs -d ${HOMESIZEARG} -I $((${HOME_START}*512
 _HOME_SIZE=$(($_HOME_SIZE / 512))
 echo " * BOOT"
 rm -rf ${ROOT_DIR}/*
-cp ${RELEASETOOLSDIR}/u-boot/${U_BOOT_BIN_DIR}/MLO ${ROOT_DIR}/
-cp ${RELEASETOOLSDIR}/u-boot/${U_BOOT_BIN_DIR}/u-boot.img ${ROOT_DIR}/
+cp ${U_BOOT_DIR}/${U_BOOT_BIN_DIR}/MLO ${ROOT_DIR}/
+cp ${U_BOOT_DIR}/${U_BOOT_BIN_DIR}/u-boot.img ${ROOT_DIR}/
 
 # Create a uEnv.txt file
 # -n default to network boot
@@ -204,6 +220,5 @@ ${CROSS_TOOLS}/nbpartition -f -m ${IMG} ${FAT_START} \
 echo "Merging file systems"
 dd if=${WORK_DIR}/fat.img of=${IMG} seek=$FAT_START conv=notrunc
 
-echo "Disk image at `pwd`/${IMG}"
-echo "To boot this image on kvm:"
-echo "qemu-system-arm -M beaglexm -serial stdio -drive if=sd,cache=writeback,file=`pwd`/${IMG}"
+echo "Disk image at `pwd`/${IMG} (BOARD=${BOARD})"
+echo "Upstream QEMU has no machine for the TI boards: boot it on the board."

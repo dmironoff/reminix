@@ -176,20 +176,39 @@ make -C docker -f build.mk build ARCH=amd64 BUILD_TARGET=tools   # прямой 
 make -C docker -f build.mk build BUILD_TARGET=release            # эквивалент "make -C docker -f build.mk build" (release — дефолт)
 
 make -C docker -f build.mk hdimage                  # releasetools/x86_hdimage.sh → obj/i386/.../minix_x86.img
-make -C docker -f build.mk sdimage                  # releasetools/arm_sdimage.sh → minix_arm_sd.img (BeagleBoard-xM)
+make -C docker -f build.mk sdimage BOARD=beaglexm   # releasetools/arm_sdimage.sh → minix_arm_beaglexm.img (BOARD обязателен)
 
 make -C docker -f build.mk hdimage SMP=yes          # то же с CONFIG_SMP -> minix_x86_smp.img
+make -C docker -f build.mk quick SMP=yes            # быстрая пересборка ядра/серверов/драйверов + освежение образа
+make -C docker -f build.mk quick SMP=yes QUICK_DIRS="minix/kernel minix/net/uds"   # только нужное
 make -C docker -f build.mk test-i386                # автоматический прогон minix/tests (docs/testing.md §1)
 make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=43,71
 make -C docker -f build.mk test-snapshot            # из другого терминала: снимок идущего прогона
 make -C docker -f build.mk test-stop                # из другого терминала: post-mortem и остановка (как Ctrl-C)
 make -C docker -f build.mk run-i386 SMP=yes CPUS=4  # интерактивная консоль MINIX с журналом и снимками (docs/testing.md §1в)
 make -C docker -f build.mk qemu-hdimage             # qemu-system-i386 -hda minix_x86.img (KVM, если /dev/kvm доступен)
-make -C docker -f build.mk qemu-sdimage             # qemu-system-arm -M beaglexm ...
+make -C docker -f build.mk test-earm BOARD=orangepi-pc   # тесты earm в QEMU (после Б1/Б2; docs/testing.md §1г)
+make -C docker -f build.mk run-earm  BOARD=orangepi-pc   # консоль earm в QEMU (то же)
 
 make -C docker -f build.mk clean-obj ARCH=i386      # снести obj/i386 (например, после смены BUILDVARS)
 make -C docker -f build.mk clean-image              # удалить сам docker-образ
 ```
+
+**Быстрая пересборка (`quick`, `docker/quick-build.sh`).** Для цикла «правка
+→ прогон» без полного `build.sh`: `nbmake dependall install` только в каталогах
+`QUICK_DIRS` (по умолчанию `minix/lib minix/kernel minix/servers minix/fs
+minix/net minix/drivers`), `releasetools do-hdboot` (ядро и загрузочные модули
+в `destdir/boot/minix/.temp` — их грузят `test-i386`/`run-i386`) и освежение
+образа. Из DESTDIR в дерево `obj/<arch>[-smp]/work/fs`, оставшееся от
+последнего `hdimage`, копируются файлы, которые новее и отличаются. Затем
+разделы пишутся заново теми же `nbmkfs.mfs`/`nbpartition`/`nbinstallboot`, что
+в `releasetools/x86_hdimage.sh` (держать в согласии). Новый образ собирается
+рядом и переименовывается поверх старого: QEMU, у которого открыт прежний
+файл, не пострадает. Время: холостой проход по всем каталогам — ~25 с, один
+сервер — ~10 с (против 5–10 мин у `hdimage`). Нужен предварительный полный
+`hdimage` с тем же `SMP=`. Новые файлы, изменения списков наборов, файлы `/etc`,
+которые генерируют скрипты образа, и заголовки, используемые вне `QUICK_DIRS`,
+по-прежнему требуют `hdimage`.
 
 `JOBS` (по умолчанию — `nproc` хоста), `BUILDVARS` (доп. флаги `-V var=val` для
 `build.sh`, см. пример с `MKGCCCMDS`/`MKLLVM` для ARM в `docs/build-arm32.md` §2) и
@@ -200,8 +219,9 @@ make -C docker -f build.mk clean-image              # удалить сам dock
 — но при первом запуске это удобно сделать явно, чтобы увидеть вывод `apt-get`
 отдельно от вывода сборки.
 
-`hdimage`/`sdimage`/`qemu-*` жёстко фиксируют `ARCH` (i386 и evbearm-el
-соответственно) — это те же архитектуры, для которых жёстко написаны сами
+`hdimage`/`quick`/`test-i386`/`run-i386` и `sdimage`/`test-earm`/`run-earm`
+жёстко фиксируют `ARCH` (i386 и evbearm-el соответственно; для evbearm-el к
+`BUILDVARS` сами добавляются `-V MKGCCCMDS=yes -V MKLLVM=no`) — это те же архитектуры, для которых жёстко написаны сами
 `releasetools/x86_hdimage.sh`/`arm_sdimage.sh` (см. `docs/build-x86.md`,
 `docs/build-arm32.md`); общая цель `build` принимает любой `ARCH`, в том числе ещё не
 портированный (`amd64` и т.д.) — она просто дойдёт до места, где дерево спотыкается
@@ -211,7 +231,7 @@ make -C docker -f build.mk clean-image              # удалить сам dock
 ## 5. Добавление новой архитектуры
 
 Ничего в `docker/` не привязано к конкретному списку архитектур, кроме
-удобных ярлыков `hdimage`/`sdimage`/`qemu-*`. Когда появится, например,
+удобных ярлыков `hdimage`/`sdimage`/`test-*`/`run-*`. Когда появится, например,
 `minix/kernel/arch/amd64/` (см. `docs/porting.md`):
 
 - `make -C docker -f build.mk build ARCH=amd64` уже работает без изменений в `docker/`.
@@ -263,9 +283,10 @@ bind-mount'ами. На машине с несколькими разработ�
 `RELEASEDIR`, если задаётся, должен быть без суффикса `/<arch>/binary`.
 
 Отдельно не прогонялись (в рамки закрытой задачи не входят, проверяются по мере
-надобности): `qemu-hdimage` после фикса прав KVM и ARM-путь
-(`sdimage`/`qemu-sdimage`, BeagleBoard-xM). Если при первом прогоне ARM-пути
-что-то всплывёт — дополнить таблицу выше.
+надобности): `qemu-hdimage` после фикса прав KVM и ARM-путь (`sdimage`
+с `BOARD=` после перевода U-Boot на зеркало GitHub, 2026-10-02; `qemu-sdimage`
+удалена — машины `beaglexm` в апстримном QEMU нет, см. `docs/build-arm32.md`
+§5). Если при первом прогоне ARM-пути что-то всплывёт — дополнить таблицу выше.
 
 ## 8. Связанные документы
 
