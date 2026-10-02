@@ -23,8 +23,14 @@
 #   LOG       where to write the full serial console log
 #   KNOWN     file with known failures, one test name per line, # comments
 #
+# signals (sent to the container, whose PID 1 this script is):
+#   SIGINT, SIGTERM  (Ctrl-C, make test-stop) post-mortem of the machine as it
+#                    is, then stop QEMU; a second one skips the post-mortem
+#   SIGUSR1          (make test-snapshot) snapshot of the running machine,
+#                    the run continues
+#
 # exit status: 0 no new failures, 1 new failures, 2 setup error,
-#              3 hang / crash / incomplete run
+#              3 hang / crash / incomplete / interrupted run
 
 set -u
 
@@ -74,6 +80,51 @@ monsock=$(mktemp -u /tmp/reminix-mon.XXXXXX)
 pmdir="${LOG%.log}.postmortem"
 here=$(cd "$(dirname "$0")" && pwd)
 
+# Signals. This script is PID 1 of the container, and the kernel applies no
+# default action to PID 1: without handlers SIGINT/SIGTERM were simply lost,
+# and a Ctrl-C left QEMU running in the background. Handlers only set flags;
+# the main loop waits with "wait" (which a trapped signal interrupts at once)
+# and acts on them. During the final post-mortem any SIGINT/SIGTERM kills the
+# capture (the "skip it" escape).
+interrupted=0		# SIGINT/SIGTERM received
+snap_req=0		# SIGUSR1 received
+helper_pid=		# capture running in the background
+in_postmortem=no
+on_stop() {
+	interrupted=$((interrupted + 1))
+	if [ "$in_postmortem" = yes ] && [ -n "$helper_pid" ]; then
+		kill "$helper_pid" 2>/dev/null
+	fi
+}
+trap on_stop INT TERM
+trap 'snap_req=$((snap_req + 1))' USR1
+
+# Run a command in the background and wait for it, so that signal handlers
+# run while it works. Returns the command's exit status.
+run_helper() {
+	local st
+	"$@" &
+	helper_pid=$!
+	while :; do
+		wait "$helper_pid"
+		st=$?
+		kill -0 "$helper_pid" 2>/dev/null || break	# finished, not a signal
+	done
+	helper_pid=
+	return $st
+}
+
+# Snapshot of the running machine (same contents as a post-mortem, the machine
+# continues): <log>.snapshot-<seconds since start>s/
+take_snapshot() {
+	local t=$(( $(date +%s) - start ))
+	local dir="${LOG%.log}.snapshot-${t}s"
+	echo
+	echo ">>> snapshot at ${t}s ($1): $dir"
+	run_helper python3 "$here/qemu-postmortem.py" "$monsock" "$MODDIR/kernel" \
+		"$dir" "$CPUS" cont || echo ">>> snapshot failed"
+}
+
 start=$(date +%s)
 : > "$LOG"
 qemu-system-i386 -machine pc,accel="$accel" -m 1024 -smp "$CPUS" \
@@ -86,23 +137,32 @@ qemu_pid=$!
 tail -n +1 -f --pid=$qemu_pid "$LOG" &
 tail_pid=$!
 
-hung=no
+stop_reason=		# hung | interrupted: QEMU is stopped by us
 last_size=-1
 last_change=$start
 snap_done=no
 while kill -0 $qemu_pid 2>/dev/null; do
-	sleep 5
+	# do not sleep if a signal came in while a snapshot was being taken
+	if [ "$interrupted" -eq 0 ] && [ "$snap_req" -eq 0 ]; then
+		sleep 5 &
+		sleep_pid=$!
+		wait $sleep_pid		# returns at once on a trapped signal
+		kill $sleep_pid 2>/dev/null
+	fi
 	now=$(date +%s)
+	if [ "$interrupted" -gt 0 ]; then
+		stop_reason=interrupted
+		break
+	fi
+	if [ "$snap_req" -gt 0 ]; then
+		snap_req=0
+		take_snapshot "SIGUSR1"
+	fi
 	# env SNAPSHOT_AT=N: one snapshot of the running system after N seconds
-	# (same contents as a post-mortem, the machine continues afterwards)
 	if [ -n "${SNAPSHOT_AT:-}" ] && [ "$snap_done" = no ] &&
 	   [ $((now - start)) -ge "$SNAPSHOT_AT" ]; then
 		snap_done=yes
-		echo
-		echo ">>> snapshot at $((now - start))s: ${LOG%.log}.snapshot"
-		python3 "$here/qemu-postmortem.py" "$monsock" "$MODDIR/kernel" \
-			"${LOG%.log}.snapshot" "$CPUS" cont ||
-			echo ">>> snapshot failed"
+		take_snapshot "SNAPSHOT_AT"
 	fi
 	size=$(stat -c %s "$LOG" 2>/dev/null || echo 0)
 	if [ "$size" != "$last_size" ]; then
@@ -110,24 +170,40 @@ while kill -0 $qemu_pid 2>/dev/null; do
 		last_change=$now
 	fi
 	if [ $((now - last_change)) -ge "$HANG_IDLE" ] || [ $((now - start)) -ge "$TMO" ]; then
-		hung=yes
+		stop_reason=hung
 		break
 	fi
 done
 
-if [ "$hung" = yes ]; then
+if [ -n "$stop_reason" ]; then
 	echo
-	echo ">>> no console output for $((now - last_change))s (run time $((now - start))s): saving post-mortem"
-	python3 "$here/qemu-postmortem.py" "$monsock" "$MODDIR/kernel" "$pmdir" "$CPUS" ||
-		echo ">>> post-mortem capture failed"
+	if [ "$stop_reason" = hung ]; then
+		echo ">>> no console output for $((now - last_change))s (run time $((now - start))s): saving post-mortem"
+		qemu_status=124
+	else
+		stopped_at=$((now - start))
+		echo ">>> interrupted at ${stopped_at}s: saving post-mortem (signal again to skip)"
+		qemu_status=130
+	fi
+	in_postmortem=yes
+	if [ "$interrupted" -gt 1 ]; then
+		echo ">>> post-mortem skipped"
+	else
+		run_helper python3 "$here/qemu-postmortem.py" "$monsock" "$MODDIR/kernel" \
+			"$pmdir" "$CPUS" || echo ">>> post-mortem capture failed or skipped"
+	fi
+	in_postmortem=no
 	kill $qemu_pid 2>/dev/null
 	sleep 2
 	kill -9 $qemu_pid 2>/dev/null
 	wait $qemu_pid 2>/dev/null
-	qemu_status=124
 else
-	wait $qemu_pid
-	qemu_status=$?
+	# QEMU exited by itself; a signal may still interrupt this wait
+	while :; do
+		wait $qemu_pid
+		qemu_status=$?
+		kill -0 $qemu_pid 2>/dev/null || break
+	done
 fi
 sleep 1
 kill $tail_pid 2>/dev/null
@@ -153,6 +229,10 @@ known_list=$( [ -f "$KNOWN" ] && sed -e 's/#.*//' -e 's/[[:space:]]//g' "$KNOWN"
 new_fail=$(comm -23 <(printf '%s\n' "$failed_list" | grep .) <(printf '%s\n' "$known_list" | grep .))
 fixed=$(comm -13 <(printf '%s\n' "$failed_list" | grep .) <(printf '%s\n' "$known_list" | grep .))
 
+# The summary goes to the terminal and to <log>.result: when the docker client
+# is gone (terminal closed, make interrupted) the verdict is still on disk.
+summary() {
+local verdict=0
 echo
 echo "================ ReMinix test summary ================"
 echo "CPUs: $CPUS   accel: $accel   time: ${elapsed}s   tests: ${LIST:-all}"
@@ -171,11 +251,21 @@ elif [ -n "$plan" ] && [ $((passed + failed)) -ge "$plan" ] &&
 	complete=yes
 fi
 
-verdict=0
 if [ "$complete" = no ]; then
 	if [ "$qemu_status" = 124 ]; then
 		echo "RESULT: HANG (console silent ${HANG_IDLE}s or run over ${TMO}s)"
-		echo "post-mortem: $pmdir"
+		if [ -f "$pmdir/monitor.txt" ]; then
+			echo "post-mortem: $pmdir"
+		else
+			echo "post-mortem: skipped or incomplete"
+		fi
+	elif [ "$qemu_status" = 130 ]; then
+		echo "RESULT: INTERRUPTED (SIGINT/SIGTERM at ${stopped_at}s)"
+		if [ -f "$pmdir/monitor.txt" ]; then
+			echo "post-mortem: $pmdir"
+		else
+			echo "post-mortem: skipped or incomplete"
+		fi
 	else
 		echo "RESULT: CRASH (QEMU exited with status $qemu_status before all results were in)"
 	fi
@@ -191,5 +281,12 @@ elif [ -n "$new_fail" ]; then
 else
 	echo "RESULT: PASS"
 fi
+for d in "${LOG%.log}".snapshot-*s; do
+	[ -d "$d" ] && echo "snapshot: $d"
+done
 echo "======================================================"
-exit $verdict
+return $verdict
+}
+
+summary | tee "${LOG%.log}.result"
+exit ${PIPESTATUS[0]}

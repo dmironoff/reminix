@@ -18,6 +18,9 @@
 #   make -C docker -f build.mk test-i386 TESTS=43,71     # только выбранные тесты
 #   make -C docker -f build.mk test-i386 HANG_IDLE=120   # зависание = 120 с тишины (дамп в *.postmortem/)
 #   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 KARGS=no_smp=1  # доп. аргументы ядра
+#   Ctrl-C во время test-i386                            # post-mortem и остановка (второй Ctrl-C — без дампа)
+#   make -C docker -f build.mk test-snapshot             # из другого терминала: снимок, прогон продолжается
+#   make -C docker -f build.mk test-stop                 # из другого терминала: post-mortem и остановка
 #   make -C docker -f build.mk sdimage                   # собрать minix_arm_sd.img (evbearm-el/BeagleBoard-xM)
 #   make -C docker -f build.mk qemu-hdimage              # запустить x86-образ в QEMU
 #   make -C docker -f build.mk qemu-sdimage              # запустить ARM SD-образ в QEMU
@@ -59,6 +62,8 @@ KARGS        ?=
 SNAPSHOT_AT  ?=
 # tcg|kvm вместо автоматического выбора (KVM, если доступен)
 ACCEL        ?=
+# метка контейнера test-i386, по ней его находят test-snapshot / test-stop
+TEST_LABEL   := reminix-test=1
 
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
@@ -123,7 +128,7 @@ DOCKER_RUN_BASE = docker run --rm \
 
 DOCKER_RUN = $(DOCKER_RUN_BASE) $(IMAGE)
 
-.PHONY: help image shell build hdimage sdimage test-i386 qemu-hdimage qemu-sdimage clean-obj clean-image
+.PHONY: help image shell build hdimage sdimage test-i386 test-snapshot test-stop qemu-hdimage qemu-sdimage clean-obj clean-image
 
 help:
 	@sed -n '2,/^$$/p' $(lastword $(MAKEFILE_LIST))
@@ -167,7 +172,7 @@ sdimage: image
 # сначала hdimage (с тем же SMP=).
 test-i386: ARCH := i386
 test-i386: image
-	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) -e HANG_IDLE=$(HANG_IDLE) -e KARGS="$(KARGS)" -e SNAPSHOT_AT=$(SNAPSHOT_AT) -e ACCEL=$(ACCEL) $(IMAGE) bash docker/run-tests.sh \
+	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) --label $(TEST_LABEL) -e HANG_IDLE=$(HANG_IDLE) -e KARGS="$(KARGS)" -e SNAPSHOT_AT=$(SNAPSHOT_AT) -e ACCEL=$(ACCEL) $(IMAGE) bash docker/run-tests.sh \
 		$(CONTAINER_DEST)/boot/minix/.temp \
 		$(IMG_NAME) \
 		$(CPUS) \
@@ -175,6 +180,22 @@ test-i386: image
 		$(TEST_TIMEOUT) \
 		obj/test-logs/i386$(FLAVOR)-cpu$(CPUS)-$(shell date +%Y%m%d-%H%M%S).log \
 		docker/tests-known-failures.i386
+
+# Управление идущим прогоном из другого терминала (docs/testing.md §1б).
+# Контейнер test-i386 помечен меткой TEST_LABEL; run-tests.sh — его PID 1 и
+# обрабатывает сигналы сам: USR1 — снимок работающей машины
+# (<журнал>.snapshot-<N>s/), TERM — post-mortem (<журнал>.postmortem/) и
+# остановка, как Ctrl-C. docker kill -s, а не docker stop: тот через 10 с
+# шлёт SIGKILL, и дамп может не успеть.
+test-snapshot:
+	@ids=$$(docker ps -q --filter label=$(TEST_LABEL)); \
+	if [ -z "$$ids" ]; then echo "test-snapshot: no running test-i386"; exit 1; fi; \
+	docker kill -s USR1 $$ids >/dev/null && echo "snapshot requested: $$ids"
+
+test-stop:
+	@ids=$$(docker ps -q --filter label=$(TEST_LABEL)); \
+	if [ -z "$$ids" ]; then echo "test-stop: no running test-i386"; exit 1; fi; \
+	docker kill -s TERM $$ids >/dev/null && echo "stop requested: $$ids"
 
 qemu-hdimage: ARCH := i386
 qemu-hdimage: image

@@ -53,6 +53,15 @@ amd64, arm32, aarch64, risc-v64, mips64 и развитие как микроя�
 - `releasetools/` — сборка загрузочных образов (сейчас только под x86 и один ARM BSP).
 - `docker/` — Docker-обёртка над сборкой (`Dockerfile` + `build.mk`), готова и
   проверена на i386: `make -C docker -f build.mk hdimage`. См. `docs/docker-build.md`.
+  Тесты в QEMU — `make -C docker -f build.mk test-i386 [SMP=yes CPUS=N]`; дамп
+  машины в любой момент — Ctrl-C, `test-snapshot`, `test-stop`
+  (`docs/testing.md` §1, §1б). Журналы и дампы — `obj/test-logs/`.
+
+## Как мы работаем
+
+- Claude Code в терминале на машине владельца, с bash; код — прямо в `master`.
+- **Не коммитить и не пушить без явной команды владельца.**
+- Новая сессия начинается с `docs/handoff.md`.
 
 ## Принцип ведения `docs/`
 

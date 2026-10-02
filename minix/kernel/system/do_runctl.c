@@ -56,6 +56,26 @@ int do_runctl(struct proc * caller, message * m_ptr)
 	  /* check if we must stop a process on a different CPU */
 	  if (rp->p_cpu != cpuid) {
 		  smp_schedule_stop_proc(rp);
+		  /*
+		   * ReMinix: smp_schedule_stop_proc() may drop the BKL while
+		   * waiting for the target's CPU, so the RC_DELAY check above
+		   * can be stale. The target may have trapped into the kernel
+		   * meanwhile: its CPU handles the stop request first thing
+		   * after taking the BKL (context_stop -> smp_sched_handler),
+		   * but then still executes the system call, and the message
+		   * ends up queued (e.g. to PM itself, which is busy in this
+		   * very kernel call). Returning OK here made PM receive a call
+		   * from a process it believed stopped (assert in PM
+		   * do_sigprocmask, test41 on 2 CPUs; docs/testing.md 4.10).
+		   * Redo the check and behave as if it had been sending all
+		   * along.
+		   */
+		  if ((flags & RC_DELAY) && (RTS_ISSET(rp, RTS_SENDING) ||
+				  (rp->p_misc_flags & MF_SC_DEFER))) {
+			  rp->p_misc_flags |= MF_SIG_DELAY;
+			  RTS_UNSET(rp, RTS_PROC_STOP);
+			  return(EBUSY);
+		  }
 		  break;
 	  }
 #endif

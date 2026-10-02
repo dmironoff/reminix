@@ -176,6 +176,8 @@ make -C docker -f build.mk sdimage                  # releasetools/arm_sdimage.s
 make -C docker -f build.mk hdimage SMP=yes          # то же с CONFIG_SMP -> minix_x86_smp.img
 make -C docker -f build.mk test-i386                # автоматический прогон minix/tests (docs/testing.md §1)
 make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=43,71
+make -C docker -f build.mk test-snapshot            # из другого терминала: снимок идущего прогона
+make -C docker -f build.mk test-stop                # из другого терминала: post-mortem и остановка (как Ctrl-C)
 make -C docker -f build.mk qemu-hdimage             # qemu-system-i386 -hda minix_x86.img (KVM, если /dev/kvm доступен)
 make -C docker -f build.mk qemu-sdimage             # qemu-system-arm -M beaglexm ...
 
