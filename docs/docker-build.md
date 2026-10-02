@@ -43,6 +43,7 @@ EFI-варианта x86, `git`/`curl` для получения форка U-Bo
 | `autoconf`, `automake`, `pkg-config`, `gettext`, `texinfo` | Нужны только для EFI-варианта x86 (`fetch_and_build_grub` реально собирает GRUB из исходников — это отдельный autotools-проект, не часть дерева ReMinix). |
 | `zlib1g-dev`, `libssl-dev` | Линкуются в бутстрапящиеся хостовые `binutils`/`gcc`/`llvm` из `tools/`. |
 | `qemu-utils` + библиотеки времени выполнения QEMU (`libglib2.0-0t64`, `libpixman-1-0`, `libfdt1`, `libslirp0`) | `qemu-img` из пакета; сами эмуляторы — QEMU 11.1.0, собранный в стадии `qemu-builder` (§2.2). |
+| `gcc-multilib` | Тесты на хосте (`host-test`, `minix/tests/host`, `docs/testing.md` §1д): сборка `-m32` рядом с `-m64`, `libasan`/`libubsan` для обоих. |
 | `sudo`, `less`, `vim-tiny`, `locales` | Удобства для интерактивной работы (`make -C docker -f build.mk shell`), не влияют на сборку. |
 
 Namespace-пакетов из `universe`/`multiverse` (в первую очередь `qemu-system-*`) нет в
@@ -189,6 +190,7 @@ make -C docker -f build.mk run-i386 SMP=yes CPUS=4  # интерактивная
 make -C docker -f build.mk qemu-hdimage             # qemu-system-i386 -hda minix_x86.img (KVM, если /dev/kvm доступен)
 make -C docker -f build.mk test-earm BOARD=orangepi-pc   # тесты earm в QEMU (после Б1/Б2; docs/testing.md §1г)
 make -C docker -f build.mk run-earm  BOARD=orangepi-pc   # консоль earm в QEMU (то же)
+make -C docker -f build.mk host-test                # тесты модулей на хосте, minix/tests/host (docs/testing.md §1д)
 
 make -C docker -f build.mk clean-obj ARCH=i386      # снести obj/i386 (например, после смены BUILDVARS)
 make -C docker -f build.mk clean-image              # удалить сам docker-образ

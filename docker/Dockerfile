@@ -176,6 +176,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libpixman-1-0 \
         libfdt1 \
         libslirp0 \
+        # --- host unit tests (minix/tests/host, "host-test"): -m32 builds
+        # next to -m64, with libasan/libubsan for both ---
+        gcc-multilib \
         # --- quality of life for interactive `make -C docker shell` use ---
         sudo \
         less \

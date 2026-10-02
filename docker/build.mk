@@ -45,6 +45,10 @@
 #>                   orangepi-pc; параметры ядра (testrun) на earm передаёт U-Boot — до Б2
 #>                   цель сообщает об этом и завершается
 #>                   [BOARD CPUS TESTS HANG_IDLE TEST_TIMEOUT KARGS SNAPSHOT_AT]
+#>   host-test       тесты кода ReMinix на хосте (minix/tests/host): сборка gcc
+#>                   хоста в вариантах HOST_VARIANTS, вывод TAP, журнал
+#>                   obj/test-logs/host-<дата>.log, итог — в .result; секунды,
+#>                   образ диска не нужен                     [HOST_TESTS HOST_VARIANTS]
 #>   test-snapshot   из другого терминала: снимок идущего test-*/run-* в
 #>                   <журнал>.snapshot-<N>s/, система работает дальше
 #>   test-stop       из другого терминала: дамп в <журнал>.postmortem/ и остановка
@@ -86,6 +90,9 @@
 #>   ACCEL=             tcg | kvm вместо автовыбора (KVM, если есть /dev/kvm)
 #>   QUICK_DIRS="minix/lib minix/kernel minix/servers minix/fs minix/net minix/drivers"
 #>                      quick: что пересобирать (каталоги дерева, по порядку)
+#>   HOST_TESTS=        host-test: модули через запятую (bitmap,selftest); пусто — все
+#>   HOST_VARIANTS="m32 m64 m32-san m64-san"
+#>                      host-test: варианты сборки (-m32/-m64, -san — ASan+UBSan)
 #>   PANIC_RE=panic     run-*: regexp строк консоли (и экрана VGA на i386) для автоснимка;
 #>                      пусто — выключить
 #>
@@ -97,6 +104,7 @@
 #>   make -C docker -f build.mk quick SMP=yes QUICK_DIRS="minix/kernel minix/net/uds"
 #>   make -C docker -f build.mk run-i386 SMP=yes CPUS=4
 #>   make -C docker -f build.mk sdimage BOARD=beaglebone
+#>   make -C docker -f build.mk host-test HOST_TESTS=bitmap HOST_VARIANTS=m64-san
 #>   make -C docker -f build.mk run-earm BOARD=orangepi-pc
 #>   make -o image -C docker -f build.mk test-i386       # не трогать Docker-образ
 #>   Долгий прогон, не привязанный к терминалу:
@@ -152,6 +160,10 @@ need_machine  = $(if $(QEMU_MACHINE_$(BOARD)),,$(error BOARD=$(BOARD): в апс
 
 # quick: каталоги дерева для быстрой пересборки (docker/quick-build.sh)
 QUICK_DIRS   ?= minix/lib minix/kernel minix/servers minix/fs minix/net minix/drivers
+# host-test: модули (подкаталоги minix/tests/host) и варианты сборки
+HOST_TESTS    ?=
+HOST_VARIANTS ?= m32 m64 m32-san m64-san
+comma := ,
 # run-i386: строки консоли, по которым снимается автоматический снимок
 # (расширенное регулярное выражение; пусто — выключено)
 PANIC_RE     ?= panic
@@ -225,7 +237,7 @@ DOCKER_RUN_BASE = docker run --rm \
 
 DOCKER_RUN = $(DOCKER_RUN_BASE) $(IMAGE)
 
-.PHONY: help image shell build hdimage quick sdimage test-i386 run-i386 test-snapshot test-stop qemu-hdimage test-earm run-earm clean-obj clean-image
+.PHONY: help image shell build hdimage quick sdimage host-test test-i386 run-i386 test-snapshot test-stop qemu-hdimage test-earm run-earm clean-obj clean-image
 
 help:
 	@sed -n 's/^#> \{0,1\}//p' $(lastword $(MAKEFILE_LIST))
@@ -268,6 +280,18 @@ sdimage: ARCH := evbearm-el
 sdimage: image
 	$(need_board)
 	$(DOCKER_RUN) bash -lc 'mkdir -p "$$OBJ" && BOARD=$(BOARD) IMG=$(EARM_IMG) ./releasetools/arm_sdimage.sh'
+
+# Тесты на хосте (docs/testing.md §1д): minix/tests/host/GNUmakefile собирает
+# t_*.c gcc хоста в вариантах HOST_VARIANTS и прогоняет их (run.sh). Журнал и
+# итог -- как у test-i386, но host-<дата>.
+host-test: image
+	@mkdir -p $(REPO_ROOT)/obj/test-logs
+	$(DOCKER_RUN) bash -c 'log=obj/test-logs/host-$(shell date +%Y%m%d-%H%M%S); \
+		make -C minix/tests/host check HT_OBJ=$(CONTAINER_REPO)/obj/host-tests \
+			VARIANTS="$(HOST_VARIANTS)" $(if $(HOST_TESTS),MODULES="$(subst $(comma), ,$(HOST_TESTS))") \
+			2>&1 | tee $$log.log; rc=$${PIPESTATUS[0]}; \
+		sed -n "/host test summary/,/^=*\$$/p" $$log.log > $$log.result; \
+		echo "log: $$log.log"; exit $$rc'
 
 # Автоматический прогон minix/tests (docs/testing.md): ядро и модули из
 # DESTDIR грузятся QEMU напрямую (multiboot), корневая ФС — из образа
