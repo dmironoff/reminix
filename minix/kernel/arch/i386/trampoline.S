@@ -16,8 +16,9 @@ ENTRY(trampoline)
 	lgdtl	_C_LABEL(__ap_gdt) - _C_LABEL(trampoline)
 	lidtl	_C_LABEL(__ap_idt) - _C_LABEL(trampoline)
 
-	/* switch to protected mode */
+	/* switch to protected mode; caches on: CD/NW may still be set by INIT */
 	mov	%cr0, %eax
+	andl	$~(I386_CR0_CD | I386_CR0_NW), %eax
 	orb	$1, %al
 	mov	%eax, %cr0
 
@@ -31,7 +32,7 @@ ENTRY(trampoline)
 	movl	_C_LABEL(__ap_pt) - _C_LABEL(trampoline), %eax
 	movl	%eax, %cr3
 	movl	%cr0, %ecx
-	orl	$I386_CR0_PG, %ecx
+	orl	$(I386_CR0_PG | I386_CR0_WP), %ecx	/* WP as on the BSP */
 	movl	%ecx, %cr0
 
 	/* turn on cr4.PGE after cr0.PG is on */

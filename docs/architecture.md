@@ -10,7 +10,7 @@
 
 ## 1. Что такое ReMinix
 
-ReMinix — независимый form MINIX 3 (последняя версия ветки `master`, синхронизированная
+ReMinix — независимый fork MINIX 3 (последняя версия ветки `master`, синхронизированная
 с NetBSD-8). Оригинальный MINIX 3 разрабатывался как учебная и исследовательская
 микроядерная ОС группой Andrew S. Tanenbaum (Vrije Universiteit Amsterdam); начиная с
 MINIX 3.2 проект активно заимствовал userland и часть исходников ядра NetBSD (см. `sys/`,
@@ -114,7 +114,8 @@ minix/
 │   ├── sched/  — планировщик пользовательского уровня (квоты, приоритеты)
 │   ├── mib/    — Management Information Base (реализация sysctl(7)/proc(5))
 │   ├── is/     — Information Server (диагностика/дампы состояния системы)
-│   ├── vfs? / ipc/  — POSIX-семафоры и SysV shared memory
+│   ├── ipc/    — SysV IPC: семафоры и shared memory
+│   ├── input/  — сервер ввода (клавиатура, мышь) для драйверов hid
 │   └── devman/ — Device Manager (перечисление устройств для драйверов)
 ├── drivers/    — драйверы устройств (userspace), сгруппированы по классам:
 │   audio, bus, clock, eeprom, hid, iommu, net, power, printer,
@@ -128,7 +129,7 @@ minix/
 │                 (инструментация для gcov/sprofile/self-healing, см. `libmagicrt`)
 ├── include/    — публичные заголовки MINIX-специфичных API (`minix/*.h`, `sys/*.h`, `net/*.h`)
 └── commands/   — MINIX-специфичные консольные утилиты (MAKEDEV, minix-service,
-                  netconf, fdisk, partition, sysenv, readclock, MAKEDEV, ...)
+                  netconf, fdisk, partition, sysenv, readclock, ...)
 ```
 
 ### 3.1 Ключевые библиотеки (`minix/lib`)

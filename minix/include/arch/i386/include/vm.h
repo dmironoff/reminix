@@ -44,7 +44,9 @@ i386/vm.h
 #define I386_CR0_EM		0x00000004	/* Emulate  */
 #define I386_CR0_TS		0x00000008	/* Task Switched  */
 #define I386_CR0_ET		0x00000010	/* Extension Type  */
-#define I386_CR0_WP		0x00010000	/* Enable paging */
+#define I386_CR0_WP		0x00010000	/* Write protect in kernel mode */
+#define I386_CR0_NW		0x20000000	/* Not write-through */
+#define I386_CR0_CD		0x40000000	/* Cache disable */
 #define I386_CR0_PG		0x80000000	/* Enable paging */
 
 /* some CR4 bits */

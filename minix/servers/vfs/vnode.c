@@ -288,8 +288,14 @@ void put_vnode(struct vnode *vp)
 
   /* This inode could've been mapped. If so, tell mapped FS to close it as
    * well. If mapped onto same FS, this putnode is not needed. */
-  if (vp->v_mapfs_e != NONE && vp->v_mapfs_e != vp->v_fs_e)
+  if (vp->v_mapfs_e != NONE && vp->v_mapfs_e != vp->v_fs_e) {
 	req_putnode(vp->v_mapfs_e, vp->v_mapinode_nr, vp->v_mapfs_count);
+	/* The mapped node is gone. advance() may still revive this vnode
+	 * (it found it during our putnode): it must map it anew, not reuse
+	 * the freed node (docs/testing.md 4.14). */
+	vp->v_mapfs_e = NONE;
+	vp->v_mapinode_nr = 0;
+  }
 
   vp->v_fs_count = 0;
   vp->v_ref_count = 0;
