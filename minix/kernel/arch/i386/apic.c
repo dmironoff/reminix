@@ -5,6 +5,7 @@
 
 #include <unistd.h>
 #include <minix/portio.h>
+#include <machine/ports.h>
 
 #include <minix/syslib.h>
 #include <machine/cmos.h>
@@ -78,7 +79,7 @@
 #define APIC_ICR_LEVEL_DEASSERT		(0 << 14)
 
 #define APIC_ICR_TRIGGER		(1 << 15)
-#define APIC_ICR_TM_LEVEL		IS_CLEAR(APIC_ICR_TRIGGER)
+#define APIC_ICR_TM_LEVEL		IS_SET(APIC_ICR_TRIGGER)
 #define APIC_ICR_TM_EDGE		IS_CLEAR(APIC_ICR_TRIGGER)
 
 #define APIC_ICR_INT_MASK		(1 << 16)
@@ -147,10 +148,6 @@ vir_bytes lapic_addr;
 vir_bytes lapic_eoi_addr;
 int bsp_lapic_id;
 
-static volatile unsigned probe_ticks;
-static	u64_t tsc0, tsc1;
-static	u32_t lapic_tctr0, lapic_tctr1;
-
 static unsigned apic_imcrp;
 static const unsigned nlints = 0;
 
@@ -165,8 +162,14 @@ void arch_eoi(void)
  * have at as an array until we resolve the cpulocals properly
  */
 static u32_t lapic_bus_freq[CONFIG_MAX_CPUS];
-/* the probe period will be roughly 100ms */
-#define PROBE_TICKS	(system_hz / 10)
+
+/* calibration against PIT channel 2: CALIB_ROUNDS polls of CALIB_PIT_COUNT */
+#define PIT_FREQ		1193182
+#define CALIB_PIT_COUNT		(PIT_FREQ / 100)	/* 10 ms */
+#define CALIB_ROUNDS		3
+#define PORT_B_GATE2		0x01
+#define PORT_B_SPEAKER		0x02
+#define PORT_B_OUT2		0x20
 
 #define IOAPIC_IOREGSEL	0x0
 #define IOAPIC_IOWIN	0x10
@@ -407,120 +410,76 @@ unsigned int apicid(void)
 	return lapic_read(LAPIC_ID) >> 24;
 }
 
-static int calib_clk_handler(irq_hook_t * UNUSED(hook))
+/*
+ * Poll PIT channel 2 in mode 0 for CALIB_PIT_COUNT counts and measure this
+ * CPU's LAPIC timer and TSC over that time. No interrupts are involved: the
+ * caller keeps the BKL and interrupts stay disabled, and every CPU measures
+ * its own LAPIC (docs/testing.md 5.1, 5.2).
+ */
+static void pit_ch2_measure(u32_t * lapic_delta, u64_t * tsc_delta)
 {
-	u32_t tcrt;
-	u64_t tsc;
+	u32_t ccr0, ccr1;
+	u64_t tsc0, tsc1;
+	u8_t portb;
 
-	probe_ticks++;
-	read_tsc_64(&tsc);
-	tcrt = lapic_read(LAPIC_TIMER_CCR);
+	portb = inb(PORT_B);
+	outb(PORT_B, (portb & ~PORT_B_SPEAKER) | PORT_B_GATE2);
 
+	outb(TIMER_MODE, 0xB0);	/* channel 2, lobyte/hibyte, mode 0, binary */
+	outb(TIMER2, CALIB_PIT_COUNT & 0xff);
+	outb(TIMER2, CALIB_PIT_COUNT >> 8);
 
-	if (probe_ticks == 1) {
-		lapic_tctr0 = tcrt;
-		tsc0 = tsc;
-	}
-	else if (probe_ticks == PROBE_TICKS) {
-		lapic_tctr1 = tcrt;
-		tsc1 = tsc;
-		stop_8253A_timer();
-	}
+	read_tsc_64(&tsc0);
+	ccr0 = lapic_read(LAPIC_TIMER_CCR);
 
-	BKL_UNLOCK();
-	return 1;
-}
+	while (!(inb(PORT_B) & PORT_B_OUT2))
+		;
 
-static int spurious_irq_handler(irq_hook_t * UNUSED(hook))
-{
-	/*
-	 * Do nothing, only unlock the kernel so we do not deadlock!
-	 */
-	BKL_UNLOCK();
-	return 1;
+	ccr1 = lapic_read(LAPIC_TIMER_CCR);
+	read_tsc_64(&tsc1);
+
+	outb(PORT_B, portb);
+
+	*lapic_delta = ccr0 - ccr1;
+	*tsc_delta = tsc1 - tsc0;
 }
 
 static void apic_calibrate_clocks(unsigned cpu)
 {
-	u32_t lvtt, val, lapic_delta;
-	u64_t tsc_delta;
+	u32_t lvtt, lapic_delta, d;
+	u64_t tsc_delta, t;
 	u64_t cpu_freq;
-
-	irq_hook_t calib_clk, spurious_irq;
+	int i;
 
 	BOOT_VERBOSE(printf("Calibrating clock\n"));
-	/*
-	 * Set Initial count register to the highest value so it does not
-	 * underflow during the testing period
-	 * */
-	val = 0xffffffff;
-	lapic_write (LAPIC_TIMER_ICR, val);
 
-	/* Set Current count register */
-	val = 0;
-	lapic_write (LAPIC_TIMER_CCR, val);
+	/* free-running down-counter, interrupt masked, divide by 1 */
+	lvtt = lapic_read(LAPIC_LVTTR) | APIC_LVTT_MASK;
+	lapic_write(LAPIC_LVTTR, lvtt);
+	lapic_write(LAPIC_TIMER_DCR, APIC_TDCR_1);
+	lapic_write(LAPIC_TIMER_ICR, 0xffffffff);
 
-	lvtt = lapic_read(LAPIC_TIMER_DCR) & ~0x0b;
-	 /* Set Divide configuration register to 1 */
-	lvtt = APIC_TDCR_1;
-	lapic_write(LAPIC_TIMER_DCR, lvtt);
-
-	/*
-	 * mask the APIC timer interrupt in the LVT Timer Register so that we
-	 * don't get an interrupt upon underflow which we don't know how to
-	 * handle right know. If underflow happens, the system will not continue
-	 * as something is wrong with the clock IRQ 0 and we cannot calibrate
-	 * the clock which mean that we cannot run processes
-	 */
-	lvtt = lapic_read (LAPIC_LVTTR);
-	lvtt |= APIC_LVTT_MASK;
-	lapic_write (LAPIC_LVTTR, lvtt);
-
-	/* set the probe, we use the legacy timer, IRQ 0 */
-	put_irq_handler(&calib_clk, CLOCK_IRQ, calib_clk_handler);
-
-	/*
-	 * A spurious interrupt may occur during the clock calibration. Since we
-	 * do this calibration in kernel, we need a special handler which will
-	 * leave the BKL unlocked like the clock handler. This is a corner case,
-	 * boot time only situation
-	 */
-	put_irq_handler(&spurious_irq, SPURIOUS_IRQ, spurious_irq_handler);
-
-	/* set the PIC timer to get some time */
-	init_8253A_timer(system_hz);
-
-	/*
-	 * We must unlock BKL here as the in-kernel interrupt will lock it
-	 * again. The handler will unlock it after it is done. This is
-	 * absolutely safe as only the BSP is running. It is just a workaround a
-	 * corner case for APIC timer calibration
-	 */
-	BKL_UNLOCK();
-	intr_enable();
-
-	/* loop for some time to get a sample */
-	while(probe_ticks < PROBE_TICKS) {
-		intr_enable();
+	/* polling only overshoots the interval, so the shortest round wins */
+	lapic_delta = 0xffffffff;
+	tsc_delta = 0;
+	for (i = 0; i < CALIB_ROUNDS; i++) {
+		pit_ch2_measure(&d, &t);
+		if (d < lapic_delta) {
+			lapic_delta = d;
+			tsc_delta = t;
+		}
 	}
 
-	intr_disable();
-	BKL_LOCK();
+	lapic_write(LAPIC_TIMER_ICR, 0);
 
-	/* remove the probe */
-	rm_irq_handler(&calib_clk);
-	rm_irq_handler(&spurious_irq);
-
-	lapic_delta = lapic_tctr0 - lapic_tctr1;
-	tsc_delta = tsc1 - tsc0;
-
-	lapic_bus_freq[cpuid] = system_hz * lapic_delta / (PROBE_TICKS - 1);
+	lapic_bus_freq[cpu] = (u32_t)((u64_t)lapic_delta * PIT_FREQ /
+				CALIB_PIT_COUNT);
 	BOOT_VERBOSE(printf("APIC bus freq %u MHz\n",
-				lapic_bus_freq[cpuid] / 1000000));
-	cpu_freq = (tsc_delta / (PROBE_TICKS - 1)) * make64(system_hz, 0);
-	cpu_set_freq(cpuid, cpu_freq);
-	cpu_info[cpuid].freq = (unsigned long)(cpu_freq / 1000000);
-	BOOT_VERBOSE(cpu_print_freq(cpuid));
+				lapic_bus_freq[cpu] / 1000000));
+	cpu_freq = tsc_delta * PIT_FREQ / CALIB_PIT_COUNT;
+	cpu_set_freq(cpu, cpu_freq);
+	cpu_info[cpu].freq = (unsigned long)(cpu_freq / 1000000);
+	BOOT_VERBOSE(cpu_print_freq(cpu));
 }
 
 void lapic_set_timer_one_shot(const u32_t usec)
@@ -566,9 +525,8 @@ void lapic_stop_timer(void)
 	u32_t lvtt;
 	lvtt = lapic_read(LAPIC_LVTTR);
 	lapic_write(LAPIC_LVTTR, lvtt | APIC_LVTT_MASK);
-	/* zero the current counter so it can be restarted again */
+	/* ICR = 0 stops the timer and zeroes CCR; CCR itself is read-only */
 	lapic_write(LAPIC_TIMER_ICR, 0);
-	lapic_write(LAPIC_TIMER_CCR, 0);
 }
 
 void lapic_restart_timer(void)
@@ -864,11 +822,21 @@ static void lapic_set_dummy_handlers(void)
 }
 #endif
 
-/* Build descriptors for interrupt gates in IDT. */
-void apic_idt_init(const int reset)
+/* Per-CPU register: every CPU, BSP and AP, must set its own. */
+void lapic_set_error_vector(void)
 {
 	u32_t val;
 
+	val = lapic_read(LAPIC_LVTER) & ~0xFF;
+	val |= APIC_ERROR_INT_VECTOR;
+	val &= ~APIC_ICR_INT_MASK;
+	lapic_write(LAPIC_LVTER, val);
+	(void) lapic_read(LAPIC_LVTER);
+}
+
+/* Build descriptors for interrupt gates in IDT. */
+void apic_idt_init(const int reset)
+{
 	/* Set up idt tables for smp mode.
 	 */
 	int is_bsp;
@@ -899,12 +867,7 @@ void apic_idt_init(const int reset)
 	idt_copy_vectors(gate_table_smp);
 #endif
 
-	/* Setup error interrupt vector */
-	val = lapic_read(LAPIC_LVTER);
-	val |= APIC_ERROR_INT_VECTOR;
-	val &= ~ APIC_ICR_INT_MASK;
-	lapic_write(LAPIC_LVTER, val);
-	(void) lapic_read(LAPIC_LVTER);
+	lapic_set_error_vector();
 
 	/* configure the timer interupt handler */
 	if (is_bsp) {
@@ -1094,7 +1057,7 @@ int apic_send_init_ipi(unsigned cpu, phys_bytes trampoline)
 	lapic_write(LAPIC_ICR2, (lapic_read (LAPIC_ICR2) & 0xFFFFFF) |
 					(cpuid2apicid[cpu] << 24));
 	lapic_write(LAPIC_ICR1, (lapic_read (LAPIC_ICR1) & 0xFFF32000) |
-		APIC_ICR_DEST_ALL | APIC_ICR_TM_LEVEL);
+		APIC_ICR_DM_INIT | APIC_ICR_TM_LEVEL | APIC_ICR_LEVEL_DEASSERT);
 
 	timeout = 1000;
 	errstatus = 0;

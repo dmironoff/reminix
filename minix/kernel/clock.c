@@ -135,6 +135,12 @@ int timer_int_handler(void)
 	billp = get_cpulocal_var(bill_ptr);
 
 	dbg_cpu_events[cpuid][0]++;
+#if defined(__i386__) && defined(CONFIG_SMP)
+	if (!cpu_is_bsp(cpuid)) {
+		extern void dbg_boot_event(u32_t);
+		dbg_boot_event(3);
+	}
+#endif
 
 	if (tick_debug) {
 		unsigned c = cpuid;

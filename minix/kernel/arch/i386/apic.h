@@ -142,6 +142,7 @@ int ioapic_enable_all(void);
 
 int detect_ioapics(void);
 void apic_idt_init(int reset);
+void lapic_set_error_vector(void);
 
 #ifdef CONFIG_SMP
 int apic_send_startup_ipi(unsigned cpu, phys_bytes trampoline);

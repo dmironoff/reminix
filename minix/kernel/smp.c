@@ -23,6 +23,8 @@ static struct sched_ipi_data  sched_ipi_data[CONFIG_MAX_CPUS];
 #define SCHED_IPI_SAVE_CTX	4
 
 static volatile unsigned ap_cpus_booted;
+/* set once the BSP runs with VM's page tables and the virtual LAPIC address */
+static volatile int bsp_paging_enabled;
 
 SPINLOCK_DEFINE(big_kernel_lock)
 SPINLOCK_DEFINE(boot_lock)
@@ -131,12 +133,29 @@ void wait_for_APs_to_finish_booting(void)
 	if (n != ncpus)
 		printf("WARNING only %d out of %d cpus booted\n", n, ncpus);
 
+	bsp_paging_enabled = 1;
+	barrier();
+
 	/* we must let the other CPUs to run in kernel mode first */
 	BKL_UNLOCK();
 	while (ap_cpus_booted != (n - 1))
 		arch_pause();
 	/* now we have to take the lock again as we continue execution */
 	BKL_LOCK();
+}
+
+/*
+ * An AP must not finish booting before the BSP has switched to paging: the
+ * BSP releases the BKL whenever it runs a process, so the AP could otherwise
+ * take it early, go idle in the boot page tables and, after the BSP moved the
+ * LAPIC to its virtual address, send its EOIs to plain memory through those
+ * tables -- its LAPIC then blocks all interrupts (docs/testing.md 4.11).
+ */
+void wait_for_BSP_paging(void)
+{
+	while (!bsp_paging_enabled)
+		arch_pause();
+	barrier();
 }
 
 void ap_boot_finished(unsigned cpu)

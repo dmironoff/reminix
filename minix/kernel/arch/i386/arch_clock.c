@@ -348,6 +348,36 @@ void context_stop(struct proc * p)
 #endif
 }
 
+/*
+ * DEBUG (docs/testing.md 5.1): ordering of AP boot vs. the switch to paging.
+ * Entry: [tag, cpu, tsc >> 8, cr3, lapic_eoi_addr, ISR 224..255].
+ * Tags: 1 AP lapic_enable, 2 arch_enable_paging switched the LAPIC address,
+ * 3 AP timer interrupt. Only the first entries are kept.
+ */
+#define DBG_BOOT_EV	32
+u32_t dbg_boot_ev[DBG_BOOT_EV][6];
+volatile u32_t dbg_boot_nev;
+
+void dbg_boot_event(u32_t tag)
+{
+#if defined(USE_APIC) && defined(CONFIG_SMP)
+	u64_t tsc;
+	u32_t i;
+
+	i = dbg_boot_nev;
+	if (i >= DBG_BOOT_EV)
+		return;
+	dbg_boot_nev = i + 1;
+	read_tsc_64(&tsc);
+	dbg_boot_ev[i][0] = tag;
+	dbg_boot_ev[i][1] = cpuid;
+	dbg_boot_ev[i][2] = (u32_t)(tsc >> 8);
+	dbg_boot_ev[i][3] = read_cr3();
+	dbg_boot_ev[i][4] = lapic_eoi_addr;
+	dbg_boot_ev[i][5] = lapic_addr ? lapic_read(LAPIC_ISR + 0x70) : 0;
+#endif
+}
+
 void context_stop_idle(void)
 {
 	extern unsigned dbg_cpu_events[][4];

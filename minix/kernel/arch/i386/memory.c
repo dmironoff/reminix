@@ -953,6 +953,7 @@ int arch_enable_paging(struct proc * caller)
 	if (lapic_addr) {
 		lapic_addr = lapic_addr_vaddr;
 		lapic_eoi_addr = LAPIC_EOI;
+		{ extern void dbg_boot_event(u32_t); dbg_boot_event(2); }
 	}
 	/* if IO apics are enabled */
 	if (ioapic_enabled) {

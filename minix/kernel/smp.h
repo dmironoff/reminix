@@ -52,6 +52,7 @@ SPINLOCK_DECLARE(big_kernel_lock)
 SPINLOCK_DECLARE(boot_lock)
 	
 void wait_for_APs_to_finish_booting(void);
+void wait_for_BSP_paging(void);
 void ap_boot_finished(unsigned cpu);
 void smp_shutdown_aps(void );
 

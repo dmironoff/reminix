@@ -40,6 +40,9 @@ REGIONS = [
     "tick_debug_ticks", "tick_debug_busy", "lapic_bus_freq",
     # per CPU [timer_int_handler, context_stop_idle, sched IPI, idle halts]
     "dbg_cpu_events",
+    "lapic_addr", "lapic_eoi_addr",
+    # [tag, cpu, tsc>>8, cr3, lapic_eoi_addr, ISR 224..255] (arch_clock.c)
+    "dbg_boot_ev", "dbg_boot_nev",
     ("k_stacks_start", "k_stacks_end"),
 ]
 MAX_REGION = 4 << 20

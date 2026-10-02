@@ -90,7 +90,7 @@ void copy_trampoline(void)
 	 */
 	assert(prot_init_done);
 	memcpy(&__ap_gdt_tab, gdt, sizeof(gdt));
-	memcpy(&__ap_idt_tab, gdt, sizeof(idt));
+	memcpy(&__ap_idt_tab, idt, sizeof(idt));
 	__ap_gdt.base = ap_lin_addr(&__ap_gdt_tab);
 	__ap_gdt.limit = sizeof(gdt)-1;
 	__ap_idt.base = ap_lin_addr(&__ap_idt_tab);
@@ -228,8 +228,13 @@ static void ap_finish_booting(void)
 	 * nested interrupts used for calibration. Therefore BKL is not good
 	 * enough, the boot_lock must be held.
 	 */
+	wait_for_BSP_paging();
+
 	spinlock_lock(&boot_lock);
 	BKL_LOCK();
+
+	/* leave the boot page tables: lapic_addr is a VM-mapped address now */
+	switch_address_space(proc_addr(VM_PROC_NR));
 
 	printf("CPU %d is up\n", cpu);
 
@@ -238,7 +243,10 @@ static void ap_finish_booting(void)
 
 	cpu_identify();
 
+	{ extern void dbg_boot_event(u32_t); dbg_boot_event(1); }
 	lapic_enable(cpu);
+	/* LVTERR is per CPU; apic_idt_init() set it on the BSP only */
+	lapic_set_error_vector();
 	fpu_init();
 
 	if (app_cpu_init_timer(system_hz)) {
