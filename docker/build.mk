@@ -5,26 +5,76 @@
 # (см. Dockerfile) и удобные команды поверх него. Подробности и
 # обоснование выбора пакетов — docs/docker-build.md, тесты — docs/testing.md.
 #
-# Запускать из корня репозитория:
+# Справка: строки "#>" ниже печатает "make -C docker -f build.mk help"
+# (без Docker). ОБНОВЛЯТЬ ПРИ КАЖДОМ ИЗМЕНЕНИИ ЦЕЛЕЙ И ПАРАМЕТРОВ ЭТОГО ФАЙЛА.
 #
-#   make -C docker -f build.mk image                    # собрать образ окружения
-#   make -C docker -f build.mk shell                     # интерактивная оболочка (ARCH=i386 по умолчанию)
-#   make -C docker -f build.mk shell ARCH=evbearm-el     # то же, под другую архитектуру
-#   make -C docker -f build.mk build ARCH=amd64 BUILD_TARGET=tools
-#   make -C docker -f build.mk hdimage                   # собрать minix_x86.img (i386, releasetools/x86_hdimage.sh)
-#   make -C docker -f build.mk hdimage SMP=yes           # то же с CONFIG_SMP -> minix_x86_smp.img
-#   make -C docker -f build.mk test-i386                 # автоматический прогон minix/tests, 1 CPU
-#   make -C docker -f build.mk test-i386 SMP=yes CPUS=4  # то же на SMP-ядре, 4 CPU
-#   make -C docker -f build.mk test-i386 TESTS=43,71     # только выбранные тесты
-#   make -C docker -f build.mk test-i386 HANG_IDLE=120   # зависание = 120 с тишины (дамп в *.postmortem/)
-#   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 KARGS=no_smp=1  # доп. аргументы ядра
-#   Ctrl-C во время test-i386                            # post-mortem и остановка (второй Ctrl-C — без дампа)
-#   make -C docker -f build.mk test-snapshot             # из другого терминала: снимок, прогон продолжается
-#   make -C docker -f build.mk test-stop                 # из другого терминала: post-mortem и остановка
-#   make -C docker -f build.mk sdimage                   # собрать minix_arm_sd.img (evbearm-el/BeagleBoard-xM)
-#   make -C docker -f build.mk qemu-hdimage              # запустить x86-образ в QEMU
-#   make -C docker -f build.mk qemu-sdimage              # запустить ARM SD-образ в QEMU
-#   make -C docker -f build.mk clean-obj ARCH=i386       # снести obj/i386 и пересобрать с нуля
+#> ReMinix — сборка и запуск в Docker.  Запускать из корня репозитория:
+#>     make -C docker -f build.mk <цель> [ПАРАМЕТР=значение ...]
+#> Подробно: docs/docker-build.md (сборка), docs/testing.md (тесты, дампы).
+#>
+#> ОКРУЖЕНИЕ
+#>   help            эта справка (цель по умолчанию; Docker не запускается)
+#>   image           собрать Docker-образ окружения reminix-build:latest.
+#>                   Его вызывают все цели ниже; шаг ходит в сеть за базовым
+#>                   образом. Без сети или чтобы не пересобирать: make -o image ...
+#>   shell           интерактивная оболочка в контейнере       [ARCH]
+#>   clean-obj       удалить obj/<ARCH>[-smp] (следующая сборка — с нуля) [ARCH SMP]
+#>   clean-image     удалить Docker-образ
+#>
+#> СБОРКА
+#>   build           build.sh для ARCH, без образа диска      [ARCH BUILD_TARGET BUILDVARS JOBS]
+#>   hdimage         образ диска i386: minix_x86.img, с SMP=yes — minix_x86_smp.img
+#>                   (releasetools/x86_hdimage.sh)            [SMP MAX_CPUS JOBS BUILDVARS]
+#>   sdimage         SD-образ earm (BeagleBoard-xM): minix_arm_sd.img
+#>
+#> ТЕСТЫ (minix/tests в QEMU, i386; сначала hdimage с тем же SMP=)
+#>   test-i386       автоматический прогон, журнал obj/test-logs/i386[-smp]-cpuN-<дата>.log,
+#>                   итог — в <журнал>.result.  Ctrl-C: дамп и остановка (второй — без дампа)
+#>                   [SMP CPUS TESTS HANG_IDLE TEST_TIMEOUT KARGS SNAPSHOT_AT ACCEL]
+#>   test-snapshot   из другого терминала: снимок идущего test-i386/run-i386
+#>                   в <журнал>.snapshot-<N>s/, система работает дальше
+#>   test-stop       из другого терминала: дамп в <журнал>.postmortem/ и остановка
+#>
+#> ЗАПУСК СИСТЕМЫ
+#>   run-i386        загрузить систему в QEMU с консолью MINIX на последовательном
+#>                   порту в этом терминале (вход: root без пароля). Журнал
+#>                   obj/test-logs/i386[-smp]-cpuN-console-<дата>.log, снимки и дамп —
+#>                   как у test-i386 (test-snapshot / test-stop), плюс автоснимок
+#>                   на каждую новую строку с PANIC_RE на консоли или на экране VGA
+#>                   (паника ядра видна только там; в дампе — vga.txt).  Образ открыт с
+#>                   snapshot=on — изменения не сохраняются.
+#>                   Ctrl-C уходит в MINIX; Ctrl-A x — выйти из QEMU сразу; Ctrl-A h — клавиши QEMU.
+#>                   Ввод можно подать конвейером:  (sleep 90; echo root; sleep 5; echo top) | make ...
+#>                   [SMP CPUS KARGS SNAPSHOT_AT ACCEL PANIC_RE]
+#>   qemu-hdimage    старый запуск: QEMU с загрузчиком из образа, без журнала и дампов [SMP]
+#>   qemu-sdimage    QEMU beaglexm с SD-образом earm
+#>
+#> ПАРАМЕТРЫ (по умолчанию)
+#>   ARCH=i386          архитектура: i386, evbearm-el, ...
+#>   SMP=no             yes: ядро с CONFIG_SMP; свой obj/<ARCH>-smp и minix_x86_smp.img
+#>   MAX_CPUS=8         CONFIG_MAX_CPUS для SMP=yes
+#>   JOBS=<nproc>       параллельность build.sh
+#>   BUILD_TARGET=release   цель build.sh для "build" (tools, distribution, release, ...)
+#>   BUILDVARS=         доп. аргументы build.sh (-V VAR=value ...)
+#>   CPUS=1 (4 при SMP=yes)   число виртуальных CPU; при CPUS>1 ядру добавляется no_apic=0
+#>   TESTS=             список тестов через запятую (43,71,sh1); пусто — все
+#>   HANG_IDLE=600      секунд тишины консоли до признания зависания (дамп).
+#>                      SMP: полный прогон — 1800 (тест 70 долго молчит), TESTS=41 — не меньше 200
+#>   TEST_TIMEOUT=5400  предел времени всего прогона, секунд
+#>   KARGS=             доп. аргументы ядра: no_apic=1 (SMP-ядро на 1 CPU), tickdebug=N, ...
+#>   SNAPSHOT_AT=       через N секунд снять один снимок работающей системы
+#>   ACCEL=             tcg | kvm вместо автовыбора (KVM, если есть /dev/kvm)
+#>   PANIC_RE=panic     run-i386: regexp строк консоли и экрана VGA для автоснимка; пусто — выключить
+#>
+#> ПРИМЕРЫ
+#>   make -C docker -f build.mk hdimage SMP=yes
+#>   make -C docker -f build.mk test-i386 SMP=yes CPUS=2 HANG_IDLE=1800
+#>   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=31,31,31
+#>   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 KARGS=no_apic=1
+#>   make -C docker -f build.mk run-i386 SMP=yes CPUS=4
+#>   make -o image -C docker -f build.mk test-i386       # не трогать Docker-образ
+#>   Долгий прогон, не привязанный к терминалу:
+#>   (setsid nohup make -o image -C docker -f build.mk test-i386 ... > obj/test-logs/run.out 2>&1 < /dev/null &)
 #
 # Состояние сборки (объектные файлы, DESTDIR, releasedir) живёт в
 # obj/<ARCH>[-smp] внутри репозитория — эта директория уже покрыта
@@ -64,6 +114,12 @@ SNAPSHOT_AT  ?=
 ACCEL        ?=
 # метка контейнера test-i386, по ней его находят test-snapshot / test-stop
 TEST_LABEL   := reminix-test=1
+# run-i386: строки консоли, по которым снимается автоматический снимок
+# (расширенное регулярное выражение; пусто — выключено)
+PANIC_RE     ?= panic
+# -t только при терминале на stdin: иначе (ввод из конвейера) docker run -t
+# отказывается работать
+TTY_FLAG     := $(shell test -t 0 && echo -t)
 
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
@@ -128,10 +184,10 @@ DOCKER_RUN_BASE = docker run --rm \
 
 DOCKER_RUN = $(DOCKER_RUN_BASE) $(IMAGE)
 
-.PHONY: help image shell build hdimage sdimage test-i386 test-snapshot test-stop qemu-hdimage qemu-sdimage clean-obj clean-image
+.PHONY: help image shell build hdimage sdimage test-i386 run-i386 test-snapshot test-stop qemu-hdimage qemu-sdimage clean-obj clean-image
 
 help:
-	@sed -n '2,/^$$/p' $(lastword $(MAKEFILE_LIST))
+	@sed -n 's/^#> \{0,1\}//p' $(lastword $(MAKEFILE_LIST))
 
 image:
 	docker build \
@@ -180,6 +236,19 @@ test-i386: image
 		$(TEST_TIMEOUT) \
 		obj/test-logs/i386$(FLAVOR)-cpu$(CPUS)-$(shell date +%Y%m%d-%H%M%S).log \
 		docker/tests-known-failures.i386
+
+# Интерактивный запуск (docs/testing.md §1в): та же загрузка, что у
+# test-i386, но без testrun -- консоль MINIX на последовательном порту,
+# подключённом к терминалу. Журнал obj/test-logs/i386[-smp]-cpuN-console-*.log,
+# снимки и post-mortem -- как у тестов (test-snapshot / test-stop работают по
+# той же метке), плюс автоматический снимок на каждую новую строку PANIC_RE.
+run-i386: ARCH := i386
+run-i386: image
+	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) --label $(TEST_LABEL) -i $(TTY_FLAG) -e KARGS="$(KARGS)" -e SNAPSHOT_AT=$(SNAPSHOT_AT) -e ACCEL=$(ACCEL) -e PANIC_RE="$(PANIC_RE)" $(IMAGE) bash docker/run-console.sh \
+		$(CONTAINER_DEST)/boot/minix/.temp \
+		$(IMG_NAME) \
+		$(CPUS) \
+		obj/test-logs/i386$(FLAVOR)-cpu$(CPUS)-console-$(shell date +%Y%m%d-%H%M%S).log
 
 # Управление идущим прогоном из другого терминала (docs/testing.md §1б).
 # Контейнер test-i386 помечен меткой TEST_LABEL; run-tests.sh — его PID 1 и

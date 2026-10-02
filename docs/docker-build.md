@@ -162,7 +162,12 @@ old-releases-зеркало или PPA до следующего раза, ко�
 
 Всё — через `docker/build.mk`, запускается из корня репозитория:
 
+Полный список целей и параметров с описанием — `make -C docker -f build.mk help`
+(цель по умолчанию, Docker не запускает; справка — строки `#>` в начале
+`build.mk`, её обновляют вместе с любым изменением целей и параметров).
+
 ```sh
+make -C docker -f build.mk help                     # справка: цели, параметры, примеры
 make -C docker -f build.mk image                    # собрать образ окружения (один раз, дальше кэшируется)
 make -C docker -f build.mk shell                    # интерактивная оболочка внутри контейнера, ARCH=i386 по умолчанию
 make -C docker -f build.mk shell ARCH=evbearm-el    # то же, под ARM
@@ -178,6 +183,7 @@ make -C docker -f build.mk test-i386                # автоматически
 make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=43,71
 make -C docker -f build.mk test-snapshot            # из другого терминала: снимок идущего прогона
 make -C docker -f build.mk test-stop                # из другого терминала: post-mortem и остановка (как Ctrl-C)
+make -C docker -f build.mk run-i386 SMP=yes CPUS=4  # интерактивная консоль MINIX с журналом и снимками (docs/testing.md §1в)
 make -C docker -f build.mk qemu-hdimage             # qemu-system-i386 -hda minix_x86.img (KVM, если /dev/kvm доступен)
 make -C docker -f build.mk qemu-sdimage             # qemu-system-arm -M beaglexm ...
 
@@ -189,8 +195,8 @@ make -C docker -f build.mk clean-image              # удалить сам dock
 `build.sh`, см. пример с `MKGCCCMDS`/`MKLLVM` для ARM в `docs/build-arm32.md` §2) и
 `IMAGE_TAG` — тоже переопределяемые переменные `make`.
 
-Каждая цель, кроме `clean-*`, сама пересобирает образ при необходимости (`image` —
-это зависимость), так что отдельно помнить про `make -C docker -f build.mk image` не обязательно
+Каждая цель, кроме `help` и `clean-*`, сама пересобирает образ при необходимости (`image` —
+это зависимость; шаг ходит в сеть за базовым образом — без сети `make -o image …`), так что отдельно помнить про `make -C docker -f build.mk image` не обязательно
 — но при первом запуске это удобно сделать явно, чтобы увидеть вывод `apt-get`
 отдельно от вывода сборки.
 

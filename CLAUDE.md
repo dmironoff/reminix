@@ -55,7 +55,10 @@ amd64, arm32, aarch64, risc-v64, mips64 и развитие как микроя�
   проверена на i386: `make -C docker -f build.mk hdimage`. См. `docs/docker-build.md`.
   Тесты в QEMU — `make -C docker -f build.mk test-i386 [SMP=yes CPUS=N]`; дамп
   машины в любой момент — Ctrl-C, `test-snapshot`, `test-stop`
-  (`docs/testing.md` §1, §1б). Журналы и дампы — `obj/test-logs/`.
+  (`docs/testing.md` §1, §1б). Интерактивная консоль с журналом и снимками —
+  `run-i386` (§1в). Журналы и дампы — `obj/test-logs/`. Все цели и параметры —
+  `make -C docker -f build.mk help`; справку (`#>` в `build.mk`) обновлять при
+  каждом изменении `build.mk`.
 
 ## Как мы работаем
 

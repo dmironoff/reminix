@@ -468,6 +468,9 @@ get_cpu_ticks(unsigned int cpu, uint64_t ticks[CPUSTATES])
 	int i;
 
 	/* TODO: make this inter-CPU safe! */
+	/* MIB asks for every CONFIG_MAX_CPUS slot; a CPU that never started
+	 * has no tick length yet (docs/testing.md 4.15) */
 	for (i = 0; i < CPUSTATES; i++)
-		ticks[i] = tsc_per_state[cpu][i] / tsc_per_tick[cpu];
+		ticks[i] = tsc_per_tick[cpu] ?
+		    tsc_per_state[cpu][i] / tsc_per_tick[cpu] : 0;
 }

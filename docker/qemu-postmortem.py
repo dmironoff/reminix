@@ -16,6 +16,9 @@ Writes into OUTDIR:
   kernel          copy of the kernel ELF (objdump -d)
   <symbol>.bin    raw kernel memory of the regions listed in REGIONS
   bkl.txt         decoded BKL owner and last lock/unlock events (SMP kernel)
+  vga.txt         text screen of the VGA console: a kernel panic is printed
+                  there directly, the serial console never shows it
+  kmessages.txt   printable text of the kernel message buffer
 """
 import bisect
 import os
@@ -32,7 +35,7 @@ import time
 REGIONS = [
     "proc", "priv", "__cpu_local_vars", "cpus", "ncpus", "bsp_cpu_id",
     "big_kernel_lock", "boot_lock", "dispq_lock", "smp_cpu_lock",
-    "kinfo", "kclockinfo", "kmess",
+    "kinfo", "kclockinfo", "kmessages",
     # BKL debugging, smp.c (SMP kernels only)
     "bkl_owner_cpu", "bkl_owner_pc", "bkl_trace_seq", "bkl_trace",
     "bkl_relock_pc", "bkl_relock_owner",
@@ -138,6 +141,24 @@ def bkl_report(outdir, syms):
         f.write("\n".join(out) + "\n")
 
 
+def text_reports(outdir):
+    """vga.txt from vga.bin, kmessages.txt from kmessages.bin."""
+    def printable(b):
+        return "".join(chr(c) if 32 <= c < 127 or c == 10 else "" for c in b)
+    vga = os.path.join(outdir, "vga.bin")
+    if os.path.exists(vga):
+        b = open(vga, "rb").read()
+        rows = ["".join(chr(b[(r * 80 + c) * 2]) if 32 <= b[(r * 80 + c) * 2] < 127
+                        else " " for c in range(80)).rstrip()
+                for r in range(len(b) // 160)]
+        with open(os.path.join(outdir, "vga.txt"), "w") as f:
+            f.write("\n".join(rows).rstrip("\n") + "\n")
+    km = os.path.join(outdir, "kmessages.bin")
+    if os.path.exists(km):
+        with open(os.path.join(outdir, "kmessages.txt"), "w") as f:
+            f.write(printable(open(km, "rb").read()) + "\n")
+
+
 def main():
     if len(sys.argv) not in (5, 6) or (len(sys.argv) == 6 and sys.argv[5] != "cont"):
         print(__doc__, file=sys.stderr)
@@ -187,12 +208,19 @@ def main():
         # the expression SIZE / path and fails with "invalid char"
         res = mon.cmd('memsave 0x%x %d "%s"' % (addr, size, path))
         saved.append("%-20s 0x%08x %8d %s" % (name, addr, size, res.strip()))
+    # VGA text mode screen, 80x25 (char, attribute) pairs, physical 0xb8000
+    vga = os.path.join(os.path.abspath(outdir), "vga.bin")
+    mon.cmd('pmemsave 0xb8000 4000 "%s"' % vga)
     report.append("### saved regions (name, address, size)\n" + "\n".join(saved) + "\n")
     if resume:
         mon.cmd("cont")
 
     with open(os.path.join(outdir, "monitor.txt"), "w") as f:
         f.write("\n".join(report))
+    try:
+        text_reports(outdir)
+    except Exception as e:
+        print("vga.txt/kmessages.txt not written: %s" % e)
     try:
         bkl_report(outdir, syms)
     except Exception as e:              # the dump itself is still useful
