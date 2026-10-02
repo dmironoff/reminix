@@ -31,15 +31,21 @@ CFLAGS_m64-san := -m64 $(SANITIZE)
 # Code under test per module (none yet: bitmap is header-only).
 SRCS_bitmap  :=
 
+# A module with its own build steps has <module>/module.mk; it may set
+# EXTRA_<module>_<variant> (objects linked into the tests, files they
+# need first) and CFLAGS_<module>.  abi64 does (docs/types-audit.md).
+include $(wildcard $(addsuffix /module.mk,$(MODULES)))
+
 TESTS := $(foreach m,$(MODULES),$(basename $(wildcard $(m)/t_*.c)))
 BINS  := $(foreach v,$(VARIANTS),$(addprefix $(HT_OBJ)/$(v)/,$(TESTS)))
 
 # $(1) variant, $(2) module/t_name
 define test_rule
-$(HT_OBJ)/$(1)/$(2): $(2).c $(addprefix $(TOP)/,$(SRCS_$(patsubst %/,%,$(dir $(2))))) hosttest.h
+$(HT_OBJ)/$(1)/$(2): $(2).c $(addprefix $(TOP)/,$(SRCS_$(patsubst %/,%,$(dir $(2))))) hosttest.h \
+		$(EXTRA_$(patsubst %/,%,$(dir $(2)))_$(1))
 	@mkdir -p $$(@D)
 	$(HOSTCC) $(CFLAGS_BASE) $(CFLAGS_$(1)) \
-		$(CFLAGS_$(patsubst %/,%,$(dir $(2)))) -o $$@ $$(filter %.c,$$^)
+		$(CFLAGS_$(patsubst %/,%,$(dir $(2)))) -o $$@ $$(filter %.c %.o,$$^)
 endef
 $(foreach v,$(VARIANTS),$(foreach t,$(TESTS),$(eval $(call test_rule,$(v),$(t)))))
 

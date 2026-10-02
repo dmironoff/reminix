@@ -1,6 +1,7 @@
 /*
  * Tests of the harness itself: a failing check, a REQUIRE, a crash and a
- * sanitizer report must all be seen as failures, a clean test as a pass.
+ * sanitizer report must all be seen as failures, a clean test as a pass,
+ * a test under TODO() as an expected failure (or a pass to report).
  */
 #include "hosttest.h"
 
@@ -23,6 +24,28 @@ require_fails(void)
 {
 	REQUIRE(0);
 	abort();			/* not reached */
+}
+
+static void
+todo_fails(void)
+{
+	TODO("known problem");
+	CHECK(0);
+}
+
+static void
+todo_require_fails(void)
+{
+	TODO("known problem");
+	REQUIRE(0);
+	abort();			/* not reached */
+}
+
+static void
+todo_passes(void)
+{
+	TODO("known problem, fixed since");
+	CHECK(1);
 }
 
 static void
@@ -55,6 +78,13 @@ TEST(harness_check_fails)
 TEST(harness_require_fails)
 {
 	CHECK_EQ(ht_run_isolated(require_fails, 0, 1), 1);
+}
+
+TEST(harness_todo)
+{
+	CHECK_EQ(ht_run_isolated(todo_fails, 0, 1), 3);
+	CHECK_EQ(ht_run_isolated(todo_require_fails, 0, 1), 3);
+	CHECK_EQ(ht_run_isolated(todo_passes, 0, 1), 4);
 }
 
 TEST(harness_crash)

@@ -11,6 +11,11 @@
  *	CHECK(cond)		record a failure and go on
  *	CHECK_EQ(a, b)		same, printing both values (as uintmax_t)
  *	REQUIRE(cond)		record a failure and end the test
+ *	TODO(reason)		the test checks a known, not yet fixed problem:
+ *				its failure is reported as "not ok K - name
+ *				# TODO" and does not fail the program; if it
+ *				passes, "ok K - name # TODO" says the mark
+ *				can go (run.sh lists such tests)
  *	ht_rand()		64-bit pseudo-random number; the seed is
  *	ht_rand_below(n)	printed at start, HOSTTEST_SEED=N repeats a run
  *
@@ -39,6 +44,7 @@ static struct {
 } ht_tests[HT_MAX_TESTS];
 static int ht_ntests;
 static int ht_failed;		/* failed checks in the current test */
+static const char *ht_todo;	/* TODO(reason) of the current test */
 static uint64_t ht_seed;
 static uint64_t ht_rng;
 
@@ -85,13 +91,27 @@ ht_check_eq(uintmax_t a, uintmax_t b, const char *file, int line,
 	return a == b;
 }
 
+/* Exit status of a test child: 0 pass, 1 fail, 3/4 fail/pass under TODO. */
+static void
+ht_exit(void)
+{
+	fflush(stdout);
+	if (ht_todo != NULL)
+		exit(ht_failed ? 3 : 4);
+	exit(ht_failed ? 1 : 0);
+}
+
 #define CHECK(cond)	ht_check(!!(cond), __FILE__, __LINE__, #cond)
 #define CHECK_EQ(a, b)	ht_check_eq((uintmax_t)(a), (uintmax_t)(b),	\
 			    __FILE__, __LINE__, #a, #b)
-#define REQUIRE(cond)	do { if (!CHECK(cond)) exit(1); } while (0)
+#define REQUIRE(cond)	do { if (!CHECK(cond)) ht_exit(); } while (0)
+#define TODO(reason)	do {						\
+			    ht_todo = (reason);				\
+			    printf("# TODO: %s\n", ht_todo);		\
+			} while (0)
 
 /* xorshift64*: fast, good enough for test sequences, never 0. */
-static uint64_t
+static __attribute__((unused)) uint64_t
 ht_rand(void)
 {
 	ht_rng ^= ht_rng >> 12;
@@ -100,7 +120,7 @@ ht_rand(void)
 	return ht_rng * UINT64_C(0x2545F4914F6CDD1D);
 }
 
-static uint64_t
+static __attribute__((unused)) uint64_t
 ht_rand_below(uint64_t n)
 {
 	return n ? ht_rand() % n : 0;
@@ -109,8 +129,8 @@ ht_rand_below(uint64_t n)
 /*
  * Run fn in a forked child (seeded for test number idx).  Returns 0 if it
  * passed, 1 if a check failed (or it exited non-zero, e.g. a sanitizer
- * report), 2 if it died from a signal.  quiet: discard its output -- for
- * tests of the harness itself.
+ * report), 2 if it died from a signal, 3/4 if it failed/passed under
+ * TODO().  quiet: discard its output -- for tests of the harness itself.
  */
 static int
 ht_run_isolated(ht_fn fn, int idx, int quiet)
@@ -129,13 +149,13 @@ ht_run_isolated(ht_fn fn, int idx, int quiet)
 		    freopen("/dev/null", "w", stderr) == NULL))
 			exit(2);
 		ht_failed = 0;
+		ht_todo = NULL;
 		ht_rng = ht_seed ^ ((uint64_t)(idx + 1) *
 		    UINT64_C(0x9E3779B97F4A7C15));
 		if (ht_rng == 0)
 			ht_rng = 1;
 		fn();
-		fflush(stdout);
-		exit(ht_failed ? 1 : 0);
+		ht_exit();
 	}
 	while (waitpid(pid, &status, 0) < 0)
 		;
@@ -144,9 +164,17 @@ ht_run_isolated(ht_fn fn, int idx, int quiet)
 			printf("# killed by signal %d\n", WTERMSIG(status));
 		return 2;
 	}
-	if (WEXITSTATUS(status) != 0 && !quiet)
-		printf("# exit status %d\n", WEXITSTATUS(status));
-	return WEXITSTATUS(status) != 0;
+	switch (WEXITSTATUS(status)) {
+	case 0:
+		return 0;
+	case 3:
+	case 4:
+		return WEXITSTATUS(status);
+	default:
+		if (!quiet)
+			printf("# exit status %d\n", WEXITSTATUS(status));
+		return 1;
+	}
 }
 
 static int
@@ -182,9 +210,17 @@ main(int argc, char **argv)
 		if (!ht_selected(ht_tests[i].name, argc, argv))
 			continue;
 		k++;
-		if (ht_run_isolated(ht_tests[i].fn, i, 0) == 0) {
+		switch (ht_run_isolated(ht_tests[i].fn, i, 0)) {
+		case 0:
 			printf("ok %d - %s\n", k, ht_tests[i].name);
-		} else {
+			break;
+		case 3:
+			printf("not ok %d - %s # TODO\n", k, ht_tests[i].name);
+			break;
+		case 4:
+			printf("ok %d - %s # TODO\n", k, ht_tests[i].name);
+			break;
+		default:
 			printf("not ok %d - %s\n", k, ht_tests[i].name);
 			failed++;
 		}

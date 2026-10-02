@@ -90,7 +90,7 @@
 #>   ACCEL=             tcg | kvm вместо автовыбора (KVM, если есть /dev/kvm)
 #>   QUICK_DIRS="minix/lib minix/kernel minix/servers minix/fs minix/net minix/drivers"
 #>                      quick: что пересобирать (каталоги дерева, по порядку)
-#>   HOST_TESTS=        host-test: модули через запятую (bitmap,selftest); пусто — все
+#>   HOST_TESTS=        host-test: модули через запятую (abi64,bitmap,selftest); пусто — все
 #>   HOST_VARIANTS="m32 m64 m32-san m64-san"
 #>                      host-test: варианты сборки (-m32/-m64, -san — ASan+UBSan)
 #>   PANIC_RE=panic     run-*: regexp строк консоли (и экрана VGA на i386) для автоснимка;
@@ -105,6 +105,7 @@
 #>   make -C docker -f build.mk run-i386 SMP=yes CPUS=4
 #>   make -C docker -f build.mk sdimage BOARD=beaglebone
 #>   make -C docker -f build.mk host-test HOST_TESTS=bitmap HOST_VARIANTS=m64-san
+#>   make -C docker -f build.mk host-test HOST_TESTS=abi64    # раскладки типов 32/64 (types-audit.md)
 #>   make -C docker -f build.mk run-earm BOARD=orangepi-pc
 #>   make -o image -C docker -f build.mk test-i386       # не трогать Docker-образ
 #>   Долгий прогон, не привязанный к терминалу:
