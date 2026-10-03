@@ -123,7 +123,7 @@
 | Шаг | Что сделать | Проверка |
 |---|---|---|
 | 0.4 (**выполнено 2026-10-03**, 3.4) | импорт `dtc` v1.8.1 (3.3); `tools/libfdt`, `tools/dtc`; `TOOL_DTC`, `MKDTC`, `MKDTB` в `bsd.own.mk`; `external/gpl2/dtc/lib/libfdt` (публично) и пять утилит в `usr.bin`; списки наборов | `build.sh tools` собирает `nbdtc`; в образе i386 работают `dtc -v`, `fdtdump`, `fdtget` на тестовом `.dtb` |
-| 0.5 | импорт devicetree-rebasing v7.2-dts целиком (3.3); `bsd.dtb.mk` с путями под его раскладку; `sys/dtb/arm/allwinner` со списком из `sun8i-h3-orangepi-pc-plus.dtb` | сборка `evbearm` даёт `.dtb`; `fdtdump` показывает `compatible = "xunlong,orangepi-pc-plus"`, узлы `/cpus`, `/memory` |
+| 0.5 (**выполнено 2026-10-03**, 3.5) | импорт devicetree-rebasing v7.2-dts целиком (3.3); `bsd.dtb.mk` с путями под его раскладку; `sys/dtb/arm/allwinner` со списком из `sun8i-h3-orangepi-pc-plus.dtb` | сборка `evbearm` даёт `.dtb`; `fdtdump` показывает `compatible = "xunlong,orangepi-pc-plus"`, узел `/cpus`. Узла `/memory` в апстримных DTS sunxi нет — его добавляет U-Boot (место — `-p 1024`) |
 | 0.6 | libfdt в `minix/kernel/arch/earm/Makefile.inc` (unpaged) + патч `libfdt_env.h`; тесты на хосте, разбирающие `.dtb` из 0.5 | ядро earm собирается и линкуется; ядро i386 не меняется; тесты на хосте проходят |
 
 ### 3.3 Процедура импорта (повторяемая)
@@ -155,10 +155,14 @@
      MINIX (3.1 п. 6).
 5. Один коммит: «Import dtc 1.8.1».
 
-**DTS:**
+**DTS** (выполнено 2026-10-03: тег `v7.2-dts`, объект тега `41930a1e…`, коммит
+`1826bba6fb1c8c0b6d845f8308590dcfd1f7f859` от 23.08.2026 — исправленная история;
+дата в объекте тега — 16.08.2026, тег при перезаписи сохранили):
 1. Взять devicetree-rebasing на теге `v7.2-dts` (после 23.08.2026), записать
-   хэш коммита, проверить размер (~200 МБ).
-2. Скопировать дерево без `.git` в `sys/external/gpl2/dts/dist`.
+   хэш коммита, проверить размер (~200 МБ полный клон; неглубокий клон
+   `--depth 1` — `.git` 19 МБ, дерево 106 МБ, 14 176 файлов).
+2. Скопировать дерево без `.git` в `sys/external/gpl2/dts/dist` (`AGENTS.md`/
+   `CLAUDE.md` в нём нет; проверять при каждом импорте).
 3. Записать тег и хэш в `sys/external/gpl2/dts/README` (дополнив лицензионное
    правило NetBSD про `dt-bindings`).
 4. Один коммит: «Import devicetree-rebasing v7.2-dts (<хэш>)».
@@ -182,6 +186,22 @@ earm собирает `nbdtc` с нуля, тест `minix/tests/testfdt.sh` (`f
 `minix/tests/run`): `dtc -v`, компиляция `.dts` с `-p 1024 -@`, `fdtdump`,
 `fdtget`, `fdtput`, `fdtoverlay`, обратно в `.dts` и снова в `.dtb` — PASS в
 QEMU i386. Тест можно прогнать и на хосте, собрав утилиты gcc из `dist`.
+
+### 3.5 Состояние после шага 0.5 (2026-10-03)
+
+| Что | Где |
+|---|---|
+| DTS апстрима | `sys/external/gpl2/dts/dist` (devicetree-rebasing v7.2-dts целиком, без изменений), `sys/external/gpl2/dts/README` — тег, хэш, лицензионное правило |
+| правила сборки | `share/mk/bsd.dtb.mk`: по образцу NetBSD, пути `dist/src/<arch>` вместо `dist/arch/<arch>/boot/dts`; ссылки `dts/<arch>` в объектном каталоге; список `.dtb` — явный `DTS` (у devicetree-rebasing нет `Makefile` вендоров), без логики overlay NetBSD; `-p 1024 -b 0 -@` |
+| что собирать | `sys/dtb/Makefile` (`earm*` → `arm`), `sys/dtb/arm/Makefile.inc` (`DTSARCH=arm`, `DTSGNUARCH=arm arm64 riscv`), `sys/dtb/arm/allwinner/Makefile` (`sun8i-h3-orangepi-pc-plus.dts`) |
+| подключение | `sys/Makefile`: `SUBDIR+=dtb` при `MKDTB`; `bsd.own.mk`: `DTBDIR=/boot/dtb`, `DTBOWN`, `DTBGRP`, `DTBMODE` |
+| установка | `/boot/dtb/allwinner/sun8i-h3-orangepi-pc-plus.dtb`; каталоги — `etc/mtree/NetBSD.dist.earm`, файлы — `distrib/sets/lists/minix-base/md.evbarm` (`make dtblist` в `sys/dtb` печатает строки) |
+
+Проверка: `.dtb` (31 362 байта) — `compatible = "xunlong,orangepi-pc-plus",
+"allwinner,sun8i-h3"`, модель «Xunlong Orange Pi PC Plus», `/cpus` с четырьмя
+ядрами, `__symbols__` (для overlay); `/memory` нет — добавит U-Boot. Полная
+сборка earm и i386 — `checkflist` чист. На плате и в QEMU `orangepi-pc` `.dtb`
+пока не используется (шаги Б1/Б2).
 
 ## 4. Что дальше (вне этапа 0)
 

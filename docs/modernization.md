@@ -412,7 +412,7 @@ ASID, PSCI, GIC, generic timer и загрузку через U-Boot + fitImage.
 | 0.2 | аудит 64-битных типов: список мест, без правок кода — **выполнено 2026-10-02** (`docs/types-audit.md`: 323 места, порядок исправлений, открытые вопросы; тест `minix/tests/host/abi64`, проход `scan64.py`; путеводитель по сообщениям IPC — `docs/messages.md`) | 7 (ч. 1) | всем |
 | 0.3 | `kyield` — **выполнено 2026-10-03**: ловушка IPC `MINIX_YIELD`, `kyield()`/`sched_yield()`, тест 95 (п. 1) | 1 | А |
 | 0.4 | **выполнено 2026-10-03** (`devicetree.md` §3.4): импорт `dtc` v1.8.1 (libfdt → `sys/external/bsd/libfdt/dist`); host tools `tools/libfdt`, `tools/dtc`; утилиты `dtc`, `fdtdump`, `fdtget`, `fdtput`, `fdtoverlay` и публичная `libfdt` в системе (`docs/devicetree.md` §3) | 9, 10 | Б |
-| 0.5 | импорт devicetree-rebasing v7.2-dts целиком в `sys/external/gpl2/dts/dist` (тег + хэш); `bsd.dtb.mk`, `sys/dtb`; сборка `.dtb` Orange Pi PC Plus в `build.sh`, проверка через `fdtdump` | 9 | Б |
+| 0.5 | **выполнено 2026-10-03** (`devicetree.md` §3.5): импорт devicetree-rebasing v7.2-dts целиком в `sys/external/gpl2/dts/dist` (тег + хэш); `bsd.dtb.mk`, `sys/dtb`; сборка `.dtb` Orange Pi PC Plus в `build.sh`, проверка через `fdtdump` | 9 | Б |
 | 0.6 | libfdt в сборке ядра earm (только чтение, unpaged) с тестами на хосте; на i386 не собирается | 10 | Б |
 
 0.1–0.3 и 0.4–0.6 — две независимые линии, код не пересекается (`tools/`,

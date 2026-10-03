@@ -5,6 +5,9 @@
 # ../../../../releasetools/sort_set.pl < mi > out
 # mv out mi
 #
+./boot/dtb                                              minix-base
+./boot/dtb/allwinner                                    minix-base
+./boot/dtb/allwinner/sun8i-h3-orangepi-pc-plus.dtb      minix-base
 ./etc/rc.capes                                          minix-base
 ./etc/rc.capes/BB-BONE-WTHR-01                          minix-base
 ./etc/system.conf.d/bmp085                              minix-base

@@ -879,6 +879,12 @@ RUMPBINOWN?=	root
 RUMPBINMODE?=	555
 RUMPNONBINMODE?=444
 
+# .dtb files (bsd.dtb.mk, docs/devicetree.md, 3)
+DTBDIR?=	/boot/dtb
+DTBGRP?=	wheel
+DTBOWN?=	root
+DTBMODE?=	${NONBINMODE}
+
 MANDIR?=	/usr/share/man
 MANGRP?=	wheel
 MANOWN?=	root

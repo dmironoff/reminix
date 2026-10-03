@@ -16,6 +16,10 @@ SUBDIR+=modules
 #.endif
 .endif # !defined(__MINIX)
 
+.if make(obj) || make(cleandir) || ${MKDTB} != "no"
+SUBDIR+=dtb
+.endif
+
 # LSC FIXME: Remove this test as soon as we have imported RUMP
 .if !defined(__MINIX)
 .if make(includes) || make(obj) || make(cleandir)
