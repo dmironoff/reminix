@@ -232,6 +232,11 @@ SUBDIR+=	mkubootimage
 .endif
 .endif # !defined(__MINIX)
 
+# Host dtc for building .dtb files (docs/devicetree.md, 3.1)
+.if ${MKDTB} != "no"
+SUBDIR+=	libfdt .WAIT dtc
+.endif
+
 .if ${MKX11} != "no"
 SUBDIR+=	makestrs
 SUBDIR+=	makekeys

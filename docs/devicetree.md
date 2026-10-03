@@ -122,22 +122,37 @@
 
 | Шаг | Что сделать | Проверка |
 |---|---|---|
-| 0.4 | импорт `dtc` v1.8.1 (3.3); `tools/libfdt`, `tools/dtc`; `TOOL_DTC`, `MKDTC`, `MKDTB` в `bsd.own.mk`; `external/gpl2/dtc/lib/libfdt` (публично) и пять утилит в `usr.bin`; списки наборов | `build.sh tools` собирает `nbdtc`; в образе i386 работают `dtc -v`, `fdtdump`, `fdtget` на тестовом `.dtb` |
+| 0.4 (**выполнено 2026-10-03**, 3.4) | импорт `dtc` v1.8.1 (3.3); `tools/libfdt`, `tools/dtc`; `TOOL_DTC`, `MKDTC`, `MKDTB` в `bsd.own.mk`; `external/gpl2/dtc/lib/libfdt` (публично) и пять утилит в `usr.bin`; списки наборов | `build.sh tools` собирает `nbdtc`; в образе i386 работают `dtc -v`, `fdtdump`, `fdtget` на тестовом `.dtb` |
 | 0.5 | импорт devicetree-rebasing v7.2-dts целиком (3.3); `bsd.dtb.mk` с путями под его раскладку; `sys/dtb/arm/allwinner` со списком из `sun8i-h3-orangepi-pc-plus.dtb` | сборка `evbearm` даёт `.dtb`; `fdtdump` показывает `compatible = "xunlong,orangepi-pc-plus"`, узлы `/cpus`, `/memory` |
 | 0.6 | libfdt в `minix/kernel/arch/earm/Makefile.inc` (unpaged) + патч `libfdt_env.h`; тесты на хосте, разбирающие `.dtb` из 0.5 | ядро earm собирается и линкуется; ядро i386 не меняется; тесты на хосте проходят |
 
 ### 3.3 Процедура импорта (повторяемая)
 
-**dtc / libfdt:**
-1. Скачать выпуск `dtc` (тег `v1.8.1`) из апстрима.
-2. Разложить по образцу `dtc2netbsd` (своя версия скрипта — в
-   `external/gpl2/dtc/`, вместо `cvs import` — обычный коммит в git):
-   `libfdt/` → `sys/external/bsd/libfdt/dist`, остальное →
-   `external/gpl2/dtc/dist`. Тесты апстрима (`tests/`) можно не импортировать.
+**dtc / libfdt** (выполнено 2026-10-03 для v1.8.1, коммит апстрима
+`8f48565e5cfedc74d3f7512f1e0188e9d85dc1de`):
+1. Скачать выпуск: `git clone --depth 1 --branch v1.8.1
+   https://git.kernel.org/pub/scm/utils/dtc/dtc.git /tmp/dtc`.
+2. Запустить `external/gpl2/dtc/dtc2reminix /tmp/dtc .` в Docker-образе сборки
+   (нужны bison и flex; контейнер — от своего пользователя). Скрипт (по образцу
+   `dtc2netbsd`, без RCS-тегов и `cvs import`):
+   - `libfdt/` → `sys/external/bsd/libfdt/dist`, остальное →
+     `external/gpl2/dtc/dist`;
+   - **не импортирует** `.git`, `tests/` и `AGENTS.md`/`CLAUDE.md` — правила апстрима
+     для ИИ-ассистентов, которые Claude Code принял бы за инструкции нашего
+     репозитория (там, например, требование строк `Assisted-by`);
+   - генерирует парсер и лексер `dtc` апстримными bison и flex в
+     `external/gpl2/dtc/usr.bin/dtc/` (`dtc-parser.tab.{c,h}`, `dtc-lexer.lex.c`):
+     `dtc-parser.y` использует `%locations`, а byacc дерева (20141128) реализует
+     его с ошибками даже со скелетом btyacc (`-B`). NetBSD вместо этого правит
+     `dtc-parser.y`/`dtc-lexer.l` в `dist`.
 3. Обновить `external/gpl2/dtc/usr.bin/dtc/version_gen.h`:
    `#define DTC_VERSION "DTC 1.8.1"`.
-4. Повторно наложить локальные патчи (список ведётся здесь):
-   - `sys/external/bsd/libfdt/dist/libfdt_env.h` — ветка для ядра MINIX (3.1 п. 6).
+4. Повторно наложить локальные патчи `dist` (список ведётся здесь):
+   - пока нет. `Makefile.dtc` написан для GNU make (`ifneq`), поэтому наш
+     `usr.bin/dtc/Makefile` его не подключает, а перечисляет `DTC_SRCS` явно —
+     при обновлении сверить список; NetBSD правит `Makefile.dtc`;
+   - с шага 0.6: `sys/external/bsd/libfdt/dist/libfdt_env.h` — ветка для ядра
+     MINIX (3.1 п. 6).
 5. Один коммит: «Import dtc 1.8.1».
 
 **DTS:**
@@ -147,6 +162,26 @@
 3. Записать тег и хэш в `sys/external/gpl2/dts/README` (дополнив лицензионное
    правило NetBSD про `dt-bindings`).
 4. Один коммит: «Import devicetree-rebasing v7.2-dts (<хэш>)».
+
+### 3.4 Состояние после шага 0.4 (2026-10-03)
+
+| Что | Где | Отличие от NetBSD |
+|---|---|---|
+| libfdt (BSD-2-Clause) | `sys/external/bsd/libfdt/dist` | — |
+| dtc и утилиты (GPL-2.0) | `external/gpl2/dtc/dist` | без `tests/`, `AGENTS.md`, `CLAUDE.md` |
+| скрипт импорта | `external/gpl2/dtc/dtc2reminix` | вместо `dtc2netbsd`; генерирует парсер и лексер |
+| парсер и лексер `dtc` | `external/gpl2/dtc/usr.bin/dtc/dtc-{parser.tab,lexer.lex}.*` | сгенерированы bison/flex при импорте; NetBSD правит `.y`/`.l` |
+| libfdt в системе | `external/gpl2/dtc/lib/libfdt`: `libfdt.a`, `libfdt_pic.a`, `fdt.h`, `libfdt.h`, `libfdt_env.h` | публично (NetBSD — `LIBISPRIVATE`) |
+| утилиты в системе | `external/gpl2/dtc/usr.bin/{dtc,fdtdump,fdtget,fdtput,fdtoverlay}` → `/usr/bin` | все пять (NetBSD — только `dtc`); утилиты линкуются с libfdt из её объектного каталога |
+| host tool | `tools/libfdt`, `tools/dtc` → `nbdtc` (версии из ветки netbsd-8: без `bsd.hostinit.mk`) | — |
+| переменные | `bsd.own.mk`: `TOOL_DTC`; `MKDTC` (да везде); `MKDTB` (да для `earm*`, `aarch64*`, `riscv*`, `mips64*`) | `MKDTB` пока включает только host tool; `.dtb` — шаг 0.5 |
+| подключение | `external/Makefile` += `gpl2`; `external/gpl2/Makefile`: `dtc` при `MKDTC`, NetBSD-ные `xcvs`/`lvm2` выключены на MINIX; `tools/Makefile`: `libfdt .WAIT dtc` при `MKDTB` | — |
+
+Проверка: полная сборка i386 и earm (`checkflist` чист), `build.sh tools` для
+earm собирает `nbdtc` с нуля, тест `minix/tests/testfdt.sh` (`fdt` в
+`minix/tests/run`): `dtc -v`, компиляция `.dts` с `-p 1024 -@`, `fdtdump`,
+`fdtget`, `fdtput`, `fdtoverlay`, обратно в `.dts` и снова в `.dtb` — PASS в
+QEMU i386. Тест можно прогнать и на хосте, собрав утилиты gcc из `dist`.
 
 ## 4. Что дальше (вне этапа 0)
 

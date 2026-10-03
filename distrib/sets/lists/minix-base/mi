@@ -382,6 +382,7 @@
 ./usr/bin/dosdir                                        minix-base
 ./usr/bin/dosread                                       minix-base
 ./usr/bin/doswrite                                      minix-base
+./usr/bin/dtc                                           minix-base
 ./usr/bin/du                                            minix-base
 ./usr/bin/egrep                                         minix-base
 ./usr/bin/eject                                         minix-base
@@ -391,6 +392,10 @@
 ./usr/bin/false                                         minix-base
 ./usr/bin/fbdctl                                        minix-base      obsolete
 ./usr/bin/fdisk                                         minix-base
+./usr/bin/fdtdump                                       minix-base
+./usr/bin/fdtget                                        minix-base
+./usr/bin/fdtoverlay                                    minix-base
+./usr/bin/fdtput                                        minix-base
 ./usr/bin/fetch                                         minix-base
 ./usr/bin/fgrep                                         minix-base
 ./usr/bin/file                                          minix-base

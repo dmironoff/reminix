@@ -64,6 +64,7 @@
 ./usr/lib/libexec_g.a                                   minix-debug     debuglib
 ./usr/lib/libexecinfo_g.a                               minix-debug     debuglib
 ./usr/lib/libexpat_g.a                                  minix-debug     debuglib
+./usr/lib/libfdt_g.a                                    minix-debug     debuglib
 ./usr/lib/libfetch_g.a                                  minix-debug     debuglib
 ./usr/lib/libfl_g.a                                     minix-debug     debuglib
 ./usr/lib/libform_g.a                                   minix-debug     debuglib
@@ -276,12 +277,17 @@
 ./usr/libdata/debug/usr/bin/dig.debug                   minix-debug     debug
 ./usr/libdata/debug/usr/bin/dirname.debug               minix-debug     debug
 ./usr/libdata/debug/usr/bin/dosread.debug               minix-debug     debug
+./usr/libdata/debug/usr/bin/dtc.debug                   minix-debug     debug
 ./usr/libdata/debug/usr/bin/du.debug                    minix-debug     debug
 ./usr/libdata/debug/usr/bin/eject.debug                 minix-debug     debug
 ./usr/libdata/debug/usr/bin/elfedit.debug               minix-debug     debug
 ./usr/libdata/debug/usr/bin/env.debug                   minix-debug     debug
 ./usr/libdata/debug/usr/bin/expand.debug                minix-debug     debug
 ./usr/libdata/debug/usr/bin/fdisk.debug                 minix-debug     debug
+./usr/libdata/debug/usr/bin/fdtdump.debug               minix-debug     debug
+./usr/libdata/debug/usr/bin/fdtget.debug                minix-debug     debug
+./usr/libdata/debug/usr/bin/fdtoverlay.debug            minix-debug     debug
+./usr/libdata/debug/usr/bin/fdtput.debug                minix-debug     debug
 ./usr/libdata/debug/usr/bin/fetch.debug                 minix-debug     debug
 ./usr/libdata/debug/usr/bin/file.debug                  minix-debug     debug
 ./usr/libdata/debug/usr/bin/find.debug                  minix-debug     debug

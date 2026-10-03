@@ -17,11 +17,19 @@ MODULE=	gmake
 realall realinstall: ${GNUHOSTDIST:H}/.gitignore
 .endif # defined(__MINIX)
 
+.endif # defined(__MINIX) && 0
+
+.if !defined(__MINIX)
 .if (${MKCVS} != "no")
 SUBDIR+= xcvs
 .endif
 .if (${MKLVM} != "no")
 SUBDIR+= lvm2
+.endif
+.endif # !defined(__MINIX)
+
+.if (${MKDTC} != "no")
+SUBDIR+= dtc
 .endif
 
 .include <bsd.subdir.mk>

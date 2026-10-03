@@ -502,6 +502,7 @@ TOOL_CTFCONVERT=	${TOOLDIR}/bin/${_TOOL_PREFIX}ctfconvert
 TOOL_CTFMERGE=		${TOOLDIR}/bin/${_TOOL_PREFIX}ctfmerge
 TOOL_DB=		${TOOLDIR}/bin/${_TOOL_PREFIX}db
 TOOL_DISKLABEL=		${TOOLDIR}/bin/nbdisklabel
+TOOL_DTC=		${TOOLDIR}/bin/${_TOOL_PREFIX}dtc
 TOOL_EQN=		${TOOLDIR}/bin/${_TOOL_PREFIX}eqn
 TOOL_FDISK=		${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-fdisk
 TOOL_FGEN=		${TOOLDIR}/bin/${_TOOL_PREFIX}fgen
@@ -628,6 +629,7 @@ TOOL_CTFCONVERT=	ctfconvert
 TOOL_CTFMERGE=		ctfmerge
 TOOL_DB=		db
 TOOL_DISKLABEL=		disklabel
+TOOL_DTC=		dtc
 TOOL_EQN=		eqn
 TOOL_FDISK=		fdisk
 TOOL_FGEN=		fgen
@@ -1264,6 +1266,9 @@ _MKVARS.yes= \
 #MINIX-specific vars
 _MKVARS.yes+= \
 	MKSYSDEBUG MKLIVEUPDATE MKLLVMCMDS
+# dtc, fdt* utilities and libfdt in the system (docs/devicetree.md, 3.1)
+_MKVARS.yes+= \
+	MKDTC
 .if (${MACHINE_ARCH} == "i386")
 _MKVARS.yes+= \
 	MKWATCHDOG MKACPI MKAPIC MKDEBUGREG MKINSTALLBOOT MKPCI
@@ -1305,6 +1310,14 @@ _MKVARS.no= \
 #MINIX-specific vars
 _MKVARS.no+= \
 	MKIMAGEONLY MKSMALL MKBITCODE MKMAGIC MKPAE MKASR MKSRC
+# Host tool dtc and .dtb files: only for platforms booted with a flattened
+# device tree (docs/devicetree.md, 3.1)
+_MKVARS.no+= \
+	MKDTB
+.if !empty(MACHINE_ARCH:Mearm*) || !empty(MACHINE_ARCH:Maarch64*) || \
+    !empty(MACHINE_ARCH:Mriscv*) || !empty(MACHINE_ARCH:Mmips64*)
+MKDTB.${MACHINE_ARCH}=	yes
+.endif
 .if !empty(MACHINE_ARCH:Mearm*)
 _MKVARS.no+= \
 	MKWATCHDOG MKPAE MKACPI MKAPIC MKDEBUGREG MKINSTALLBOOT MKPCI

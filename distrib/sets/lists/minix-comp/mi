@@ -331,6 +331,7 @@
 ./usr/include/expat.h                                   minix-comp
 ./usr/include/expat_external.h                          minix-comp
 ./usr/include/fcntl.h                                   minix-comp
+./usr/include/fdt.h                                     minix-comp
 ./usr/include/fenv.h                                    minix-comp
 ./usr/include/fetch.h                                   minix-comp
 ./usr/include/float.h                                   minix-comp
@@ -1125,6 +1126,8 @@
 ./usr/include/libdde/usb_server.h                       minix-comp
 ./usr/include/libelf.h                                  minix-comp
 ./usr/include/libexec.h                                 minix-comp
+./usr/include/libfdt.h                                  minix-comp
+./usr/include/libfdt_env.h                              minix-comp
 ./usr/include/libgen.h                                  minix-comp
 ./usr/include/libintl.h                                 minix-comp
 ./usr/include/libutil.h                                 minix-comp
@@ -1908,6 +1911,7 @@
 ./usr/lib/bc/libexec.a                                  minix-comp      bitcode
 ./usr/lib/bc/libexecinfo.a                              minix-comp      bitcode
 ./usr/lib/bc/libexpat.a                                 minix-comp      bitcode
+./usr/lib/bc/libfdt.a                                   minix-comp      bitcode
 ./usr/lib/bc/libfetch.a                                 minix-comp      bitcode
 ./usr/lib/bc/libform.a                                  minix-comp      bitcode
 ./usr/lib/bc/libfsdriver.a                              minix-comp      bitcode
@@ -2058,6 +2062,8 @@
 ./usr/lib/libexecinfo_pic.a                             minix-comp
 ./usr/lib/libexpat.a                                    minix-comp
 ./usr/lib/libexpat_pic.a                                minix-comp
+./usr/lib/libfdt.a                                      minix-comp
+./usr/lib/libfdt_pic.a                                  minix-comp
 ./usr/lib/libfetch.a                                    minix-comp
 ./usr/lib/libfetch_pic.a                                minix-comp
 ./usr/lib/libfl.a                                       minix-comp
