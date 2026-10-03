@@ -1,0 +1,58 @@
+#! /bin/sh
+#
+# dtc2reminix: lay out a dtc release tree as the ReMinix dtc/libfdt sources.
+# Derived from NetBSD's external/gpl2/dtc/dtc2netbsd (Nick Hudson, 2017).
+# The procedure and the list of local patches: docs/devicetree.md, 3.3.
+#
+#	$ git clone --depth 1 --branch v1.8.1 \
+#	    https://git.kernel.org/pub/scm/utils/dtc/dtc.git /tmp/dtc
+#	$ sh external/gpl2/dtc/dtc2reminix /tmp/dtc .
+#
+# The second argument is the top of the ReMinix tree.  The script replaces
+#	sys/external/bsd/libfdt/dist	<- libfdt/
+#	external/gpl2/dtc/dist		<- everything else
+# and leaves out what is not needed to build: .git, tests/ and the upstream
+# instructions for AI assistants (AGENTS.md, CLAUDE.md), which would otherwise
+# be picked up as instructions for this repository.  Then re-apply the local
+# patches, update usr.bin/dtc/version_gen.h and commit ("Import dtc x.y.z").
+# Needs bison and flex (both are in the ReMinix Docker image).
+
+if [ $# -ne 2 ]; then echo "usage: dtc2reminix dtcsrc reminixsrc"; exit 1; fi
+
+r=$(cd "$1" && pwd) || exit 1
+t=$(cd "$2" && pwd) || exit 1
+
+[ -f "$r/dtc.c" ] && [ -d "$r/libfdt" ] || { echo "$r: not a dtc tree"; exit 1; }
+[ -d "$t/external/gpl2" ] && [ -d "$t/sys/external" ] || \
+	{ echo "$t: not a ReMinix tree"; exit 1; }
+
+libfdt=$t/sys/external/bsd/libfdt/dist
+dtc=$t/external/gpl2/dtc/dist
+
+echo "replacing $libfdt and $dtc"
+rm -rf "$libfdt" "$dtc"
+mkdir -p "$libfdt" "$dtc"
+
+(cd "$r" && tar cf - --exclude=.git --exclude=./tests --exclude=./libfdt \
+    --exclude=./AGENTS.md --exclude=./CLAUDE.md .) | (cd "$dtc" && tar xf -)
+(cd "$r/libfdt" && tar cf - .) | (cd "$libfdt" && tar xf -)
+
+echo "fixing file/directory permissions"
+find "$libfdt" "$dtc" -type f -exec chmod u+rw,go+r {} +
+find "$libfdt" "$dtc" -type d -exec chmod u+rwx,go+rx {} +
+
+# The parser uses bison features (%locations) that the in-tree byacc
+# (20141128) does not implement correctly, so ship the parser and the lexer
+# generated the upstream way, as upstream's Makefile does it.
+gen=$t/external/gpl2/dtc/usr.bin/dtc
+echo "generating the parser and the lexer in $gen ($(bison --version | sed 1q), $(flex --version))"
+(cd "$dtc" && bison -b "$gen/dtc-parser" -d dtc-parser.y) || exit 1
+(cd "$dtc" && flex -o "$gen/dtc-lexer.lex.c" dtc-lexer.l) || exit 1
+# Keep the generated files free of build paths.
+sed -i -e "s|$gen/||g" -e "s|$dtc/||g" "$gen/dtc-parser.tab.c" \
+    "$gen/dtc-parser.tab.h" "$gen/dtc-lexer.lex.c"
+
+if [ -d "$r/.git" ]; then
+	echo "upstream: $(git -C "$r" describe --tags) $(git -C "$r" rev-parse HEAD)"
+fi
+echo done
