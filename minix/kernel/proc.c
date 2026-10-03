@@ -59,6 +59,7 @@ static int try_one(endpoint_t receive_e, struct proc *src_ptr,
 	struct proc *dst_ptr);
 static struct proc * pick_proc(void);
 static void enqueue_head(struct proc *rp);
+static int do_yield(struct proc *caller, reg_t flags, reg_t reserved);
 
 /* all idles share the same idle_priv structure */
 static struct priv idle_priv;
@@ -327,9 +328,13 @@ void switch_to_user(void)
 	p = get_cpulocal_var(proc_ptr);
 	/*
 	 * if the current process is still runnable check the misc flags and let
-	 * it run unless it becomes not runnable in the meantime
+	 * it run unless it becomes not runnable in the meantime. A process that
+	 * has just yielded the CPU (see do_yield()) has already been moved to
+	 * the tail of its run queue; pick the next process instead.
 	 */
-	if (proc_is_runnable(p))
+	if (p->p_misc_flags & MF_YIELD)
+		p->p_misc_flags &= ~MF_YIELD;
+	else if (proc_is_runnable(p))
 		goto check_misc_flags;
 	/*
 	 * if a process becomes not runnable while handling the misc flags, we
@@ -668,6 +673,9 @@ int do_ipc(reg_t r1, reg_t r2, reg_t r3)
    *   - RECEIVE: receiver blocks until an acceptable message has arrived
    *   - NOTIFY:  asynchronous call; deliver notification or mark pending
    *   - SENDA:   list of asynchronous send requests
+   * Two more traps do not pass messages:
+   *   - MINIX_KERNINFO: return the address of the kernel info structure
+   *   - MINIX_YIELD:    give the CPU to the next ready process
    */
   switch(call_nr) {
   	case SENDREC:
@@ -710,9 +718,66 @@ int do_ipc(reg_t r1, reg_t r2, reg_t r3)
   		arch_set_secondary_ipc_return(caller_ptr, minix_kerninfo_user);
   		return OK;
 	}
+  	case MINIX_YIELD:
+		return do_yield(caller_ptr, r2, r3);
   	default:
 	return EBADCALL;		/* illegal system call */
   }
+}
+
+/*===========================================================================*
+ *				do_yield				     *
+ *===========================================================================*/
+static int do_yield(
+  struct proc *caller,			/* process giving up the CPU */
+  reg_t flags,				/* must be zero */
+  reg_t reserved			/* must be zero */
+)
+{
+/* Give the CPU to the next ready process in the caller's run queue on this
+ * CPU (MINIX_YIELD trap, kyield()/sched_yield()). The caller moves to the tail
+ * of its queue; it keeps its priority and the rest of its quantum, and the
+ * user-space scheduler is not involved. Processes of lower priority do not
+ * get the CPU, and processes on other CPUs are not affected. If no other
+ * process of the same priority is ready on this CPU, the call returns at once.
+ *
+ * 'flags' and 'reserved' are reserved for extensions (e.g. a directed yield to
+ * a given endpoint) and must be zero for now.
+ */
+  const int q = caller->p_priority;
+  struct proc **rdy_head, **rdy_tail, **xpp;
+
+  if (flags != 0 || reserved != 0)
+	return EINVAL;
+
+  assert(proc_is_runnable(caller));
+  assert(caller->p_cpu == cpuid);
+
+  rdy_head = get_cpulocal_var(run_q_head);
+  rdy_tail = get_cpulocal_var(run_q_tail);
+
+  /* Nobody behind the caller: nothing to yield to. */
+  if (rdy_tail[q] == caller)
+	return OK;
+
+  /* Unlink the caller (normally the head of the queue) ... */
+  for (xpp = &rdy_head[q]; *xpp != caller; xpp = &(*xpp)->p_nextready)
+	assert(*xpp != NULL);
+  *xpp = caller->p_nextready;
+
+  /* ... and append it to the tail. */
+  rdy_tail[q]->p_nextready = caller;
+  rdy_tail[q] = caller;
+  caller->p_nextready = NULL;
+
+  /* Make switch_to_user() pick the new head instead of the caller. */
+  caller->p_misc_flags |= MF_YIELD;
+
+#if DEBUG_SANITYCHECKS
+  assert(runqueues_ok_local());
+#endif
+
+  return OK;
 }
 
 /*===========================================================================*

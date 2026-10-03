@@ -344,6 +344,9 @@ call_prepare(struct trace_proc * proc, reg_t reg[3], int * trace_class)
 	case MINIX_KERNINFO:
 		return "minix_kerninfo";
 
+	case MINIX_YIELD:
+		return "minix_yield";
+
 	default:
 		/*
 		 * It would be nice to include the call number here, but we

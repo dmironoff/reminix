@@ -1,4 +1,5 @@
 #include <minix/mthread.h>
+#include <minix/ipc.h>
 #include "global.h"
 #include "proto.h"
 
@@ -164,7 +165,11 @@ int mthread_yield(void)
 	}
   }
 
-  if (mthread_queue_isempty(&run_queue)) {	/* No point in yielding. */
+  if (mthread_queue_isempty(&run_queue)) {
+	/* No other thread to run: give the CPU to another process instead
+	 * (not sched_yield(), which may be an alias of this function).
+	 */
+	(void) ipc_minix_yield(0);
   	return(-1);
   } else if (current_thread == NO_THREAD) {
   	/* Can't yield this thread */

@@ -72,7 +72,14 @@ ReMinix (как и MINIX 3) — классическая микроядерна�
 - `minix/kernel/system.c` + `minix/kernel/system/do_*.c` — реализация системных
   "kernel calls" (аналог гипервызовов): копирование памяти, safecopy, IRQ-контроль,
   таймеры, управление привилегиями процессов и т.д. Это машинно-независимый уровень,
-  опирающийся на примитивы из `kernel/arch/<arch>/`.
+  опирающийся на примитивы из `kernel/arch/<arch>/`. Доступны только
+  привилегированным системным процессам (`s_k_call_mask`).
+- Ловушки IPC (`minix/include/minix/ipcconst.h`, `do_ipc()` в
+  `minix/kernel/proc.c`) — то, что может любой процесс: `SEND`, `RECEIVE`,
+  `SENDREC`, `NOTIFY`, `SENDNB`, `SENDA` и две ловушки без сообщений —
+  `MINIX_KERNINFO` (адрес страницы kerninfo) и `MINIX_YIELD` (уступить CPU,
+  `kyield()`/`sched_yield()`, `docs/modernization.md` п. 1). Аргументы — в
+  регистрах, результат — в регистре возврата.
 - `minix/servers/ipc` — сервер POSIX IPC (семафоры, разделяемая память) — не путать с
   внутренним микроядерным IPC.
 

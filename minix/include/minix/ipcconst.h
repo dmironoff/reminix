@@ -10,6 +10,7 @@
 #define NOTIFY		   4	/* asynchronous notify */
 #define SENDNB             5    /* nonblocking send */
 #define MINIX_KERNINFO     6    /* request kernel info structure */
+#define MINIX_YIELD        7    /* give the CPU to the next ready process */
 #define SENDA		   16	/* asynchronous send */
 #define IPCNO_HIGHEST	SENDA
 /* Check that the message payload type doesn't grow past the maximum IPC payload size.

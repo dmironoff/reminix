@@ -15,6 +15,7 @@ SRCS+=   \
 	_ipc.S \
 	brksize.S \
 	ipc_minix_kerninfo.S \
+	ipc_minix_yield.S \
 	ucontext.S
 
 ucontextoffsets.h: ${CF} 

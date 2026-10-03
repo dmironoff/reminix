@@ -55,6 +55,7 @@ void panic_hook(void);
 void __panic_hook(void);
 int getuptime(clock_t *ticks, clock_t *realtime, time_t *boottime);
 clock_t getticks(void);
+int kyield(void);
 int tickdelay(clock_t ticks);
 int tsc_calibrate(void);
 u32_t sys_hz(void);

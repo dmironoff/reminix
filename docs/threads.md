@@ -72,6 +72,12 @@
   Известный баг: `pthread_mutex_trylock` в `pthread_compat.c` вызывает сам себя
   (бесконечная рекурсия) вместо `mthread_mutex_trylock`. Weak-алиасы
   `pthread_yield`, `sched_yield` → `mthread_yield` в `scheduler.c`.
+  С этапа 0.3 (2026-10-03) `mthread_yield` при пустой очереди потоков уступает
+  CPU процессом (ловушка `MINIX_YIELD`) и по-прежнему возвращает −1.
+- `sched_yield` в libc (`minix/lib/libc/sys/sched_yield.c`, этап 0.3) — ловушка
+  `MINIX_YIELD`; `<sched.h>` переименовывает вызов в `__libc_thr_yield`, это
+  слабый псевдоним того же кода. До этапа 0.3 символа в libc не было: libc без
+  `_REENTRANT` не собирает `thread-stub`, и программа с `sched_yield` не линковалась.
 - libc на MINIX собирается **без `-D_REENTRANT`** (`lib/libc/Makefile.inc`) —
   заглушки `lib/libc/thread-stub/` фактически пусты, libc не потокобезопасна
   (`errno` глобальный, stdio без блокировок).
@@ -159,7 +165,7 @@ SMP. В микроядре с пользовательским SCHED и IPC-ра
 | `_lwp_wait`, `_lwp_detach` | PM | |
 | `_lwp_self` | быстрая ловушка ядра | |
 | `_lwp_park`, `_lwp_unpark`, `_lwp_unpark_all` | **быстрые ловушки ядра** | основа мьютексов/condvar libpthread; через PM было бы 2 IPC на каждую блокировку |
-| `sched_yield` | быстрая ловушка ядра | та же ловушка, что `kyield` (`docs/modernization.md` п. 1) |
+| `sched_yield` | быстрая ловушка ядра | **сделано** (этап 0.3): ловушка `MINIX_YIELD`, `docs/modernization.md` п. 1 |
 | `_lwp_setprivate`, `_lwp_getprivate` | ядро, архитектурный слой | TLS-регистр потока |
 | `_lwp_kill` | PM + ядро | сигнал конкретному потоку |
 | маска сигналов на поток (`__sigprocmask14` в потоке) | PM + ядро | |
@@ -172,7 +178,10 @@ SMP. В микроядре с пользовательским SCHED и IPC-ра
 **«Быстрые ловушки ядра»** — новый класс IPC-ловушек, обрабатываемых прямо в
 `do_ipc` без обращения к серверам (по образцу существующей `MINIX_KERNINFO`).
 Проектируется вместе с `kyield`: `kyield`, `sched_yield`, `_lwp_park`/`_lwp_unpark`,
-`_lwp_self` — одно семейство. `_lwp_park` должен поддерживать таймаут (для
+`_lwp_self` — одно семейство. Первая ловушка семейства — `MINIX_YIELD` (7, этап
+0.3): аргументы в регистрах, без сообщения, без проверки `s_trap_mask`, вход через
+`int`/`svc`; быстрые входы `sysenter`/`syscall` (поля `minix_ipcvecs`) добавить
+для всего семейства сразу. `_lwp_park` должен поддерживать таймаут (для
 `pthread_cond_timedwait`) и «hint»-адрес, как в NetBSD.
 
 ## 4. Состав работ по компонентам

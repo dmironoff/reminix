@@ -315,7 +315,8 @@ CLEANFILES+= ${f:C/\.o/.bc/}
 .endfor
 
 .for f in \
-	brksize.o _do_kernel_call_intr.o ipc_minix_kerninfo.o _ipc.o ucontext.o
+	brksize.o _do_kernel_call_intr.o ipc_minix_kerninfo.o ipc_minix_yield.o \
+	_ipc.o ucontext.o
 ${f} ${f:C/\.o/.bc/}:	${LIBMINIXCARCHDIR}/sys/${f:C/\.o/.S/}
 ${f} ${f:C/\.o/.go/}:	${LIBMINIXCARCHDIR}/sys/${f:C/\.o/.S/}
 OBJS+=	${f}
