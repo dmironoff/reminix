@@ -91,7 +91,7 @@
 #>   ACCEL=             tcg | kvm вместо автовыбора (KVM, если есть /dev/kvm)
 #>   QUICK_DIRS="minix/lib minix/kernel minix/servers minix/fs minix/net minix/drivers"
 #>                      quick: что пересобирать (каталоги дерева, по порядку)
-#>   HOST_TESTS=        host-test: модули через запятую (abi64,bitmap,selftest); пусто — все
+#>   HOST_TESTS=        host-test: модули через запятую (abi64,bitmap,fdt,selftest); пусто — все
 #>   HOST_VARIANTS="m32 m64 m32-san m64-san"
 #>                      host-test: варианты сборки (-m32/-m64, -san — ASan+UBSan)
 #>   PANIC_RE=panic     run-*: regexp строк консоли (и экрана VGA на i386) для автоснимка;

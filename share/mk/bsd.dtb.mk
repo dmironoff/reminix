@@ -59,9 +59,14 @@ DTSPATH=${DTSINC} ${DTSDIR} ${.OBJDIR}/dts
 
 .SUFFIXES: .dtb .dts
 
+# -nostdinc -undef -D__DTS__ as upstream (devicetree-rebasing, Linux kbuild):
+# without -undef a cpp that predefines "linux" turns "linux,code" into
+# "1,code" (NetBSD's rule has no such flags).
+DTSCPPFLAGS?=	-nostdinc -undef -D__DTS__
+
 .dts.dtb:
 	${_MKTARGET_CREATE}
-	${CPP} -P -xassembler-with-cpp ${DTSPATH:@v@-I ${v}@} \
+	${CPP} -P -xassembler-with-cpp ${DTSCPPFLAGS} ${DTSPATH:@v@-I ${v}@} \
 	    -include ${.IMPSRC} /dev/null | \
 	${TOOL_DTC} ${DTSPATH:@v@-i ${v}@} -I dts -O dtb \
 	    -p ${DTSPADDING} -b 0 -@ -o ${.TARGET}

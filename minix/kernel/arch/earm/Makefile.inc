@@ -47,11 +47,28 @@ aeabi_uldivmod.o:	${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins
 # the following is required by pre_init.c
 strncmp.o:	${NETBSDSRCDIR}/common/lib/libc/string/strncmp.c
 
+# the following are required by libfdt (below)
+MINC_OBJS_UNPAGED+= memchr.o memcmp.o strnlen.o strrchr.o
+memchr.o:	${NETBSDSRCDIR}/common/lib/libc/string/memchr.c
+memcmp.o:	${NETBSDSRCDIR}/common/lib/libc/string/memcmp.c
+strnlen.o:	${NETBSDSRCDIR}/common/lib/libc/string/strnlen.c
+strrchr.o:	${NETBSDSRCDIR}/common/lib/libc/string/strrchr.c
+
 # LSC: putchar and kputc have the same signature. A bit hackish.
 CPPFLAGS.subr_prf.c+= -Dputchar=kputc
 
 # Activate optional support, may be deactivated.
 CPPFLAGS.subr_prf.c+= -DLIBSA_PRINTF_LONGLONG_SUPPORT -DLIBSA_PRINTF_WIDTH_SUPPORT
+
+# the read-only part of libfdt, for the early boot code: unpaged
+# (docs/devicetree.md, 3.1).  Not fdt_addresses.c: it also holds
+# fdt_appendprop_addrrange(), which needs the write support (fdt_rw.c).
+LIBFDTDIST=	${NETBSDSRCDIR}/sys/external/bsd/libfdt/dist
+FDT_OBJS_UNPAGED= fdt.o fdt_ro.o fdt_strerror.o
+.for _o in ${FDT_OBJS_UNPAGED}
+${_o}:		${LIBFDTDIST}/${_o:.o=.c}
+CPPFLAGS.${_o:.o=.c}+= -I${LIBFDTDIST}
+.endfor
 
 .include "bsp/ti/Makefile.inc"
 
@@ -60,7 +77,8 @@ CPPFLAGS.subr_prf.c+= -DLIBSA_PRINTF_LONGLONG_SUPPORT -DLIBSA_PRINTF_WIDTH_SUPPO
 #
 .for unpaged_obj in head.o pre_init.o direct_tty_utils.o \
 	pg_utils.o klib.o utility.o arch_reset.o \
-	${MINLIB_OBJS_UNPAGED} ${MINC_OBJS_UNPAGED} ${SYS_OBJS_UNPAGED} ${BSP_OBJS_UNPAGED}
+	${MINLIB_OBJS_UNPAGED} ${MINC_OBJS_UNPAGED} ${SYS_OBJS_UNPAGED} ${BSP_OBJS_UNPAGED} \
+	${FDT_OBJS_UNPAGED}
 unpaged_${unpaged_obj}: ${unpaged_obj}
 	${OBJCOPY} --prefix-symbols=__k_unpaged_ ${.OBJDIR}/${unpaged_obj} $@
 UNPAGED_OBJS += unpaged_${unpaged_obj}

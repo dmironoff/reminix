@@ -100,18 +100,22 @@
    NetBSD в `sys/arch/<arch>/dts/`, например `sys/arch/arm/dts/`.
 6. **Ядро собирается не `config(1)`, а Makefile-ами MINIX.** В
    `minix/kernel/arch/earm/Makefile.inc`:
-   - `.PATH: ${NETBSDSRCDIR}/sys/external/bsd/libfdt/dist`;
-   - в сборку только часть для чтения: `fdt.c`, `fdt_ro.c`, `fdt_addresses.c`,
-     `fdt_strerror.c`;
+   - исходники — из `sys/external/bsd/libfdt/dist` (`LIBFDTDIST`);
+   - в сборку только часть для чтения: `fdt.c`, `fdt_ro.c`, `fdt_strerror.c`
+     (`FDT_OBJS_UNPAGED`). **Без `fdt_addresses.c`** (уточнено 2026-10-03): в нём
+     же `fdt_appendprop_addrrange()`, которой нужна запись (`fdt_rw.c`).
+     `fdt_address_cells()`/`fdt_size_cells()` заменяются чтением свойств через
+     `fdt_getprop()` (пример — `cells()` в `minix/tests/host/fdt/t_fdt.c`);
    - эти объекты — unpaged, тем же механизмом, что уже есть в
      `Makefile.inc` (`objcopy --prefix-symbols=__k_unpaged_`, списки
-     `*_OBJS_UNPAGED`). Нужные строковые функции берутся из уже имеющихся
-     unpaged-объектов `minc` (при необходимости список расширяется);
-   - `libfdt_env.h`: локальный патч по образцу NetBSD — ветка для ядра MINIX
-     (без libc, типы и строковые функции из окружения ядра). Патч вносится в
-     `dist` (файл подключается через `#include "…"`, поэтому подменить его
-     порядком `-I` нельзя) и **перечисляется в заметках импорта** (3.3), чтобы
-     его повторить при обновлении;
+     `*_OBJS_UNPAGED`). Строковые функции — unpaged-объекты `minc`; для libfdt
+     добавлены `memchr`, `memcmp`, `strnlen`, `strrchr` (C-версии из
+     `common/lib/libc/string`);
+   - `libfdt_env.h` **не патчится** (уточнено 2026-10-03): ядро собирается с
+     `--sysroot`, заголовки `<stdint.h>`, `<string.h>` и т.п. есть, а реализации
+     берутся из unpaged-объектов; ссылок на libc в unpaged-коде нет (компоновка
+     это проверяет — все символы с префиксом `__k_unpaged_`). Ветка NetBSD
+     (`_KERNEL`/`<lib/libkern/libkern.h>`) у нас неприменима;
    - на i386 libfdt в ядро не собирается.
 7. **Доставка `.dtb`**: собранный `.dtb` платы кладётся в fitImage (узел `fdt`,
    `docs/modernization.md` п. 6) и дополнительно ставится в `/boot/dtb/<vendor>/`.
@@ -124,7 +128,7 @@
 |---|---|---|
 | 0.4 (**выполнено 2026-10-03**, 3.4) | импорт `dtc` v1.8.1 (3.3); `tools/libfdt`, `tools/dtc`; `TOOL_DTC`, `MKDTC`, `MKDTB` в `bsd.own.mk`; `external/gpl2/dtc/lib/libfdt` (публично) и пять утилит в `usr.bin`; списки наборов | `build.sh tools` собирает `nbdtc`; в образе i386 работают `dtc -v`, `fdtdump`, `fdtget` на тестовом `.dtb` |
 | 0.5 (**выполнено 2026-10-03**, 3.5) | импорт devicetree-rebasing v7.2-dts целиком (3.3); `bsd.dtb.mk` с путями под его раскладку; `sys/dtb/arm/allwinner` со списком из `sun8i-h3-orangepi-pc-plus.dtb` | сборка `evbearm` даёт `.dtb`; `fdtdump` показывает `compatible = "xunlong,orangepi-pc-plus"`, узел `/cpus`. Узла `/memory` в апстримных DTS sunxi нет — его добавляет U-Boot (место — `-p 1024`) |
-| 0.6 | libfdt в `minix/kernel/arch/earm/Makefile.inc` (unpaged) + патч `libfdt_env.h`; тесты на хосте, разбирающие `.dtb` из 0.5 | ядро earm собирается и линкуется; ядро i386 не меняется; тесты на хосте проходят |
+| 0.6 (**выполнено 2026-10-03**, 3.6) | libfdt в `minix/kernel/arch/earm/Makefile.inc` (unpaged); патч `libfdt_env.h` не понадобился (3.1 п. 6); тесты на хосте, разбирающие `.dtb` из 0.5 | ядро earm собирается и линкуется; ядро i386 не меняется; тесты на хосте проходят |
 
 ### 3.3 Процедура импорта (повторяемая)
 
@@ -151,8 +155,8 @@
    - пока нет. `Makefile.dtc` написан для GNU make (`ifneq`), поэтому наш
      `usr.bin/dtc/Makefile` его не подключает, а перечисляет `DTC_SRCS` явно —
      при обновлении сверить список; NetBSD правит `Makefile.dtc`;
-   - с шага 0.6: `sys/external/bsd/libfdt/dist/libfdt_env.h` — ветка для ядра
-     MINIX (3.1 п. 6).
+   - `libfdt_env.h` для ядра, планировавшийся на шаг 0.6, не понадобился
+     (3.1 п. 6).
 5. Один коммит: «Import dtc 1.8.1».
 
 **DTS** (выполнено 2026-10-03: тег `v7.2-dts`, объект тега `41930a1e…`, коммит
@@ -192,7 +196,7 @@ QEMU i386. Тест можно прогнать и на хосте, собрав
 | Что | Где |
 |---|---|
 | DTS апстрима | `sys/external/gpl2/dts/dist` (devicetree-rebasing v7.2-dts целиком, без изменений), `sys/external/gpl2/dts/README` — тег, хэш, лицензионное правило |
-| правила сборки | `share/mk/bsd.dtb.mk`: по образцу NetBSD, пути `dist/src/<arch>` вместо `dist/arch/<arch>/boot/dts`; ссылки `dts/<arch>` в объектном каталоге; список `.dtb` — явный `DTS` (у devicetree-rebasing нет `Makefile` вендоров), без логики overlay NetBSD; `-p 1024 -b 0 -@` |
+| правила сборки | `share/mk/bsd.dtb.mk`: по образцу NetBSD, пути `dist/src/<arch>` вместо `dist/arch/<arch>/boot/dts`; ссылки `dts/<arch>` в объектном каталоге; список `.dtb` — явный `DTS` (у devicetree-rebasing нет `Makefile` вендоров), без логики overlay NetBSD; cpp с `-nostdinc -undef -D__DTS__` (`DTSCPPFLAGS`, как в апстриме; добавлено в 0.6: cpp хоста определяет `linux` и портит `linux,code`); `-p 1024 -b 0 -@` |
 | что собирать | `sys/dtb/Makefile` (`earm*` → `arm`), `sys/dtb/arm/Makefile.inc` (`DTSARCH=arm`, `DTSGNUARCH=arm arm64 riscv`), `sys/dtb/arm/allwinner/Makefile` (`sun8i-h3-orangepi-pc-plus.dts`) |
 | подключение | `sys/Makefile`: `SUBDIR+=dtb` при `MKDTB`; `bsd.own.mk`: `DTBDIR=/boot/dtb`, `DTBOWN`, `DTBGRP`, `DTBMODE` |
 | установка | `/boot/dtb/allwinner/sun8i-h3-orangepi-pc-plus.dtb`; каталоги — `etc/mtree/NetBSD.dist.earm`, файлы — `distrib/sets/lists/minix-base/md.evbarm` (`make dtblist` в `sys/dtb` печатает строки) |
@@ -202,6 +206,25 @@ QEMU i386. Тест можно прогнать и на хосте, собрав
 ядрами, `__symbols__` (для overlay); `/memory` нет — добавит U-Boot. Полная
 сборка earm и i386 — `checkflist` чист. На плате и в QEMU `orangepi-pc` `.dtb`
 пока не используется (шаги Б1/Б2).
+
+### 3.6 Состояние после шага 0.6 (2026-10-03)
+
+- **Ядро earm** (`minix/kernel/arch/earm/Makefile.inc`): `fdt.o`, `fdt_ro.o`,
+  `fdt_strerror.o` + `memchr`, `memcmp`, `strnlen`, `strrchr` — unpaged
+  (`__k_unpaged_fdt_*`, область `.unpaged_text`). Вызывающего кода пока нет:
+  разбор FDT при загрузке — шаги Б1/Б2 (и bootmem, М2). Компоновка проверяет,
+  что набору ничего не хватает.
+- **Ядро i386** не меняется (хэш `kernel` до и после совпадает).
+- **Тесты на хосте** — модуль `minix/tests/host/fdt` (`host-test
+  HOST_TESTS=fdt`): `module.mk` собирает хостовый `dtc` из импортированных
+  исходников и `.dtb` Orange Pi PC Plus правилом `bsd.dtb.mk`; `t_fdt.c`
+  линкуется **с тем же набором libfdt, что ядро**, и проверяет: заголовок и
+  запас `-p 1024`; плату (`compatible`, `model`, ячейки корня); четыре
+  Cortex-A7 в `/cpus` с `reg` 0..3; отсутствие `/memory`; консоль
+  `chosen/stdout-path` → алиас `serial0` → `reg` UART 0x01c28000; phandle
+  `interrupt-parent` → GIC-400; `__symbols__`; отказ на испорченных
+  заголовках; сохранность `linux,code` (cpp `-undef`). 9/9 в m32, m64 и с
+  ASan/UBSan. `.dtb` из тестов и из сборки earm совпадают побайтно.
 
 ## 4. Что дальше (вне этапа 0)
 
