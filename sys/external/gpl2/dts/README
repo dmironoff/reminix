@@ -1,0 +1,24 @@
+Device tree sources for ReMinix: devicetree-rebasing, imported whole into dist/.
+
+Upstream:  https://git.kernel.org/pub/scm/linux/kernel/git/devicetree/devicetree-rebasing.git
+Tag:       v7.2-dts (tag object 41930a1eec9ea89c684a8ed95bf8e147f636f10d)
+Commit:    1826bba6fb1c8c0b6d845f8308590dcfd1f7f859 (2026-08-23, after the
+           history of v7.2-rc1-dts .. v7.2-dts was rewritten upstream on that
+           day; see docs/devicetree.md, 1)
+Imported:  2026-10-03, without .git; no local changes.
+
+Layout: dist/src/<arch>/<vendor>/*.dts{,i}, dist/include/dt-bindings,
+dist/Bindings (schemas).  The .dtb files are built by share/mk/bsd.dtb.mk
+from the lists in sys/dtb (docs/devicetree.md, 3).
+
+Licensing (from NetBSD's sys/external/gpl2/dts/README):
+
+The headers in this directory are mostly either GPLv2 or GPLv2/X11 dual
+licensed. To be safe, DO NOT include dt-bindings headers from kernel sources.
+
+These headers are only meant to be used when generating .dtb files from .dts
+sources.
+
+To update: clone the new tag (check the size of the clone and record the
+commit hash), replace dist/ with the tree without .git, update this file and
+commit as "Import devicetree-rebasing <tag> (<hash>)".
