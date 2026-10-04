@@ -57,6 +57,9 @@ extern struct __cpu_local_vars {
 /* CPU private run queues */
 	struct proc * run_q_head[NR_SCHED_QUEUES]; /* ptrs to ready list headers */
 	struct proc * run_q_tail[NR_SCHED_QUEUES]; /* ptrs to ready list tails */
+	/* ReMinix: a ready process that waited longer than its p_max_wait;
+	 * pick_proc() runs it next (sched_starve_check()) */
+	struct proc * starved_pick;
 	int cpu_is_idle; /* let the others know that you are idle */
 
 	int idle_interrupted; /* to interrupt busy-idle

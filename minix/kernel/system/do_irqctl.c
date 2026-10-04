@@ -112,6 +112,7 @@ int do_irqctl(struct proc * caller, message * m_ptr)
       hook_ptr->notify_id = notify_id;		/* identifier to pass */   	
       hook_ptr->policy = m_ptr->m_lsys_krn_sys_irqctl.policy;	/* policy for interrupts */
       put_irq_handler(hook_ptr, irq_vec, generic_handler);
+      irq_follow_owner(irq_vec);	/* ReMinix: to the caller's cpu */
       DEBUGBASIC(("IRQ %d handler registered by %s / %d\n",
 			      irq_vec, caller->p_name, caller->p_endpoint));
 

@@ -68,7 +68,7 @@ void smp_schedule_vminhibit(struct proc * p);
 /* stop the process and for saving its full context */
 void smp_schedule_stop_proc_save_ctx(struct proc * p);
 /* migrate the full context of a process to the destination CPU */
-void smp_schedule_migrate_proc(struct proc * p, unsigned dest_cpu);
+void smp_move_proc(struct proc * p, unsigned dest_cpu);
 
 void arch_send_smp_schedule_ipi(unsigned cpu);
 void arch_smp_halt_cpu(void);

@@ -365,6 +365,41 @@ static void do_quantum(config_t *cpe, struct rs_start *rs_start)
 	rs_start->rss_quantum= quantum_val;
 }
 
+static void do_max_wait(config_t *cpe, struct rs_start *rs_start)
+{
+	int max_wait;
+	char *check;
+
+	/* ReMinix: starvation guard, ms; 0 means no guarantee */
+	if (cpe->next != NULL)
+	{
+		fatal("do_max_wait: just one value expected at %s:%d",
+			cpe->file, cpe->line);
+	}
+	if (cpe->flags & CFG_SUBLIST)
+	{
+		fatal("do_max_wait: unexpected sublist at %s:%d",
+			cpe->file, cpe->line);
+	}
+	if (cpe->flags & CFG_STRING)
+	{
+		fatal("do_max_wait: unexpected string at %s:%d",
+			cpe->file, cpe->line);
+	}
+	max_wait= strtol(cpe->word, &check, 0);
+	if (check[0] != '\0')
+	{
+		fatal("do_max_wait: bad value '%s' at %s:%d",
+			cpe->word, cpe->file, cpe->line);
+	}
+	if (max_wait < 0)
+	{
+		fatal("do_max_wait: %d out of range at %s:%d",
+			max_wait, cpe->file, cpe->line);
+	}
+	rs_start->rss_max_wait= max_wait;
+}
+
 static void do_cpu(config_t *cpe, struct rs_start *rs_start)
 {
 	int cpu;
@@ -388,6 +423,17 @@ static void do_cpu(config_t *cpe, struct rs_start *rs_start)
 		fatal("do_cpu: unexpected string at %s:%d",
 			cpe->file, cpe->line);
 	}
+	/* ReMinix: "auto" -- RS picks the cpu, "bsp" -- the boot cpu */
+	if (strcmp(cpe->word, KW_CPU_AUTO) == 0)
+	{
+		rs_start->rss_cpu= RS_CPU_AUTO;
+		return;
+	}
+	if (strcmp(cpe->word, KW_CPU_BSP) == 0)
+	{
+		rs_start->rss_cpu= RS_CPU_BSP;
+		return;
+	}
 	cpu= strtol(cpe->word, &check, 0);
 	if (check[0] != '\0')
 	{
@@ -401,6 +447,35 @@ static void do_cpu(config_t *cpe, struct rs_start *rs_start)
 			cpu, cpe->file, cpe->line);
 	}
 	rs_start->rss_cpu= cpu;
+}
+
+static void do_apart(config_t *cpe, struct rs_start *rs_start)
+{
+	int nr_apart = 0;
+
+	/* ReMinix: labels of services not to share a cpu with */
+	for (; cpe; cpe= cpe->next)
+	{
+		if (cpe->flags & CFG_SUBLIST)
+		{
+			fatal("do_apart: unexpected sublist at %s:%d",
+				cpe->file, cpe->line);
+		}
+		if (cpe->flags & CFG_STRING)
+		{
+			fatal("do_apart: unexpected string at %s:%d",
+				cpe->file, cpe->line);
+		}
+		if (nr_apart >= RS_NR_APART)
+		{
+			fatal("do_apart: RS_NR_APART is too small (%d needed)",
+				nr_apart+1);
+		}
+
+		rs_start->rss_apart[nr_apart].l_addr = (char*) cpe->word;
+		rs_start->rss_apart[nr_apart].l_len = strlen(cpe->word);
+		rs_start->rss_nr_apart = ++nr_apart;
+	}
 }
 
 static void do_irq(config_t *cpe, struct rs_start *rs_start)
@@ -1105,6 +1180,16 @@ static void do_service(config_t *cpe, config_t *config, struct rs_config *rs_con
 			do_cpu(cpe->next, rs_start);
 			continue;
 		}
+		if (strcmp(cpe->word, KW_MAX_WAIT) == 0)
+		{
+			do_max_wait(cpe->next, rs_start);
+			continue;
+		}
+		if (strcmp(cpe->word, KW_APART) == 0)
+		{
+			do_apart(cpe->next, rs_start);
+			continue;
+		}
 		if (strcmp(cpe->word, KW_IRQ) == 0)
 		{
 			do_irq(cpe->next, rs_start);
@@ -1167,6 +1252,7 @@ static const char *do_config(const char *label, char *filename, struct rs_config
 	rs_start->rss_priority= DSRV_Q;
 	rs_start->rss_quantum= DSRV_QT;
 	rs_start->rss_cpu = DSRV_CPU;
+	rs_start->rss_max_wait = DSRV_MAXWAIT;
 	rs_start->rss_flags = RSS_VM_BASIC_CALLS | RSS_SYS_BASIC_CALLS;
 
 	/* Find an entry for our service */

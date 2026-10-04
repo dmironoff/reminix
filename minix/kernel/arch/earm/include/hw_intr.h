@@ -10,6 +10,7 @@ void hw_intr_unmask(int irq);
 void hw_intr_ack(int irq);
 void hw_intr_used(int irq);
 void hw_intr_not_used(int irq);
+void hw_intr_set_cpu(int irq, unsigned cpu);
 void hw_intr_disable_all(void);
 
 #endif /* __HW_INTR_ARM_H__ */

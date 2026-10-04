@@ -1096,8 +1096,9 @@ typedef struct {
 	int priority;
 	int quantum;
 	int cpu;
+	int max_wait;	/* ms, -1: keep (ReMinix) */
 
-	uint8_t padding[36];
+	uint8_t padding[32];
 } mess_lsys_krn_schedctl;
 _ASSERT_MSG_SIZE(mess_lsys_krn_schedctl);
 
@@ -1107,8 +1108,9 @@ typedef struct {
 	int priority;
 	int cpu;
 	int niced;
+	int max_wait;	/* ms, -1: keep (ReMinix) */
 
-	uint8_t padding[36];
+	uint8_t padding[32];
 } mess_lsys_krn_schedule;
 _ASSERT_MSG_SIZE(mess_lsys_krn_schedule);
 
@@ -1432,8 +1434,10 @@ typedef struct {
 	endpoint_t parent;
 	int maxprio;
 	int quantum;
+	int max_wait;	/* ReMinix: ms, starvation guard */
+	int cpu;	/* ReMinix: cpu chosen by RS, -1: scheduler's choice */
 
-	uint8_t padding[40];
+	uint8_t padding[32];
 } mess_lsys_sched_scheduling_start;
 _ASSERT_MSG_SIZE(mess_lsys_sched_scheduling_start);
 

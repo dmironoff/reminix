@@ -13,4 +13,6 @@ void hw_intr_unmask(int irq){
 void hw_intr_ack(int irq){};
 void hw_intr_used(int irq){};
 void hw_intr_not_used(int irq){};
+/* ReMinix: no IRQ routing yet (GIC ITARGETSR with SMP, docs/arch-earm.md) */
+void hw_intr_set_cpu(int irq, unsigned cpu){};
 void hw_intr_disable_all(void){};

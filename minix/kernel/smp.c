@@ -271,18 +271,45 @@ void smp_schedule_stop_proc_save_ctx(struct proc * p)
 	assert(RTS_ISSET(p, RTS_PROC_STOP));
 }
 
-void smp_schedule_migrate_proc(struct proc * p, unsigned dest_cpu)
+/*
+ * Move a process to another cpu (sched_proc(): RS placement, SCHED). ReMinix:
+ * the original smp_schedule_migrate_proc() went through the old cpu only for
+ * a runnable process; for any other one just p_cpu changed. But a process
+ * that is not runnable may still be running there (proc_is_running_remote(),
+ * docs/testing.md 4.7) and its FPU context may still be held lazily by the
+ * old cpu -- it would then run on the new cpu with a stale FPU state. Now
+ * the process is always stopped on its old cpu with its whole context saved
+ * first. Only a stop we set ourselves is undone: smp_schedule_sync() drops
+ * the BKL, so this is not airtight against an RC_STOP from another cpu in
+ * that window -- moves happen when RS (re)starts or edits a service.
+ */
+void smp_move_proc(struct proc * p, unsigned dest_cpu)
 {
-	/*
-	 * stop the processes and force the complete context of the process to
-	 * be saved (i.e. including FPU state and such)
-	 */
-	smp_schedule_sync(p, SCHED_IPI_STOP_PROC | SCHED_IPI_SAVE_CTX);
+	int was_stopped;
+
+	if (p->p_cpu == dest_cpu)
+		return;
+
+	was_stopped = RTS_ISSET(p, RTS_PROC_STOP);
+
+	if (p->p_cpu != cpuid) {
+		/* stop it there and save its complete context, FPU included */
+		smp_schedule_sync(p, SCHED_IPI_STOP_PROC | SCHED_IPI_SAVE_CTX);
+	} else {
+		/* not running: we are; it may still own this cpu's FPU */
+		RTS_SET(p, RTS_PROC_STOP);
+		if (proc_used_fpu(p) && get_cpulocal_var(fpu_owner) == p) {
+			disable_fpu_exception();
+			save_local_fpu(p, FALSE /*retain*/);
+			release_fpu(p);
+		}
+	}
 	assert(RTS_ISSET(p, RTS_PROC_STOP));
-	
+
 	/* assign the new cpu and let the process run again */
 	p->p_cpu = dest_cpu;
-	RTS_UNSET(p, RTS_PROC_STOP);
+	if (!was_stopped)
+		RTS_UNSET(p, RTS_PROC_STOP);
 }
 
 void smp_sched_handler(void)
@@ -325,7 +352,7 @@ void smp_sched_handler(void)
  */
 void smp_ipi_sched_handler(void)
 {
-	extern unsigned dbg_cpu_events[][4];
+	extern unsigned dbg_cpu_events[][5];
 	struct proc * curr;
 
 	dbg_cpu_events[cpuid][2]++;

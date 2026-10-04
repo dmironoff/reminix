@@ -83,6 +83,8 @@ int isokendpt_f(endpoint_t e, int *p, int f);
 #define isokendpt_d(e, p, f) isokendpt_f((e), (p), (f))
 #endif
 void proc_no_time(struct proc *p);
+clock_t max_wait_ticks(int ms);
+void sched_starve_check(void);
 void reset_proc_accounting(struct proc *p);
 void flag_account(struct proc *p, int flag);
 int try_deliver_senda(struct proc *caller_ptr, asynmsg_t *table, size_t
@@ -106,7 +108,8 @@ void system_init(void);
 void clear_endpoint(struct proc *rc);
 void clear_ipc_refs(struct proc *rc, int caller_ret);
 void kernel_call_resume(struct proc *p);
-int sched_proc(struct proc *rp, int priority, int quantum, int cpu, int niced);
+int sched_proc(struct proc *rp, int priority, int quantum, int cpu, int niced,
+	int max_wait);
 int add_ipc_filter(struct proc *rp, int type,
     vir_bytes address, size_t length);
 void clear_ipc_filters(struct proc *rp);
@@ -124,6 +127,8 @@ void vtimer_check(struct proc *rp);
 /* interrupt.c */
 void put_irq_handler(irq_hook_t *hook, int irq, irq_handler_t handler);
 void rm_irq_handler(const irq_hook_t *hook);
+void irq_follow_owner(int irq);
+void irq_follow_owner_proc(const struct proc *p);
 void enable_irq(const irq_hook_t *hook);
 int disable_irq(const irq_hook_t *hook);
 

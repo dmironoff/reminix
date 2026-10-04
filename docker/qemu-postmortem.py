@@ -44,7 +44,8 @@ REGIONS = [
     "bkl_relock_pc", "bkl_relock_owner",
     # clock debugging (tickdebug=N), APIC timer calibration
     "tick_debug_ticks", "tick_debug_busy", "lapic_bus_freq",
-    # per CPU [timer_int_handler, context_stop_idle, sched IPI, idle halts]
+    # per CPU [timer_int_handler, context_stop_idle, sched IPI, idle halts,
+    #          hardware IRQs taken]
     "dbg_cpu_events",
     "lapic_addr", "lapic_eoi_addr",
     # [tag, cpu, tsc>>8, cr3, lapic_eoi_addr, ISR 224..255] (arch_clock.c)

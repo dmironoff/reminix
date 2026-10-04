@@ -1,7 +1,8 @@
 #include "syslib.h"
 
 int
-sys_schedule(endpoint_t proc_ep, int priority, int quantum, int cpu, int niced)
+sys_schedule(endpoint_t proc_ep, int priority, int quantum, int cpu, int niced,
+	int max_wait)
 {
 	message m;
 
@@ -10,5 +11,6 @@ sys_schedule(endpoint_t proc_ep, int priority, int quantum, int cpu, int niced)
 	m.m_lsys_krn_schedule.quantum  = quantum;
 	m.m_lsys_krn_schedule.cpu = cpu;
 	m.m_lsys_krn_schedule.niced = niced;
+	m.m_lsys_krn_schedule.max_wait = max_wait;
 	return(_kernel_call(SYS_SCHEDULE, &m));
 }

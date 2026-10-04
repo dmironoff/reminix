@@ -1193,6 +1193,27 @@ void ioapic_set_irq(unsigned irq)
 	}
 }
 
+#ifdef CONFIG_SMP
+/*
+ * ReMinix: deliver the IRQ line to another cpu (irq_follow_owner()). Only the
+ * destination (the upper word of the redirection entry) changes, in a single
+ * 32-bit write and without masking: an edge interrupt arriving while masked
+ * would be lost, and one already on its way to the old cpu is handled there
+ * correctly.
+ */
+void ioapic_set_irq_cpu(unsigned irq, unsigned cpu)
+{
+	struct irq * intr;
+
+	assert(irq < NR_IRQ_VECTORS);
+	intr = &io_apic_irq[irq];
+	if (!intr->ioa || cpu >= ncpus)
+		return;
+	ioapic_write(intr->ioa->addr, (u8_t) (IOAPIC_REDIR_TABLE +
+			intr->pin * 2 + 1), cpuid2apicid[cpu] << 24);
+}
+#endif
+
 void ioapic_unset_irq(unsigned irq)
 {
 	assert(irq < NR_IRQ_VECTORS);

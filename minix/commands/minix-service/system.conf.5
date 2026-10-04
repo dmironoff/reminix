@@ -144,6 +144,35 @@ specifies the quantum size (ms) the scheduler must consider the service for.
 The default is specified in \fB<minix/priv.h>\fR (see macro \fBDSRV_QT\fR).
 .RE
 .PP
+\fBmax_wait\fR \fI<ms>\fR\fB;\fR
+.PP
+.RS
+specifies the longest time (ms) the service may wait in its CPU's ready
+queue behind processes of higher priority.  After that the kernel lets it
+run once, until it blocks or for at most one clock tick, and then returns
+to the normal priority order.  The value is rounded up to clock ticks;
+0 means no guarantee.
+The default is specified in \fB<minix/priv.h>\fR (see macro \fBDSRV_MAXWAIT\fR).
+.RE
+.PP
+\fBcpu\fR \fBauto\fR | \fBbsp\fR | \fI<cpu_number>\fR\fB;\fR
+.PP
+.RS
+specifies the CPU the service runs on (SMP only).
+With \fBauto\fR, the default, RS picks the CPU with the fewest system
+services, honouring \fBapart\fR; \fBbsp\fR is the boot CPU.
+Interrupts of a driver are delivered to the CPU the driver runs on.
+.RE
+.PP
+\fBapart\fR \fI<label>\fR [\fI<label>\fR ...]\fB;\fR
+.PP
+.RS
+lists services that must not run on the same CPU as this one (SMP only,
+with \fBcpu auto\fR).
+The relation is symmetric: it is enough to give it for one of the two.
+If there are not enough CPUs, RS prints a warning and ignores it.
+.RE
+.PP
 \fBpci device\fR \fI<vid:did[/subvid:subdid]>\fR\fB;\fR
 .PP
 .RS

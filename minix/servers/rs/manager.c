@@ -1571,8 +1571,23 @@ endpoint_t source;
       rp->r_scheduler = rs_start->rss_scheduler;
       rp->r_priority = rs_start->rss_priority;
       rp->r_quantum = rs_start->rss_quantum;
-      rp->r_cpu = rs_start->rss_cpu;
+      rp->r_max_wait = rs_start->rss_max_wait;
+      rp->r_cpu_req = rs_start->rss_cpu;
   }
+
+  /* ReMinix: update "apart" labels (placement, sched_init_proc). */
+  if (rs_start->rss_nr_apart < 0 || rs_start->rss_nr_apart > RS_NR_APART) {
+      printf("RS: edit_slot: too many apart labels\n");
+      return EINVAL;
+  }
+  for (i=0; i<rs_start->rss_nr_apart; i++) {
+      s = copy_label(source, rs_start->rss_apart[i].l_addr,
+          rs_start->rss_apart[i].l_len, rp->r_apart[i],
+          sizeof(rp->r_apart[i]));
+      if(s != OK)
+          return s;
+  }
+  rp->r_nr_apart = rs_start->rss_nr_apart;
 
   /* Update command and arguments. */
   if (rs_start->rss_cmdlen > MAX_COMMAND_LEN-1) return(E2BIG);

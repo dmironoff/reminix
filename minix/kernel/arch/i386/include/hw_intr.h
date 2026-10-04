@@ -30,6 +30,15 @@ void eoi_8259_slave(void);
 					if (ioapic_enabled)		\
 						ioapic_unset_irq(irq);	\
 				} while (0)
+#ifdef CONFIG_SMP
+/* ReMinix: deliver the IRQ line to the cpu (irq_follow_owner()) */
+#define hw_intr_set_cpu(irq, cpu) do {					\
+					if (ioapic_enabled)		\
+						ioapic_set_irq_cpu(irq, cpu); \
+				} while (0)
+#else
+#define hw_intr_set_cpu(irq, cpu)
+#endif
 #define hw_intr_disable_all() do {					\
 					ioapic_disable_all();		\
 					ioapic_reset_pic();		\
@@ -47,6 +56,7 @@ void eoi_8259_slave(void);
 #define hw_intr_ack(irq)	irq_8259_eoi(irq)
 #define hw_intr_used(irq)
 #define hw_intr_not_used(irq)
+#define hw_intr_set_cpu(irq, cpu)
 #define hw_intr_disable_all()
 
 #endif

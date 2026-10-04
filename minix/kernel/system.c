@@ -639,13 +639,17 @@ void kernel_call_resume(struct proc *caller)
 /*===========================================================================*
  *                               sched_proc                                  *
  *===========================================================================*/
-int sched_proc(struct proc *p, int priority, int quantum, int cpu, int niced)
+int sched_proc(struct proc *p, int priority, int quantum, int cpu, int niced,
+	int max_wait)
 {
 	/* Make sure the values given are within the allowed range.*/
 	if ((priority < TASK_Q && priority != -1) || priority > NR_SCHED_QUEUES)
 		return(EINVAL);
 
 	if (quantum < 1 && quantum != -1)
+		return(EINVAL);
+
+	if (max_wait < 0 && max_wait != -1)
 		return(EINVAL);
 
 #ifdef CONFIG_SMP
@@ -662,17 +666,14 @@ int sched_proc(struct proc *p, int priority, int quantum, int cpu, int niced)
 
 	/* FIXME this preempts the process, do we really want to do that ?*/
 
-	/* FIXME this is a problem for SMP if the processes currently runs on a
-	 * different CPU */
-	if (proc_is_runnable(p)) {
 #ifdef CONFIG_SMP
-		if (p->p_cpu != cpuid && cpu != -1 && cpu != p->p_cpu) {
-			smp_schedule_migrate_proc(p, cpu);
-		}
-#endif
-
-		RTS_SET(p, RTS_NO_QUANTUM);
+	/* ReMinix: move it first, runnable or not (smp_move_proc()); its
+	 * interrupts follow it */
+	if (cpu != -1 && (unsigned) cpu != p->p_cpu) {
+		smp_move_proc(p, cpu);
+		irq_follow_owner_proc(p);
 	}
+#endif
 
 	if (proc_is_runnable(p))
 		RTS_SET(p, RTS_NO_QUANTUM);
@@ -683,10 +684,8 @@ int sched_proc(struct proc *p, int priority, int quantum, int cpu, int niced)
 		p->p_quantum_size_ms = quantum;
 		p->p_cpu_time_left = ms_2_cpu_time(quantum);
 	}
-#ifdef CONFIG_SMP
-	if (cpu != -1)
-		p->p_cpu = cpu;
-#endif
+	if (max_wait != -1)
+		p->p_max_wait = max_wait_ticks(max_wait);
 
 	if (niced)
 		p->p_misc_flags |= MF_NICED;

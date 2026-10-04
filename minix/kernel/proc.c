@@ -209,7 +209,7 @@ static void idle(void)
 
 	/* start accounting for the idle time */
 	{
-		extern unsigned dbg_cpu_events[][4];
+		extern unsigned dbg_cpu_events[][5];
 		dbg_cpu_events[cpuid][3]++;
 	}
 	context_stop(proc_addr(KERNEL));
@@ -334,6 +334,15 @@ void switch_to_user(void)
 	 */
 	if (p->p_misc_flags & MF_YIELD)
 		p->p_misc_flags &= ~MF_YIELD;
+#ifdef CONFIG_SMP
+	/*
+	 * ReMinix: moved to another cpu during its kernel call (sys_schedctl()
+	 * on itself, e.g. RS "edit rs"; smp_move_proc()). It is queued there
+	 * now and must not go on here as well.
+	 */
+	else if (p->p_cpu != cpuid)
+		;
+#endif
 	else if (proc_is_runnable(p))
 		goto check_misc_flags;
 	/*
@@ -1734,6 +1743,7 @@ void enqueue(
 
   /* Make note of when this process was added to queue */
   read_tsc_64(&(get_cpulocal_var(proc_ptr)->p_accounting.enter_queue));
+  rp->p_ready_since = get_monotonic();	/* starvation guard */
 
 
 #if DEBUG_SANITYCHECKS
@@ -1782,6 +1792,7 @@ static void enqueue_head(struct proc *rp)
 
   /* Make note of when this process was added to queue */
   read_tsc_64(&(get_cpulocal_var(proc_ptr->p_accounting.enter_queue)));
+  rp->p_ready_since = get_monotonic();	/* starvation guard */
 
 
   /* Process accounting for scheduling */
@@ -1857,6 +1868,9 @@ void dequeue(struct proc *rp)
   /* For ps(1), remember when the process was last dequeued. */
   rp->p_dequeued = get_monotonic();
 
+  /* A slot of the starvation guard ends when the process blocks. */
+  rp->p_misc_flags &= ~MF_STARVE_SLOT;
+
 #if DEBUG_SANITYCHECKS
   assert(runqueues_ok_local());
 #endif
@@ -1881,6 +1895,20 @@ static struct proc * pick_proc(void)
    * queues is defined in proc.h, and priorities are set in the task table.
    * If there are no processes ready to run, return NULL.
    */
+  /* ReMinix: a process the starvation guard chose runs first, if it is
+   * still ready here (sched_starve_check()).
+   */
+  rp = get_cpulocal_var(starved_pick);
+  if (rp) {
+	get_cpulocal_var(starved_pick) = NULL;
+	if (proc_is_runnable(rp) && rp->p_cpu == cpuid) {
+		rp->p_misc_flags |= MF_STARVE_SLOT;
+		if (priv(rp)->s_flags & BILLABLE)
+			get_cpulocal_var(bill_ptr) = rp;
+		return rp;
+	}
+  }
+
   rdy_head = get_cpulocal_var(run_q_head);
   for (q=0; q < NR_SCHED_QUEUES; q++) {	
 	if(!(rp = rdy_head[q])) {
@@ -1970,6 +1998,71 @@ static void notify_scheduler(struct proc *p)
 	if ((err = mini_send(p, p->p_scheduler->p_endpoint,
 					&m_no_quantum, FROM_KERNEL))) {
 		panic("WARNING: Scheduling: mini_send returned %d\n", err);
+	}
+}
+
+/*===========================================================================*
+ *				max_wait_ticks				     *
+ *===========================================================================*/
+clock_t max_wait_ticks(int ms)
+{
+/* Convert a max_wait value (system.conf, ms) to clock ticks, rounding up:
+ * the guard is checked once a tick, a shorter wait cannot be honoured.
+ */
+	if (ms <= 0)
+		return 0;
+	return (clock_t) (((u64_t) ms * system_hz + 999) / 1000);
+}
+
+/*===========================================================================*
+ *				sched_starve_check			     *
+ *===========================================================================*/
+void sched_starve_check(void)
+{
+/* ReMinix: the starvation guard, called on every clock tick of this CPU.
+ *
+ * Priorities are strict: as long as a process of a higher priority stays
+ * ready, nothing below it runs on its CPU. On SMP this starves system
+ * services: user processes on other CPUs can keep PM busy without a pause
+ * and VFS, one queue lower on the same CPU, never runs (docs/testing.md
+ * 5.8). A ready process that has waited at least its p_max_wait ticks
+ * (system.conf "max_wait") behind higher priorities gets one slot: it runs
+ * until it blocks or until the next tick, then the priority order is back.
+ * The preempted process goes to the head of its queue and keeps its
+ * quantum. Only queue heads are checked -- they are the longest waiting.
+ */
+	struct proc *p, *rp, **rdy_head;
+	clock_t now;
+	int q;
+
+	p = get_cpulocal_var(proc_ptr);
+	if (p->p_endpoint == IDLE || !proc_is_runnable(p) ||
+			!(priv(p)->s_flags & PREEMPTIBLE))
+		return;
+
+	rdy_head = get_cpulocal_var(run_q_head);
+
+	if (p->p_misc_flags & MF_STARVE_SLOT) {
+		/* The slot lasts at most a tick. */
+		p->p_misc_flags &= ~MF_STARVE_SLOT;
+		for (q = 0; q < p->p_priority; q++) {
+			if (rdy_head[q]) {
+				RTS_SET(p, RTS_PREEMPTED);
+				break;
+			}
+		}
+		return;
+	}
+
+	now = get_monotonic();
+	for (q = p->p_priority + 1; q < NR_SCHED_QUEUES; q++) {
+		rp = rdy_head[q];
+		if (rp && rp->p_max_wait &&
+				now - rp->p_ready_since >= rp->p_max_wait) {
+			get_cpulocal_var(starved_pick) = rp;
+			RTS_SET(p, RTS_PREEMPTED);
+			return;
+		}
 	}
 }
 

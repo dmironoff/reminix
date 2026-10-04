@@ -358,6 +358,83 @@ int rs_isokendpt(endpoint_t endpoint, int *proc)
 	return OK;
 }
 
+#ifdef CONFIG_SMP
+/*===========================================================================*
+ *				apart					     *
+ *===========================================================================*/
+static int apart(const struct rproc *a, const struct rproc *b)
+{
+/* Must the two services run on different cpus? ("apart", either way) */
+  int i;
+
+  for (i = 0; i < a->r_nr_apart; i++)
+      if (strcmp(a->r_apart[i], b->r_pub->label) == 0)
+          return TRUE;
+  for (i = 0; i < b->r_nr_apart; i++)
+      if (strcmp(b->r_apart[i], a->r_pub->label) == 0)
+          return TRUE;
+  return FALSE;
+}
+#endif /* CONFIG_SMP */
+
+/*===========================================================================*
+ *				sched_pick_cpu			 	     *
+ *===========================================================================*/
+int sched_pick_cpu(struct rproc *rp)
+{
+/* ReMinix: pick the cpu for a system service with "cpu auto" (the default):
+ * the cpu with the fewest system services among those that run no service
+ * this one must be apart from (system.conf "apart", symmetric); ties go to
+ * the lowest cpu number. If "apart" cannot be met, the least loaded cpu.
+ * Interrupts follow their driver's cpu (kernel, irq_follow_owner()).
+ */
+#ifdef CONFIG_SMP
+  int load[CONFIG_MAX_CPUS], conflict[CONFIG_MAX_CPUS];
+  int ncpus, c, best, best_any;
+  struct rproc *orp;
+
+  ncpus = machine.processors_count;
+  if (ncpus <= 1)
+      return machine.bsp_id;
+  if (ncpus > CONFIG_MAX_CPUS)
+      ncpus = CONFIG_MAX_CPUS;
+
+  memset(load, 0, sizeof(load));
+  memset(conflict, 0, sizeof(conflict));
+  for (orp = BEG_RPROC_ADDR; orp < END_RPROC_ADDR; orp++) {
+      if (!(orp->r_flags & RS_IN_USE) || orp == rp ||
+          !(orp->r_priv.s_flags & SYS_PROC) || orp->r_scheduler == NONE)
+          continue;
+      /* other instances of the same service (replica, old version) */
+      if (strcmp(orp->r_pub->label, rp->r_pub->label) == 0)
+          continue;
+      if (orp->r_cpu < 0 || orp->r_cpu >= ncpus)
+          continue;
+      load[orp->r_cpu]++;
+      if (apart(rp, orp))
+          conflict[orp->r_cpu] = TRUE;
+  }
+
+  best = best_any = -1;
+  for (c = 0; c < ncpus; c++) {
+      if (best_any < 0 || load[c] < load[best_any])
+          best_any = c;
+      if (!conflict[c] && (best < 0 || load[c] < load[best]))
+          best = c;
+  }
+  if (best < 0) {
+      printf("RS: %s: cannot keep \"apart\" on %d cpus, using cpu %d\n",
+          rp->r_pub->label, ncpus, best_any);
+      best = best_any;
+  }
+  if (rs_verbose)
+      printf("RS: %s: cpu %d (load %d)\n", rp->r_pub->label, best, load[best]);
+  return best;
+#else
+  return machine.bsp_id;
+#endif
+}
+
 /*===========================================================================*
  *				sched_init_proc			 	     *
  *===========================================================================*/
@@ -371,9 +448,15 @@ int sched_init_proc(struct rproc *rp)
   if(is_usr_proc) assert(rp->r_scheduler == NONE);
   if(!is_usr_proc) assert(rp->r_scheduler != NONE);
 
+  /* ReMinix: resolve the requested cpu. */
+  if (rp->r_cpu_req == RS_CPU_AUTO)
+      rp->r_cpu = sched_pick_cpu(rp);
+  else if (rp->r_cpu_req != RS_CPU_DEFAULT)
+      rp->r_cpu = rp->r_cpu_req;
+
   /* Start scheduling for the given process. */
   if ((s = sched_start(rp->r_scheduler, rp->r_pub->endpoint, 
-      RS_PROC_NR, rp->r_priority, rp->r_quantum, rp->r_cpu,
+      RS_PROC_NR, rp->r_priority, rp->r_quantum, rp->r_cpu, rp->r_max_wait,
       &rp->r_scheduler)) != OK) {
       return s;
   }

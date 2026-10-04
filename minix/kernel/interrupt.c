@@ -106,6 +106,47 @@ void rm_irq_handler( const irq_hook_t* hook ) {
 }
 
 /*===========================================================================*
+ *				irq_follow_owner			     *
+ *===========================================================================*/
+/* ReMinix: deliver an IRQ line to the cpu its owner runs on, so that the cpu
+ * taking the interrupt is the one the notified driver runs on and no IPI is
+ * needed to wake it up. The owner is the process of the first hook on the
+ * line that came from sys_irqctl() (a shared line with owners on different
+ * cpus goes to the first one). On hardware that cannot route interrupts,
+ * hw_intr_set_cpu() does nothing.
+ */
+void irq_follow_owner(int irq)
+{
+  irq_hook_t *hook;
+  int proc_nr;
+
+  if (irq < 0 || irq >= NR_IRQ_VECTORS)
+	return;
+  for (hook = irq_handlers[irq]; hook != NULL; hook = hook->next) {
+	if (hook < &irq_hooks[0] || hook >= &irq_hooks[NR_IRQ_HOOKS])
+		continue;	/* a kernel-internal hook */
+	if (hook->proc_nr_e == NONE || !isokendpt(hook->proc_nr_e, &proc_nr))
+		continue;
+	hw_intr_set_cpu(irq, proc_addr(proc_nr)->p_cpu);
+	return;
+  }
+}
+
+/*===========================================================================*
+ *				irq_follow_owner_proc			     *
+ *===========================================================================*/
+/* The process moved to another cpu: its IRQ lines follow it. */
+void irq_follow_owner_proc(const struct proc *p)
+{
+  int i;
+
+  for (i = 0; i < NR_IRQ_HOOKS; i++) {
+	if (irq_hooks[i].proc_nr_e == p->p_endpoint)
+		irq_follow_owner(irq_hooks[i].irq);
+  }
+}
+
+/*===========================================================================*
  *				irq_handle				     *
  *===========================================================================*/
 /*
@@ -116,9 +157,11 @@ void rm_irq_handler( const irq_hook_t* hook ) {
 void irq_handle(int irq)
 {
   irq_hook_t * hook;
+  extern unsigned dbg_cpu_events[][5];
 
   /* here we need not to get this IRQ until all the handlers had a say */
   assert(irq >= 0 && irq < NR_IRQ_VECTORS);
+  dbg_cpu_events[cpuid][4]++;	/* hardware IRQs taken by this cpu */
   hw_intr_mask(irq);
   hook = irq_handlers[irq];
 

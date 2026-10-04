@@ -62,6 +62,10 @@ Interface to the reincarnation server
 /* CPU special values */
 #define RS_CPU_DEFAULT		-1 /* use the default cpu or do not change the current one */
 #define RS_CPU_BSP		-2 /* use the bootstrap cpu */
+#define RS_CPU_AUTO		-3 /* ReMinix: RS picks the cpu (system.conf
+				      "cpu auto", the default) */
+
+#define RS_NR_APART		 4 /* ReMinix: max "apart" labels */
 
 /* Labels are copied over separately. */
 struct rss_label
@@ -141,6 +145,7 @@ struct rs_start
 	size_t rss_prognamelen;
 	int rss_nr_domain;
 	int rss_domain[NR_DOMAIN];
+	int rss_max_wait;	/* starvation guard, ms (ReMinix) */
 	/*
 	 * SMP specific data
 	 *
@@ -148,6 +153,11 @@ struct rs_start
 	 * non-smp sysytems
 	 */
 	int rss_cpu;
+	/* ReMinix: labels of services this one must not share a cpu with
+	 * (system.conf "apart", symmetric)
+	 */
+	int rss_nr_apart;
+	struct rss_label rss_apart[RS_NR_APART];
 };
 
 /* ACL information for access to PCI devices */

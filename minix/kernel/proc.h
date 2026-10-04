@@ -131,6 +131,13 @@ struct proc {
    */
   struct { reg_t r1, r2, r3; } p_defer;
 
+  /* ReMinix: starvation guard (sched_starve_check()). Kept at the end of
+   * the structure so that the offsets above do not move.
+   */
+  clock_t p_max_wait;		/* ticks in the ready queue behind higher
+				   priorities before one slot; 0: none */
+  clock_t p_ready_since;	/* uptime when last put on a ready queue */
+
 #if DEBUG_TRACE
   int p_schedules;
 #endif
@@ -262,6 +269,8 @@ struct proc {
 #define MF_NICED	0x100000 /* user has lowered max process priority */
 #define MF_YIELD	0x200000 /* process has yielded the CPU (MINIX_YIELD);
 				    switch_to_user() must pick the next one */
+#define MF_STARVE_SLOT	0x400000 /* runs in a slot given by the starvation
+				    guard (sched_starve_check()) */
 
 /* Magic process table addresses. */
 #define BEG_PROC_ADDR (&proc[0])

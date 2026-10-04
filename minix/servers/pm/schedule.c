@@ -3,6 +3,7 @@
 #include <minix/callnr.h>
 #include <minix/com.h>
 #include <minix/config.h>
+#include <minix/priv.h>
 #include <minix/sched.h>
 #include <minix/sysinfo.h>
 #include <minix/type.h>
@@ -40,6 +41,7 @@ void sched_init(void)
 				USER_Q, 		/* maxprio */
 				USER_QUANTUM, 		/* quantum */
 				-1,			/* don't change cpu */
+				USR_MAXWAIT,		/* max_wait */
 				&trmp->mp_scheduler);	/* *newsched_e */
 			if (s != OK) {
 				printf("PM: SCHED denied taking over scheduling of %s: %d\n",

@@ -35,6 +35,7 @@ int check_call_permission(endpoint_t caller, int call, struct rproc
 	*rp);
 int copy_rs_start(endpoint_t src_e, char *src_rs_start, struct rs_start
 	*rs_start);
+int sched_pick_cpu(struct rproc *rp);
 int copy_label(endpoint_t src_e, char *src_label, size_t src_len, char
 	*dst_label, size_t dst_len);
 int init_state_data(endpoint_t src_e, int prepare_state,

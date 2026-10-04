@@ -99,7 +99,17 @@
 #define DSRV_QT   USER_QUANTUM                     /* dynamic system services */
 #define USR_QT    USER_QUANTUM                     /* user processes */
 
-/* default CPU */
-#define DSRV_CPU USER_DEFAULT_CPU
+/* ReMinix: starvation guard, system.conf "max_wait". The longest time (ms) a
+ * ready process waits in its CPU's ready queue behind higher priorities
+ * before the kernel gives it one slot; 0 -- no guarantee (docs/testing.md).
+ */
+#define SRV_MAXWAIT  20                            /* system services */
+#define DSRV_MAXWAIT SRV_MAXWAIT                   /* dynamic system services */
+#define USR_MAXWAIT  0                             /* user processes */
+
+/* default CPU: RS_CPU_AUTO (<minix/rs.h>), RS spreads system services over
+ * the CPUs (ReMinix)
+ */
+#define DSRV_CPU  (-3)
 
 #endif /* _MINIX_PRIV_H */

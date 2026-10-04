@@ -54,7 +54,7 @@ static unsigned tick_debug;
  * post-mortem dump (docker/qemu-postmortem.py): [0] timer_int_handler,
  * [1] context_stop_idle, [2] SMP schedule IPI handler, [3] idle() halts.
  */
-unsigned dbg_cpu_events[CONFIG_MAX_CPUS][4];
+unsigned dbg_cpu_events[CONFIG_MAX_CPUS][5];
 static unsigned tick_debug_ticks[CONFIG_MAX_CPUS];
 static unsigned tick_debug_busy[CONFIG_MAX_CPUS];
 
@@ -191,6 +191,9 @@ int timer_int_handler(void)
 
 	/* Update load average. */
 	load_update();
+
+	/* Give a slot to a process starving on this CPU, if any. */
+	sched_starve_check();
 
 	if (cpu_is_bsp(cpuid)) {
 		/*

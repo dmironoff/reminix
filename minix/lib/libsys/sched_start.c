@@ -49,6 +49,7 @@ int sched_start(endpoint_t scheduler_e,
 			int maxprio,
 			int quantum,
 			int cpu,
+			int max_wait,
 			endpoint_t *newscheduler_e)
 {
 	int rv;
@@ -69,7 +70,7 @@ int sched_start(endpoint_t scheduler_e,
 	/* The KERNEL must schedule this process. */
 	if(scheduler_e == KERNEL) {
 		if ((rv = sys_schedctl(SCHEDCTL_FLAG_KERNEL, 
-			schedulee_e, maxprio, quantum, cpu)) != OK) {
+			schedulee_e, maxprio, quantum, cpu, max_wait)) != OK) {
 			return rv;
 		}
 		*newscheduler_e = scheduler_e;
@@ -82,6 +83,8 @@ int sched_start(endpoint_t scheduler_e,
 	m.m_lsys_sched_scheduling_start.parent		= parent_e;
 	m.m_lsys_sched_scheduling_start.maxprio		= maxprio;
 	m.m_lsys_sched_scheduling_start.quantum		= quantum;
+	m.m_lsys_sched_scheduling_start.max_wait	= max_wait;
+	m.m_lsys_sched_scheduling_start.cpu		= cpu;
 
 	/* Send the request to the scheduler */
 	if ((rv = _taskcall(scheduler_e, SCHEDULING_START, &m))) {

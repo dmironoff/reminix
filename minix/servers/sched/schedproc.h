@@ -29,7 +29,10 @@ EXTERN struct schedproc {
 	unsigned max_priority;	/* this process' highest allowed priority */
 	unsigned priority;		/* the process' current priority */
 	unsigned time_slice;		/* this process's time slice */
+	int max_wait;		/* starvation guard, ms (ReMinix) */
 	unsigned cpu;		/* what CPU is the process running on */
+	int cpu_fixed;		/* ReMinix: CPU chosen by RS for a system
+				   process, -1: pick_cpu() decides */
 	bitchunk_t cpu_mask[BITMAP_CHUNKS(CONFIG_MAX_CPUS)]; /* what CPUs is the
 								process allowed
 								to run on */

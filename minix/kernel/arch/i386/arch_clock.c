@@ -379,7 +379,7 @@ void dbg_boot_event(u32_t tag)
 
 void context_stop_idle(void)
 {
-	extern unsigned dbg_cpu_events[][4];
+	extern unsigned dbg_cpu_events[][5];
 	int is_idle;
 #ifdef CONFIG_SMP
 	unsigned cpu = cpuid;

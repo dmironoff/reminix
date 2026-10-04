@@ -11,6 +11,7 @@
 #include "schedproc.h"
 #include <assert.h>
 #include <minix/com.h>
+#include <minix/priv.h>
 #include <machine/archtypes.h>
 
 static unsigned balance_timeout;
@@ -53,6 +54,12 @@ static void pick_cpu(struct schedproc * proc)
 	
 	if (machine.processors_count == 1) {
 		proc->cpu = machine.bsp_id;
+		return;
+	}
+
+	/* ReMinix: RS places system processes (system.conf "cpu") */
+	if (proc->cpu_fixed >= 0) {
+		proc->cpu = proc->cpu_fixed;
 		return;
 	}
 
@@ -127,7 +134,10 @@ int do_stop_scheduling(message *m_ptr)
 
 	rmp = &schedproc[proc_nr_n];
 #ifdef CONFIG_SMP
-	cpu_proc[rmp->cpu]--;
+	/* ReMinix: only pick_cpu() counted it -- system processes are not
+	 * counted, and the unsigned counter used to wrap around */
+	if (!is_system_proc(rmp) && rmp->cpu_fixed < 0 && cpu_proc[rmp->cpu] > 0)
+		cpu_proc[rmp->cpu]--;
 #endif
 	rmp->flags = 0; /*&= ~IN_USE;*/
 
@@ -173,6 +183,8 @@ int do_start_scheduling(message *m_ptr)
 		   process scheduled, and the parent of itself. */
 		rmp->priority   = USER_Q;
 		rmp->time_slice = DEFAULT_USER_TIME_SLICE;
+		rmp->max_wait   = USR_MAXWAIT;
+		rmp->cpu_fixed  = -1;
 
 		/*
 		 * Since kernel never changes the cpu of a process, all are
@@ -194,6 +206,11 @@ int do_start_scheduling(message *m_ptr)
 		 * from the parent */
 		rmp->priority   = rmp->max_priority;
 		rmp->time_slice = m_ptr->m_lsys_sched_scheduling_start.quantum;
+		rmp->max_wait   = m_ptr->m_lsys_sched_scheduling_start.max_wait;
+		rmp->cpu_fixed  = m_ptr->m_lsys_sched_scheduling_start.cpu;
+		if (rmp->cpu_fixed < 0 ||
+			rmp->cpu_fixed >= (int) machine.processors_count)
+			rmp->cpu_fixed = -1;
 		break;
 		
 	case SCHEDULING_INHERIT:
@@ -206,6 +223,8 @@ int do_start_scheduling(message *m_ptr)
 
 		rmp->priority = schedproc[parent_nr_n].priority;
 		rmp->time_slice = schedproc[parent_nr_n].time_slice;
+		rmp->max_wait = schedproc[parent_nr_n].max_wait;
+		rmp->cpu_fixed = -1;
 		break;
 		
 	default: 
@@ -215,7 +234,7 @@ int do_start_scheduling(message *m_ptr)
 
 	/* Take over scheduling the process. The kernel reply message populates
 	 * the processes current priority and its time slice */
-	if ((rv = sys_schedctl(0, rmp->endpoint, 0, 0, 0)) != OK) {
+	if ((rv = sys_schedctl(0, rmp->endpoint, 0, 0, 0, 0)) != OK) {
 		printf("Sched: Error taking over scheduling for %d, kernel said %d\n",
 			rmp->endpoint, rv);
 		return rv;
@@ -225,6 +244,11 @@ int do_start_scheduling(message *m_ptr)
 	/* Schedule the process, giving it some quantum */
 	pick_cpu(rmp);
 	while ((rv = schedule_process(rmp, SCHEDULE_CHANGE_ALL)) == EBADCPU) {
+		/* the cpu RS chose is not usable: let pick_cpu() decide */
+		if (rmp->cpu_fixed >= 0) {
+			rmp->cpu_fixed = -1;
+			continue;
+		}
 		/* don't try this CPU ever again */
 		cpu_proc[rmp->cpu] = CPU_DEAD;
 		pick_cpu(rmp);
@@ -319,7 +343,7 @@ static int schedule_process(struct schedproc * rmp, unsigned flags)
 	niced = (rmp->max_priority > USER_Q);
 
 	if ((err = sys_schedule(rmp->endpoint, new_prio,
-		new_quantum, new_cpu, niced)) != OK) {
+		new_quantum, new_cpu, niced, rmp->max_wait)) != OK) {
 		printf("PM: An error occurred when trying to schedule %d: %d\n",
 		rmp->endpoint, err);
 	}

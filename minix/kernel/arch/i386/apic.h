@@ -160,6 +160,9 @@ void lapic_restart_timer(void);
 
 void ioapic_set_irq(unsigned irq);
 void ioapic_unset_irq(unsigned irq);
+#ifdef CONFIG_SMP
+void ioapic_set_irq_cpu(unsigned irq, unsigned cpu);
+#endif
 
 /* signal the end of interrupt handler to apic */
 #define apic_eoi() do { *((volatile u32_t *) lapic_eoi_addr) = 0; } while(0)

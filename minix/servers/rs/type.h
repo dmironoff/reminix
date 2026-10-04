@@ -92,7 +92,12 @@ struct rproc {
   endpoint_t r_scheduler;	/* scheduler */
   int r_priority;		/* negative values are reserved for special meanings */
   int r_quantum;
-  int r_cpu;
+  int r_max_wait;		/* starvation guard, ms (ReMinix) */
+  int r_cpu;			/* cpu the service is scheduled on */
+  int r_cpu_req;		/* ReMinix: requested cpu: N, RS_CPU_AUTO or
+				 * RS_CPU_DEFAULT (keep) */
+  int r_nr_apart;		/* ReMinix: system.conf "apart" labels */
+  char r_apart[RS_NR_APART][RS_MAX_LABEL_LEN];
   vir_bytes r_map_prealloc_addr; /* preallocated mmap address */
   size_t r_map_prealloc_len;     /* preallocated mmap len */
 

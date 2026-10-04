@@ -8,7 +8,7 @@ int do_schedctl(struct proc * caller, message * m_ptr)
 {
 	struct proc *p;
 	uint32_t flags;
-	int priority, quantum, cpu;
+	int priority, quantum, cpu, max_wait;
 	int proc_nr;
 	int r;
 
@@ -32,9 +32,11 @@ int do_schedctl(struct proc * caller, message * m_ptr)
 		priority = m_ptr->m_lsys_krn_schedctl.priority;
 		quantum = m_ptr->m_lsys_krn_schedctl.quantum;
 		cpu = m_ptr->m_lsys_krn_schedctl.cpu;
+		max_wait = m_ptr->m_lsys_krn_schedctl.max_wait;
 
 		/* Try to schedule the process. */
-		if((r = sched_proc(p, priority, quantum, cpu, FALSE)) != OK)
+		if((r = sched_proc(p, priority, quantum, cpu, FALSE,
+				max_wait)) != OK)
 			return r;
 		p->p_scheduler = NULL;
 	} else {

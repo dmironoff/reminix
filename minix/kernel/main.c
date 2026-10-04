@@ -209,6 +209,7 @@ void kmain(kinfo_t *local_cbi)
                 priv(rp)->s_sig_mgr = SELF;
                 rp->p_priority = SRV_Q;
                 rp->p_quantum_size_ms = SRV_QT;
+                rp->p_max_wait = max_wait_ticks(SRV_MAXWAIT);
 	    }
 	    else if(iskerneln(proc_nr)) {
                 /* Privilege flags. */
@@ -232,6 +233,7 @@ void kmain(kinfo_t *local_cbi)
                 priv(rp)->s_sig_mgr = SRV_SM;     /* signal manager */
                 rp->p_priority = SRV_Q;	          /* priority queue */
                 rp->p_quantum_size_ms = SRV_QT;   /* quantum size */
+                rp->p_max_wait = max_wait_ticks(SRV_MAXWAIT);
             }
 
             /* Fill in target mask. */
