@@ -49,6 +49,11 @@ CPPFLAGS+= -DPAE=1
 
 .ifdef CONFIG_SMP
 SRCS+= smp.c
+# BKL owner and lock/unlock trace for post-mortems (spinlock.h, smp.c);
+# from the environment, docker/build.mk BKL_DEBUG=yes
+.if ${CONFIG_BKL_DEBUG:Uno} == "y"
+CPPFLAGS+= -DCONFIG_BKL_DEBUG
+.endif
 .endif
 
 .if ${USE_WATCHDOG} != "no"

@@ -29,9 +29,11 @@ static volatile int bsp_paging_enabled;
 SPINLOCK_DEFINE(big_kernel_lock)
 SPINLOCK_DEFINE(boot_lock)
 
+#ifdef CONFIG_BKL_DEBUG
 /*
- * BKL debugging (ReMinix). Plain globals, so that a post-mortem memory dump
- * shows who holds the lock and how it got there:
+ * BKL debugging (ReMinix, CONFIG_BKL_DEBUG; see spinlock.h). Plain globals,
+ * so that a post-mortem memory dump shows who holds the lock and how it got
+ * there:
  *
  *   bkl_owner_cpu, bkl_owner_pc	current holder (cpu -1: free), and the
  *					return address of its bkl_lock() call
@@ -119,6 +121,7 @@ __attribute__((noinline)) void bkl_unlock(void)
 	bkl_owner_pc = pc;	/* last releaser, while the lock is free */
 	arch_spinlock_unlock((atomic_t *) &big_kernel_lock);
 }
+#endif /* CONFIG_BKL_DEBUG */
 
 void wait_for_APs_to_finish_booting(void)
 {

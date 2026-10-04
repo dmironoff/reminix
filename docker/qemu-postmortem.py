@@ -17,7 +17,8 @@ Writes into OUTDIR:
   symbols.txt     nm -n -S of the kernel (addresses of everything below)
   kernel          copy of the kernel ELF (objdump -d)
   <symbol>.bin    raw kernel memory of the regions listed in REGIONS
-  bkl.txt         decoded BKL owner and last lock/unlock events (SMP kernel)
+  bkl.txt         decoded BKL owner and last lock/unlock events (SMP kernel
+                  built with BKL_DEBUG=yes)
   vga.txt         text screen of the VGA console: a kernel panic is printed
                   there directly, the serial console never shows it
   kmessages.txt   printable text of the kernel message buffer
@@ -38,7 +39,7 @@ REGIONS = [
     "proc", "priv", "__cpu_local_vars", "cpus", "ncpus", "bsp_cpu_id",
     "big_kernel_lock", "boot_lock", "dispq_lock", "smp_cpu_lock",
     "kinfo", "kclockinfo", "kmessages",
-    # BKL debugging, smp.c (SMP kernels only)
+    # BKL debugging, smp.c (SMP kernels built with BKL_DEBUG=yes)
     "bkl_owner_cpu", "bkl_owner_pc", "bkl_trace_seq", "bkl_trace",
     "bkl_relock_pc", "bkl_relock_owner",
     # clock debugging (tickdebug=N), APIC timer calibration

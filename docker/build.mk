@@ -24,7 +24,7 @@
 #> СБОРКА
 #>   build           build.sh для ARCH, без образа диска      [ARCH BUILD_TARGET BUILDVARS JOBS]
 #>   hdimage         образ диска i386: minix_x86.img, с SMP=yes — minix_x86_smp.img
-#>                   (releasetools/x86_hdimage.sh)            [SMP MAX_CPUS JOBS BUILDVARS]
+#>                   (releasetools/x86_hdimage.sh)            [SMP MAX_CPUS BKL_DEBUG JOBS BUILDVARS]
 #>   sdimage         SD-образ earm для платы BOARD: minix_arm_<BOARD>.img
 #>                   (releasetools/arm_sdimage.sh; U-Boot платы TI — готовые MLO/u-boot.img
 #>                   из дерева u-boot MINIX, зеркало на GitHub, в obj/evbearm-el/u-boot)
@@ -34,7 +34,7 @@
 #>                   образа без build.sh (секунды–минуты вместо 5–10 мин).  Нужен
 #>                   полный hdimage с тем же SMP= раньше.  Новые файлы, списки
 #>                   наборов, /etc от скриптов образа — только через hdimage
-#>                   (docker/quick-build.sh)                  [SMP QUICK_DIRS JOBS]
+#>                   (docker/quick-build.sh)                  [SMP BKL_DEBUG QUICK_DIRS JOBS]
 #>
 #> ТЕСТЫ (minix/tests в QEMU; i386 — сначала hdimage с тем же SMP=, earm — sdimage BOARD=)
 #>   test-i386       автоматический прогон i386, журнал obj/test-logs/i386[-smp]-cpuN-<дата>.log,
@@ -76,6 +76,10 @@
 #>   ARCH=i386          архитектура: i386, evbearm-el, ...
 #>   SMP=no             yes: ядро с CONFIG_SMP; свой obj/<ARCH>-smp и minix_x86_smp.img
 #>   MAX_CPUS=8         CONFIG_MAX_CPUS для SMP=yes
+#>   BKL_DEBUG=no       yes (только SMP=yes): отладочная обёртка BKL в ядре (CONFIG_BKL_DEBUG:
+#>                      владелец и журнал lock/unlock для дампа, bkl.txt); стоит вызова и
+#>                      общих записей на каждом входе в ядро.  При переключении build/
+#>                      hdimage/quick сами удаляют объекты ядра
 #>   JOBS=<nproc>       параллельность build.sh
 #>   BUILD_TARGET=release   цель build.sh для "build" (tools, distribution, release, ...)
 #>   BUILDVARS=         доп. аргументы build.sh (-V VAR=value ...)
@@ -135,6 +139,13 @@ BUILDVARS    ?=
 # share/mk/bsd.own.mk), поэтому отдельный объектный каталог и образ.
 SMP          ?= no
 MAX_CPUS     ?= 8
+# BKL_DEBUG=yes (только с SMP=yes): отладочная обёртка BKL в ядре
+# (CONFIG_BKL_DEBUG, minix/kernel/spinlock.h, smp.c). Флаг идёт в окружение
+# контейнера, nbmake берёт его оттуда (обёртка nbmake-i386 его не фиксирует,
+# поэтому hdimage и quick ведут себя одинаково). Объектные файлы от флагов не
+# зависят: при переключении bkl_sync удаляет объекты ядра; последнее значение —
+# obj/<ARCH>-smp/.bkl_debug (нет файла — старая сборка, обёртка была всегда).
+BKL_DEBUG    ?= no
 
 # Прогон тестов (test-i386).
 CPUS         ?= $(if $(filter yes,$(SMP)),4,1)
@@ -184,6 +195,20 @@ CONTAINER_REPO := /work/reminix
 FLAVOR      = $(if $(filter yes,$(SMP)),-smp,)
 SMP_VARS    = $(if $(filter yes,$(SMP)),-V CONFIG_SMP=y -V CONFIG_MAX_CPUS=$(MAX_CPUS),)
 IMG_NAME    = $(if $(filter yes,$(SMP)),minix_x86_smp.img,minix_x86.img)
+BKL_ENV     = $(if $(filter yes,$(SMP)),$(if $(filter yes,$(BKL_DEBUG)),-e CONFIG_BKL_DEBUG=y))
+HOST_OBJ    = $(REPO_ROOT)/obj/$(ARCH)$(FLAVOR)
+
+define bkl_sync
+	@if [ "$(SMP)" = yes ]; then \
+		mkdir -p "$(HOST_OBJ)"; \
+		old=$$(cat "$(HOST_OBJ)/.bkl_debug" 2>/dev/null || echo yes); \
+		if [ "$$old" != "$(BKL_DEBUG)" ]; then \
+			echo ">>> BKL_DEBUG $$old -> $(BKL_DEBUG): kernel objects removed"; \
+			rm -f "$(HOST_OBJ)"/minix/kernel/*.o "$(HOST_OBJ)"/minix/kernel/kernel; \
+		fi; \
+		echo "$(BKL_DEBUG)" > "$(HOST_OBJ)/.bkl_debug"; \
+	fi
+endef
 
 # Через "=" (не ":="), чтобы честно пересчитывались при
 # ARCH-переопределении конкретной цели (см. hdimage/sdimage ниже).
@@ -237,7 +262,7 @@ DOCKER_RUN_BASE = docker run --rm \
 	-e RELEASEDIR=$(CONTAINER_RELDIR) \
 	-e CROSS_TOOLS=$(CONTAINER_TOOLDIR)/bin \
 	-e BUILDVARS="$(ALL_BUILDVARS)" \
-	-e JOBS=$(JOBS)
+	-e JOBS=$(JOBS) $(BKL_ENV)
 
 DOCKER_RUN = $(DOCKER_RUN_BASE) $(IMAGE)
 
@@ -262,6 +287,7 @@ shell: image
 # т.д.): дойдёт настолько далеко, насколько дерево уже поддерживает
 # ARCH, что и является дымовым тестом прогресса портирования.
 build: image
+	$(bkl_sync)
 	$(DOCKER_RUN) bash -lc '\
 		mkdir -p "$$OBJ" && \
 		sh build.sh -j "$$JOBS" -m "$$ARCH" -O "$$OBJ" -D "$$DESTDIR" $$BUILDVARS -U -u $(BUILD_TARGET)'
@@ -272,12 +298,14 @@ build: image
 # сам скрипт. BUILDVARS (с -T и SMP-флагами) скрипты передают build.sh.
 hdimage: ARCH := i386
 hdimage: image
+	$(bkl_sync)
 	$(DOCKER_RUN) bash -lc 'mkdir -p "$$OBJ" && IMG=$(IMG_NAME) ./releasetools/x86_hdimage.sh'
 
 # Быстрая пересборка без build.sh: каталоги QUICK_DIRS, загрузочные модули и
 # освежение образа из рабочего каталога последнего hdimage.
 quick: ARCH := i386
 quick: image
+	$(bkl_sync)
 	$(DOCKER_RUN) bash -lc 'IMG=$(IMG_NAME) QUICK_DIRS="$(QUICK_DIRS)" bash docker/quick-build.sh'
 
 sdimage: ARCH := evbearm-el

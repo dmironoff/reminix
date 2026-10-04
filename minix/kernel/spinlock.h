@@ -37,12 +37,14 @@ void arch_spinlock_unlock(atomic_t * sl);
 
 #endif /* CONFIG_SMP */
 
-#if defined(CONFIG_SMP) && CONFIG_MAX_CPUS > 1
+#if defined(CONFIG_SMP) && CONFIG_MAX_CPUS > 1 && defined(CONFIG_BKL_DEBUG)
 /*
- * ReMinix: the BKL goes through bkl_lock()/bkl_unlock() (smp.c), which
- * record the owner and the last lock/unlock events for post-mortem analysis
+ * ReMinix, debugging only (CONFIG_BKL_DEBUG, docker/build.mk BKL_DEBUG=yes):
+ * the BKL goes through bkl_lock()/bkl_unlock() (smp.c), which record the
+ * owner and the last lock/unlock events for post-mortem analysis
  * (docker/qemu-postmortem.py, docs/testing.md) and detect a CPU re-locking
- * the BKL it already holds.
+ * the BKL it already holds. They cost a call and shared writes on every
+ * kernel entry and exit, so they are off by default.
  */
 void bkl_lock(void);
 void bkl_unlock(void);
