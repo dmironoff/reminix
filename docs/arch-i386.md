@@ -176,6 +176,13 @@ utility.o arch_reset.o io_inb.o io_outb.o` + куски libc/libminc/libsys)
 `trampoline.S`: `trampoline` (16-битный старт AP, `__ap_gdt/__ap_idt/__ap_pt`).
 Общий код — `minix/kernel/smp.c`; ядро защищено Big Kernel Lock.
 
+Номер CPU (`cpuid`, `arch/i386/include/arch_smp.h`) читается из верхнего слова
+текущего стека ядра (его пишет `tss_init()`; на стеке загрузки `k_initial_stack` —
+`push $0` в `head.S`, стек выровнен по странице). Загрузочный CPU — всегда
+логический CPU 0 (`docs/modernization.md`, п. 4, «Нумерация CPU»):
+`discover_cpus()` берёт его APIC ID из CPUID до разбора MADT, остальные CPU — 1, 2, …
+в порядке MADT; `smp_init()` сверяет с регистром LAPIC ID.
+
 ### 3.10 Прочее
 
 | Файл | Функции | Назначение |

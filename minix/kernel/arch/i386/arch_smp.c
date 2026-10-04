@@ -287,16 +287,61 @@ static void tss_init_all(void)
 		tss_init(cpu, get_k_stack_top(cpu)); 
 }
 
+/*
+ * Local APIC id of the CPU we run on, from the CPUID instruction (initial
+ * APIC id, leaf 1, EBX[31:24]): needs no LAPIC mapping, so it works before
+ * lapic_addr is set.
+ */
+static unsigned boot_apic_id(void)
+{
+	u32_t eax = 1, ebx = 0, ecx = 0, edx = 0;
+
+	_cpuid(&eax, &ebx, &ecx, &edx);
+	return ebx >> 24;
+}
+
+/*
+ * ReMinix: the boot CPU is always logical CPU 0 (docs/modernization.md,
+ * "CPU numbering"). The kernel runs on the boot stack before smp_init()
+ * switches to the per-CPU stacks, and cpuid there reads the 0 that head.S
+ * pushed: with the BSP numbered 0 that value is right, so cpuid, the CPU
+ * local variables and the BKL work the same before and after the switch.
+ * The other CPUs get 1, 2, ... in MADT order; the BSP is always counted,
+ * even if its entry comes after CONFIG_MAX_CPUS others.
+ */
 static int discover_cpus(void)
 {
 	struct acpi_madt_lapic * cpu;
+	unsigned bsp_apic = boot_apic_id();
+	int found = 0, bsp_found = 0;
 
-	while (ncpus < CONFIG_MAX_CPUS && (cpu = acpi_get_lapic_next())) {
+	ncpus = 1;
+	apicid2cpuid[bsp_apic] = 0;
+	cpuid2apicid[0] = bsp_apic;
+
+	while ((cpu = acpi_get_lapic_next())) {
+		found++;
+		if (cpu->apic_id == bsp_apic) {
+			bsp_found = 1;
+			printf("CPU %3d local APIC id %3d (boot CPU)\n", 0, bsp_apic);
+			continue;
+		}
+		if (ncpus >= CONFIG_MAX_CPUS) {
+			printf("CPU local APIC id %3d ignored: CONFIG_MAX_CPUS %d\n",
+				cpu->apic_id, CONFIG_MAX_CPUS);
+			continue;
+		}
 		apicid2cpuid[cpu->apic_id] = ncpus;
 		cpuid2apicid[ncpus] = cpu->apic_id;
 		printf("CPU %3d local APIC id %3d\n", ncpus, cpu->apic_id);
 		ncpus++;
 	}
+
+	if (!found)
+		return 0;	/* no MADT or no usable CPU in it */
+	if (!bsp_found)
+		printf("WARNING: boot CPU (local APIC id %d) not in the MADT\n",
+			bsp_apic);
 
 	return ncpus;
 }
@@ -314,11 +359,16 @@ void smp_init (void)
 
 	tss_init_all();
 
-	/* 
-	 * we still run on the boot stack and we cannot use cpuid as its value
-	 * wasn't set yet. apicid2cpuid initialized in mps_init()
+	/*
+	 * The BSP is logical CPU 0 by construction (discover_cpus()). Check
+	 * it against the LAPIC id register, which the rest of the SMP code
+	 * uses: if the initial APIC id from CPUID differs from it, the
+	 * numbering is wrong and cpuid on the boot stack would lie.
 	 */
 	bsp_cpu_id = apicid2cpuid[apicid()];
+	if (bsp_cpu_id != 0 || cpuid2apicid[0] != apicid())
+		panic("BSP: LAPIC id %u is CPU %u, expected CPU 0 (CPUID gave %u)",
+			apicid(), bsp_cpu_id, cpuid2apicid[0]);
 
 	/* tss_init_all() programmed this CPU's MSRs for every CPU in turn,
 	 * the last one won: set the BSP's own again (protect.c) */

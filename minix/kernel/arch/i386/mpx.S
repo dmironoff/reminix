@@ -641,6 +641,7 @@ ENTRY(startup_ap_32)
 .short	0x526F	/* this must be the first data entry (magic #) */
 
 .bss
+.balign K_STACK_SIZE
 k_initial_stack:
 .space	K_STACK_SIZE
 LABEL(__k_unpaged_k_initial_stktop)
