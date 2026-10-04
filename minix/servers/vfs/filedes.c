@@ -420,7 +420,7 @@ close_filp(struct filp * f, int may_suspend)
  * cases, this function will always return OK.  It will never return another
  * error code, for reasons explained below.
  */
-  int r, rw;
+  int r, rw, sock_suspend;
   dev_t dev;
   struct vnode *vp;
 
@@ -431,6 +431,7 @@ close_filp(struct filp * f, int may_suspend)
   vp = f->filp_vno;
 
   r = OK;
+  sock_suspend = FALSE;
 
   if (f->filp_count - 1 == 0 && f->filp_mode != FILP_CLOSED) {
 	/* Check to see if the file is special. */
@@ -472,15 +473,20 @@ close_filp(struct filp * f, int may_suspend)
 			if (f->filp_flags & O_NONBLOCK)
 				may_suspend = FALSE;
 
-			r = sdev_close(dev, may_suspend);
+			/*
+			 * ReMinix: a suspending close is sent last, see the end
+			 * of this function.
+			 */
+			if (may_suspend)
+				sock_suspend = TRUE;
+			else
+				(void) sdev_close(dev, FALSE);
 
 			/*
 			 * Returning a non-OK error is a bad idea, because it
 			 * will leave the application wondering whether closing
 			 * the file descriptor actually succeeded.
 			 */
-			if (r != SUSPEND)
-				r = OK;
 		}
 
 		f->filp_mode = FILP_CLOSED;
@@ -514,6 +520,22 @@ close_filp(struct filp * f, int may_suspend)
   }
 
   mutex_unlock(&f->filp_lock);
+
+  /*
+   * ReMinix: send a suspending socket close only now, when nothing else in
+   * this call can block. Once the request is out, the driver's reply may
+   * resume the process (sdev_reply()), and the process may make its next
+   * call at once. Sent before put_vnode() (a blocking request to the file
+   * server), the reply could arrive while this worker was still waiting
+   * there, and the next call from the process found the close still active:
+   * "process has two calls" panic, with the socket driver on another cpu
+   * than VFS (SMP, system.conf "cpu").
+   */
+  if (sock_suspend) {
+	r = sdev_close(dev, TRUE /*may_suspend*/);
+	if (r != SUSPEND)
+		r = OK;
+  }
 
   return r;
 }
