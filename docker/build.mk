@@ -38,7 +38,9 @@
 #>
 #> ТЕСТЫ (minix/tests в QEMU; i386 — сначала hdimage с тем же SMP=, earm — sdimage BOARD=)
 #>   test-i386       автоматический прогон i386, журнал obj/test-logs/i386[-smp]-cpuN-<дата>.log,
-#>                   итог — в <журнал>.result.  Ctrl-C: дамп и остановка (второй — без дампа)
+#>                   итог — в <журнал>.result (с «tests time» — время набора от BEGIN до END),
+#>                   время каждого теста — <журнал>.durations, метки строк — <журнал>.times.
+#>                   Ctrl-C: дамп и остановка (второй — без дампа)
 #>                   [SMP CPUS TESTS HANG_IDLE TEST_TIMEOUT KARGS SNAPSHOT_AT ACCEL]
 #>   test-earm       то же на машине QEMU платы BOARD (TCG), журнал
 #>                   obj/test-logs/earm-<BOARD>-cpuN-<дата>.log.  Машина есть только у

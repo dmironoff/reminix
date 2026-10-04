@@ -37,6 +37,7 @@
 #              3 hang / crash / incomplete / interrupted run
 
 set -u
+export LC_NUMERIC=C	# "." in $EPOCHREALTIME and awk numbers
 
 if [ $# -ne 7 ]; then
 	sed -n '/^# usage:/,/^# exit status/p' "$0" >&2
@@ -155,14 +156,33 @@ take_snapshot() {
 		"$dir" "$CPUS" cont || echo ">>> snapshot failed"
 }
 
+# Test timing. The console is echoed line by line and the lines that mark the
+# suite (REMINIX-TESTS-BEGIN/END, TAP results) are written to <log>.times with
+# the host time of their arrival: the duration of the suite does not depend on
+# the guest clock and on boot/shutdown, and since a TAP result is printed when
+# its test ends, the gap between two results is the duration of a test.
+tsfile="${LOG%.log}.times"
+stamp_console() {
+	local l
+	while IFS= read -r l || [ -n "$l" ]; do
+		printf '%s\n' "$l"
+		case $l in
+		"# "*) ;;
+		*REMINIX-TESTS-*|*"ok test "*)
+			printf '%s %s\n' "$EPOCHREALTIME" "${l%$'\r'}" >> "$tsfile" ;;
+		esac
+	done
+}
+
 start=$(date +%s)
 : > "$LOG"
+: > "$tsfile"
 "${qemu_cmd[@]}" \
 	-display none -monitor unix:"$monsock",server,nowait \
 	-serial file:"$LOG" -no-reboot \
 	</dev/null &
 qemu_pid=$!
-tail -n +1 -f --pid=$qemu_pid "$LOG" &
+tail -n +1 -s 0.2 -f --pid=$qemu_pid "$LOG" | stamp_console &
 tail_pid=$!
 
 stop_reason=		# hung | interrupted: QEMU is stopped by us
@@ -233,7 +253,12 @@ else
 		kill -0 $qemu_pid 2>/dev/null || break
 	done
 fi
-sleep 1
+# tail ends by itself once QEMU is gone (--pid); give it time to pass the
+# last lines on to stamp_console
+for i in 1 2 3 4 5 6 7 8 9 10; do
+	kill -0 $tail_pid 2>/dev/null || break
+	sleep 0.5
+done
 kill $tail_pid 2>/dev/null
 wait $tail_pid 2>/dev/null
 rm -f "$monsock"
@@ -257,14 +282,40 @@ known_list=$( [ -f "$KNOWN" ] && sed -e 's/#.*//' -e 's/[[:space:]]//g' "$KNOWN"
 new_fail=$(comm -23 <(printf '%s\n' "$failed_list" | grep .) <(printf '%s\n' "$known_list" | grep .))
 fixed=$(comm -13 <(printf '%s\n' "$failed_list" | grep .) <(printf '%s\n' "$known_list" | grep .))
 
+# Duration of the suite: REMINIX-TESTS-BEGIN to REMINIX-TESTS-END (if the end
+# marker was lost or the run did not finish: to the last TAP result). Each
+# test: from the previous result (or BEGIN) to its own, in <log>.durations.
+durfile="${LOG%.log}.durations"
+rm -f "$durfile"
+tests_time=$(awk -v out="$durfile" '
+	/REMINIX-TESTS-BEGIN/ { begin = prev = $1; next }
+	/REMINIX-TESTS-END/   { if (begin != "") end = $1; next }
+	begin != "" && match($0, /(not ok|ok) test [[:alnum:]_]+/) {
+		split(substr($0, RSTART, RLENGTH), w, " ")
+		res = (w[1] == "not") ? "FAIL" : "ok"
+		printf "%9.1f  %-4s  %s\n", $1 - prev, res, w[res == "FAIL" ? 4 : 3] > out
+		prev = last = $1
+	}
+	END {
+		if (begin == "") exit
+		if (end != "") printf "%.1fs", end - begin
+		else if (last != "") printf "%.1fs (to the last result, no end marker)", last - begin
+		else printf "none (no test finished)"
+	}' "$tsfile")
+
 # The summary goes to the terminal and to <log>.result: when the docker client
 # is gone (terminal closed, make interrupted) the verdict is still on disk.
 summary() {
 local verdict=0
 echo
 echo "================ ReMinix test summary ================"
-echo "CPUs: $CPUS   accel: $accel   time: ${elapsed}s   tests: ${LIST:-all}"
+echo "CPUs: $CPUS   accel: $accel   run time: ${elapsed}s   tests: ${LIST:-all}"
 echo "plan: ${plan:-?}   passed: $passed   failed: $failed"
+if [ -n "$tests_time" ]; then
+	echo "tests time: $tests_time   (per test: $(basename "$durfile"))"
+else
+	echo "tests time: - (the suite did not start)"
+fi
 [ -n "$failed_list" ] && echo "failed: $(echo $failed_list)"
 [ -n "$fixed" ] && echo "known failures that passed now: $(echo $fixed)"
 
