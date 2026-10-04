@@ -46,7 +46,7 @@ minix/kernel/arch/i386/            — машинно-зависимая час�
 ├── head.S, pre_init.c             — точка входа multiboot, ранняя инициализация (до paging)
 ├── pg_utils.c                     — ранние таблицы страниц, карта памяти, включение paging
 ├── mpx.S                          — входы в ядро: прерывания, исключения, IPC, kernel call; выход
-├── klib.S                         — низкоуровневые примитивы (копирование, CR, MSR, FPU, спинлоки)
+├── klib.S                         — низкоуровневые примитивы (копирование, CR, MSR, FPU)
 ├── protect.c                      — GDT/IDT/TSS, сегменты, шлюзы прерываний
 ├── exception.c                    — обработка исключений, page fault, стек-трейсы
 ├── memory.c                       — копирование между АП, umap/vm_lookup, отображения для VM, usermapped
@@ -58,6 +58,7 @@ minix/kernel/arch/i386/            — машинно-зависимая час�
 ├── apic.c, apic.h, apic_asm.S/.h  — LAPIC/IOAPIC, IPI, калибровка        [USE_APIC]
 ├── acpi.c, acpi.h                 — таблицы ACPI (RSDP/RSDT/MADT), poweroff  [USE_ACPI]
 ├── arch_smp.c, trampoline.S       — запуск AP, IPI планирования/останова  [CONFIG_SMP]
+├── arch_spinlock.h                — спинлоки MCS на <stdatomic.h> (static inline) [CONFIG_SMP]
 ├── arch_watchdog.c                — NMI-watchdog на счётчиках производительности [USE_WATCHDOG]
 ├── breakpoints.c, debugreg.S/.h   — аппаратные точки останова DR0–DR7   [USE_DEBUGREG]
 ├── do_iopenable.c, do_readbios.c, do_sdevio.c — i386-специфичные kernel calls
@@ -138,7 +139,7 @@ utility.o arch_reset.o io_inb.o io_outb.o` + куски libc/libminc/libsys)
 `read_ebp`, `x86_load_kerncs`, `ia32_msr_read/write`, `fninit`, `clts`,
 `fnstsw`, `fxrstor`, `frstor`, `halt_cpu`, `x86_triplefault`,
 `poweroff_vmware_clihlt`, `eoi_8259_master/slave`, `smp_get_htt/num_htt/cores`,
-**`arch_spinlock_lock`/`arch_spinlock_unlock`**, `mfence`, `arch_pause`,
+`mfence`, `arch_pause`,
 `interrupts_enable/disable`, `switch_k_stack`; макросы `ARG_EAX_*` генерируют
 обёртки чтения/записи CR0/CR2/CR3/CR4 и т.п. `io_*.S`: `inb/inw/inl`,
 `outb/outw/outl`, `intr_disable/intr_enable`.
@@ -172,7 +173,8 @@ utility.o arch_reset.o io_inb.o io_outb.o` + куски libc/libminc/libsys)
 `arch_smp.c`: `smp_init`, `discover_cpus` (MADT), `copy_trampoline`,
 `smp_start_aps`, `smp_ap_boot`, `ap_finish_booting`, `tss_init_all`,
 `smp_reinit_vars`, `smp_halt_cpu`, `smp_shutdown_aps`, `arch_smp_halt_cpu`,
-`arch_send_smp_schedule_ipi`; спинлоки `smp_cpu_lock`, `dispq_lock`.
+`arch_send_smp_schedule_ipi`; спинлоки `smp_cpu_lock`, `dispq_lock` определены, но
+нигде не захватываются.
 `trampoline.S`: `trampoline` (16-битный старт AP, `__ap_gdt/__ap_idt/__ap_pt`).
 Общий код — `minix/kernel/smp.c`; ядро защищено Big Kernel Lock.
 
@@ -242,7 +244,7 @@ utility.o arch_reset.o io_inb.o io_outb.o` + куски libc/libminc/libsys)
 | FPU/SSE | ✅ | ленивое сохранение, FXSAVE/FNSAVE |
 | AVX/XSAVE | ❌ | добавить (актуально для amd64) |
 | SMP | ⚠️ | есть, но только при `CONFIG_SMP`, Big Kernel Lock, миграции нет — **переделка по п. 4 модернизации** |
-| Спинлоки | ⚠️ | простой test-and-set (`arch_spinlock_lock`) — осовременить (п. 4) |
+| Спинлоки | ✅ | MCS (2026-10-04): `arch_spinlock.h` на `<stdatomic.h>`, узел на CPU в самом замке (576 байт при `CONFIG_MAX_CPUS=8`, всё по 64 байта); прежний test-and-set на ассемблере из `klib.S` удалён. Проверки повторного захвата — TODO в `arch_spinlock_lock/unlock` |
 | TLS-регистр потока | ❌ | `%gs`-сегмент на поток — п. 8 модернизации (`docs/threads.md`) |
 | NMI-watchdog | ✅ | Intel/AMD perf-счётчики |
 | Профилирование | ✅ | CMOS RTC / NMI |

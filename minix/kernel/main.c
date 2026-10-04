@@ -147,6 +147,7 @@ void kmain(kinfo_t *local_cbi)
   cstart();
 
   BKL_LOCK();
+
  
    DEBUGEXTRA(("main()\n"));
 

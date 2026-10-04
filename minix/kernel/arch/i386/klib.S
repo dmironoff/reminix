@@ -728,53 +728,6 @@ ENTRY(smp_get_cores)
 	pop	%ebp
 	ret
 
-/*===========================================================================*/
-/*				arch_spinlock_lock				    */
-/*===========================================================================*/
-/* void arch_spinlock_lock (u32_t  *lock_data)
- * {
- * 	while (test_and_set(lock_data) == 1)
- *		while (*lock_data == 1)
- *			;
- * }
- * eax register is clobbered.
- */
-ENTRY(arch_spinlock_lock)
-	mov	4(%esp), %eax
-	mov	$1, %edx
-2:
-	mov	$1, %ecx
-	xchg	%ecx, (%eax)
-	test	%ecx, %ecx
-	je	0f
-
-	cmp	$(1<< 16), %edx
-	je	1f
-	shl	%edx
-1:
-	mov	%edx, %ecx
-3:
-	pause
-	sub	$1, %ecx
-	test	%ecx, %ecx
-	jz	2b
-	jmp	3b
-0:
-	mfence
-	ret
-
-/*===========================================================================*/
-/*				arch_spinlock_unlock	                             */
-/*===========================================================================*/
-/* * void arch_spinlock_unlock (unsigned int *lockp) */
-/*  spin lock release routine. */
-ENTRY(arch_spinlock_unlock)
-	mov	4(%esp), %eax
-	mov	$0, %ecx
-	xchg	%ecx, (%eax)
-	mfence
-	ret
-
 #endif /* CONFIG_SMP */
 
 /*===========================================================================*/

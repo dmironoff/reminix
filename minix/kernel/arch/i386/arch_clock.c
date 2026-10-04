@@ -233,11 +233,11 @@ void context_stop(struct proc * p)
 		must_bkl_unlock = 1;
 	} else {
 		u64_t bkl_tsc;
-		atomic_t succ;
+		int succ;
 		
 		read_tsc_64(&bkl_tsc);
 		/* this only gives a good estimate */
-		succ = big_kernel_lock.val;
+		succ = spinlock_is_locked(&big_kernel_lock);
 		
 		BKL_LOCK();
 		
@@ -249,7 +249,6 @@ void context_stop(struct proc * p)
 
 		p->p_cycles = p->p_cycles + tsc - *__tsc_ctr_switch;
 
-#ifdef CONFIG_SMP
 		/*
 		 * Since at the time we got a scheduling IPI we might have been
 		 * waiting for BKL already, we may miss it due to a similar IPI to
@@ -261,7 +260,7 @@ void context_stop(struct proc * p)
 		 * we do not deadlock.
 		 */
 		smp_sched_handler();
-#endif
+
 	}
 #else
 	read_tsc_64(&tsc);

@@ -203,7 +203,7 @@ i386); `main.c` — ранний `arch_ser_init()`; `proc.c` — проверк�
 | Частота CPU | ❌ | жёстко 660 МГц в `cpu_identify` |
 | FPU (VFP/NEON) | ❌ | **заглушки**: контекст VFP не сохраняется, при переключениях возможна порча; soft-float ABI. Реализовать ленивое сохранение VFP |
 | SMP | ❌ | `#error CONFIG_SMP is unsupported on ARM` (п. 4 модернизации); запуск вторичных CPU — через PSCI, см. §7 |
-| Спинлоки/атомарные операции | ❌ | в ядре не нужны без SMP; реализовать на `LDREX/STREX` + барьерах |
+| Спинлоки/атомарные операции | ❌ | в ядре не нужны без SMP. С SMP — свой `arch/earm/arch_spinlock.h` (интерфейс как у i386: `arch_spinlock_init/lock/unlock/try_lock/is_locked`). GCC 4.8.5 earm не знает `<stdatomic.h>` и `_Atomic` — встроенные `__atomic_*` (раскрываются в `LDREX/STREX` + `dmb`) или ассемблер |
 | TLS-регистр потока | ❌ | `TPIDRURO` не используется (п. 8, `docs/threads.md`) |
 | Watchdog (NMI-аналог) | ❌ | аппаратный WDT отключается при загрузке |
 | Статистическое профилирование | ❌ | нет `arch_init_profile_clock` |

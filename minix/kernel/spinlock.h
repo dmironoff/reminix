@@ -1,37 +1,72 @@
+/*
+ * Макросы спинлоков, BKL объявлен здесь же.
+ * Этот набор макросов лишь прослойка для arch/<arch>/arch_spinlock.h
+ * Реализация спинлоков полностью вынесена в архитектурный слой.
+ * Мы используем алгоритм MCS с отдельным массивом
+ */
 #ifndef __SPINLOCK_H__
 #define __SPINLOCK_H__
 
 #include "kernel/kernel.h"
 
-typedef struct spinlock {
-	atomic_t val;
-} spinlock_t;
-
 #ifndef CONFIG_SMP
 
 #define SPINLOCK_DEFINE(name)
-#define PRIVATE_SPINLOCK_DEFINE(name)
 #define SPINLOCK_DECLARE(name)
 #define spinlock_init(sl)
+
+/*
+ * Без второго CPU замки не нужны: захват всегда успешен, «занят» — никогда.
+ * Макросы со значением раскрываются в константы, чтобы их можно было
+ * использовать в выражениях (if (spinlock_try_lock(...))); аргумент не
+ * вычисляется -- самих переменных замков в такой сборке нет.
+ */
+#define spinlock_cpu_is_locked(cpu, sl)	(0)
+#define spinlock_cpu_try_lock(cpu, sl)	(1)
+#define spinlock_cpu_unlock(cpu, sl)
+
 #define spinlock_lock(sl)
+#define spinlock_is_locked(sl)		(0)
+#define spinlock_try_lock(sl)		(1)
 #define spinlock_unlock(sl)
 
 #else
 
 /* SMP */
-#define SPINLOCK_DEFINE(name)	spinlock_t name;
-#define PRIVATE_SPINLOCK_DEFINE(name)	PRIVATE SPINLOCK_DEFINE(name)
-#define SPINLOCK_DECLARE(name)	extern SPINLOCK_DEFINE(name)
-#define spinlock_init(sl) do { (sl)->val = 0; } while (0)
+#include "arch_spinlock.h"
+
+
+#define SPINLOCK_DEFINE(name) spinlock_t name;
+#define SPINLOCK_DECLARE(name) extern spinlock_t name;
+
+#define spinlock_init(sl) arch_spinlock_init(sl)
 
 #if CONFIG_MAX_CPUS == 1
+/*
+ * Без второго CPU замки не нужны: захват всегда успешен, «занят» — никогда.
+ * Макросы со значением раскрываются в константы, чтобы их можно было
+ * использовать в выражениях (if (spinlock_try_lock(...))); аргумент не
+ * вычисляется -- самих переменных замков в такой сборке нет.
+ */
+#define spinlock_cpu_is_locked(cpu, sl)	(0)
+#define spinlock_cpu_try_lock(cpu, sl)	(1)
+#define spinlock_cpu_unlock(cpu, sl)
+
 #define spinlock_lock(sl)
+#define spinlock_is_locked(sl)		(0)
+#define spinlock_try_lock(sl)		(1)
 #define spinlock_unlock(sl)
 #else
-void arch_spinlock_lock(atomic_t * sl);
-void arch_spinlock_unlock(atomic_t * sl);
-#define spinlock_lock(sl)	arch_spinlock_lock((atomic_t*) sl)
-#define spinlock_unlock(sl)	arch_spinlock_unlock((atomic_t*) sl)
+
+#define spinlock_cpu_is_locked(cpu, sl) arch_spinlock_cpu_is_locked(sl, cpu)
+#define spinlock_cpu_try_lock(cpu, sl) arch_spinlock_try_lock(sl, cpu)
+#define spinlock_cpu_unlock(cpu, sl) arch_spinlock_unlock(sl, cpu)
+
+#define spinlock_lock(sl)  arch_spinlock_lock(sl, cpuid)
+#define spinlock_is_locked(sl)  arch_spinlock_is_locked(sl)
+#define spinlock_try_lock(sl) arch_spinlock_try_lock(sl, cpuid)
+#define spinlock_unlock(sl) arch_spinlock_unlock(sl, cpuid)
+
 #endif
 
 

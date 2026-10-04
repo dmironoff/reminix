@@ -100,13 +100,13 @@ __attribute__((noinline)) void bkl_lock(void)
 {
 	u32_t pc = (u32_t) __builtin_return_address(0);
 
-	if (big_kernel_lock.val && bkl_owner_cpu == cpuid && !bkl_relock_pc) {
+	if (spinlock_is_locked(&big_kernel_lock)  && bkl_owner_cpu == cpuid && !bkl_relock_pc) {
 		/* about to deadlock on ourselves; remember where, and spin
 		 * anyway so that the hang can be analysed */
 		bkl_relock_owner = bkl_owner_pc;
 		bkl_relock_pc = pc;
 	}
-	arch_spinlock_lock((atomic_t *) &big_kernel_lock);
+	spinlock_lock(&big_kernel_lock);
 	bkl_owner_cpu = cpuid;
 	bkl_owner_pc = pc;
 	bkl_record(pc, bkl_caller(__builtin_frame_address(0)), BKL_OP_LOCK);
@@ -119,7 +119,7 @@ __attribute__((noinline)) void bkl_unlock(void)
 	bkl_record(pc, bkl_caller(__builtin_frame_address(0)), BKL_OP_UNLOCK);
 	bkl_owner_cpu = (u32_t) -1;
 	bkl_owner_pc = pc;	/* last releaser, while the lock is free */
-	arch_spinlock_unlock((atomic_t *) &big_kernel_lock);
+	spinlock_unlock(&big_kernel_lock);
 }
 #endif /* CONFIG_BKL_DEBUG */
 
