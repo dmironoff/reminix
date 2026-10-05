@@ -41,7 +41,8 @@
 #>                   итог — в <журнал>.result (с «tests time» — время набора от BEGIN до END),
 #>                   время каждого теста — <журнал>.durations, метки строк — <журнал>.times.
 #>                   Ctrl-C: дамп и остановка (второй — без дампа)
-#>                   [SMP CPUS TESTS TEST_JOBS HANG_IDLE TEST_TIMEOUT KARGS SNAPSHOT_AT ACCEL]
+#>                   [SMP CPUS TESTS TEST_JOBS TEST_RANDOM TEST_TIMES HANG_IDLE TEST_TIMEOUT
+#>                    KARGS SNAPSHOT_AT ACCEL]
 #>   test-earm       то же на машине QEMU платы BOARD (TCG), журнал
 #>                   obj/test-logs/earm-<BOARD>-cpuN-<дата>.log.  Машина есть только у
 #>                   orangepi-pc; параметры ядра (testrun) на earm передаёт U-Boot — до Б2
@@ -88,11 +89,17 @@
 #>   BOARD=             earm: beaglexm | beaglebone | orangepi-pc (имена машин QEMU; у плат TI
 #>                      машины в апстримном QEMU нет — для них только sdimage)
 #>   TESTS=             список тестов через запятую (43,71,sh1); пусто — все
-#>   TEST_JOBS=1        стресс: брать тесты TESTS по N подряд и запускать каждую группу
-#>                      одновременно (тест можно повторять: TESTS=90,90,90,90 TEST_JOBS=4);
-#>                      нужен TESTS; итоги группы печатаются, когда она вся закончилась —
-#>                      HANG_IDLE не меньше времени самой долгой группы; в .durations
-#>                      время группы у первого теста, у остальных около 0
+#>   TEST_JOBS=1        стресс: брать тесты по N подряд и запускать каждую группу
+#>                      одновременно (тест можно повторять: TESTS=90,90,90,90 TEST_JOBS=4;
+#>                      без TESTS — все); итоги группы печатаются, когда она вся
+#>                      закончилась — HANG_IDLE не меньше времени самой долгой группы;
+#>                      в .durations время группы у первого теста, у остальных около 0
+#>   TEST_RANDOM=       стресс: перемешать список перед разбивкой на группы, чтобы вместе
+#>                      шли разные тесты; yes — seed выбирается сам (печатается в итоге),
+#>                      число — этот seed (повторить прогон); время таких прогонов не
+#>                      сравнивать
+#>   TEST_TIMES=1       каждый тест списка (без TESTS — каждый из всех) запустить N раз;
+#>                      с TEST_RANDOM — больше разных сочетаний в группах
 #>   HANG_IDLE=600      секунд тишины консоли до признания зависания (дамп).
 #>                      SMP: полный прогон — 1800 (тест 70 долго молчит), на 4 CPU — 3000
 #>                      (тест 79 молчит до ~40 мин; и TEST_TIMEOUT=9000); TESTS=41 — не меньше 200
@@ -113,6 +120,8 @@
 #>   make -C docker -f build.mk test-i386 SMP=yes CPUS=2 HANG_IDLE=1800
 #>   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=31,31,31
 #>   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=90,90,90,90 TEST_JOBS=4
+#>   make -C docker -f build.mk test-i386 SMP=yes CPUS=8 TEST_JOBS=4 TEST_RANDOM=yes TEST_TIMES=3 \
+#>        HANG_IDLE=3000 TEST_TIMEOUT=20000
 #>   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 KARGS=no_apic=1
 #>   make -C docker -f build.mk quick SMP=yes QUICK_DIRS="minix/kernel minix/net/uds"
 #>   make -C docker -f build.mk run-i386 SMP=yes CPUS=4
@@ -158,6 +167,9 @@ CPUS         ?= $(if $(filter yes,$(SMP)),4,1)
 TESTS        ?=
 # сколько тестов из TESTS запускать одновременно (rc.d/minixtests, testjobs=)
 TEST_JOBS    ?= 1
+# перемешать список (yes или seed) и сколько раз повторить каждый тест
+TEST_RANDOM  ?=
+TEST_TIMES   ?= 1
 TEST_TIMEOUT ?= 5400
 # секунд тишины на консоли, после которых прогон считается зависшим
 # (снимается post-mortem: docker/qemu-postmortem.py)
@@ -340,7 +352,7 @@ host-test: image
 # сначала hdimage (с тем же SMP=).
 test-i386: ARCH := i386
 test-i386: image
-	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) --label $(TEST_LABEL) -e HANG_IDLE=$(HANG_IDLE) -e KARGS="$(KARGS)" -e TEST_JOBS=$(TEST_JOBS) -e SNAPSHOT_AT=$(SNAPSHOT_AT) -e ACCEL=$(ACCEL) $(IMAGE) bash docker/run-tests.sh \
+	$(DOCKER_RUN_BASE) $(KVM_DEVICE) $(KVM_GROUPADD) --label $(TEST_LABEL) -e HANG_IDLE=$(HANG_IDLE) -e KARGS="$(KARGS)" -e TEST_JOBS=$(TEST_JOBS) -e TEST_RANDOM=$(TEST_RANDOM) -e TEST_TIMES=$(TEST_TIMES) -e SNAPSHOT_AT=$(SNAPSHOT_AT) -e ACCEL=$(ACCEL) $(IMAGE) bash docker/run-tests.sh \
 		$(CONTAINER_DEST)/boot/minix/.temp \
 		$(IMG_NAME) \
 		$(CPUS) \

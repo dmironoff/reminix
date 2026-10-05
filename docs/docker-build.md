@@ -185,6 +185,7 @@ make -C docker -f build.mk quick SMP=yes QUICK_DIRS="minix/kernel minix/net/uds"
 make -C docker -f build.mk test-i386                # автоматический прогон minix/tests (docs/testing.md §1)
 make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=43,71
 make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=90,90,90,90 TEST_JOBS=4  # стресс: группами по 4 одновременно
+make -C docker -f build.mk test-i386 SMP=yes CPUS=8 TEST_JOBS=4 TEST_RANDOM=yes TEST_TIMES=3  # случайные группы из всех тестов
 make -C docker -f build.mk test-snapshot            # из другого терминала: снимок идущего прогона
 make -C docker -f build.mk test-stop                # из другого терминала: post-mortem и остановка (как Ctrl-C)
 make -C docker -f build.mk run-i386 SMP=yes CPUS=4  # интерактивная консоль MINIX с журналом и снимками (docs/testing.md §1в)

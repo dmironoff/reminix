@@ -11,12 +11,18 @@
 #   testlist=43,71,sh1   optional: run only these tests (comma separated,
 #                        names as accepted by "run -t")
 #   testdelay=N          optional: seconds to wait before starting (30)
-#   testjobs=N           optional, with testlist: take the tests of the list
+#   testjobs=N           optional: take the tests of the list
 #                        N at a time and run each group concurrently (stress;
 #                        a test may be listed several times). Each slot runs
 #                        in its own directory of symbolic links to the suite,
 #                        so copies of one test do not share DIR_xx. Results
 #                        of a group are printed when the whole group is done.
+#   testtimes=N          optional: run every test of the list (all tests if
+#                        there is no testlist) N times
+#   testrandom=SEED      optional: shuffle that list (awk srand(SEED)), so that
+#                        with testjobs different tests meet in one group; the
+#                        same SEED gives the same order. Each group is printed
+#                        as a TAP comment before it starts.
 #
 # Runs synchronously as the last rc script: getty is started by init only
 # after rc has finished, and getty revokes the console, so output of a
@@ -33,10 +39,31 @@ name="minixtests"
 start_cmd="minixtests_start"
 stop_cmd=":"
 
-# Run "$list" in groups of $jobs concurrent tests (testjobs=N).
+# Run "$list" in groups of $jobs concurrent tests (testjobs=N), after
+# repeating it $times times and shuffling it with seed $seed if requested.
 minixtests_parallel()
 {
 	base=/usr/tests/minix-posix
+	jobs=${jobs:-1}
+
+	[ -n "$list" ] || list="`cd $base && ./run -l`"
+	if [ "${times:-1}" -gt 1 ]; then
+		one="$list"
+		list=
+		i=0
+		while [ $i -lt $times ]; do
+			i=$((i + 1))
+			list="$list $one"
+		done
+	fi
+	if [ -n "$seed" ]; then
+		echo "# minixtests: random order, seed $seed"
+		list="`for t in $list; do echo $t; done |
+		    awk -v seed=$seed 'BEGIN { srand(seed) }
+			{ printf "%.9f %s\n", rand(), $0 }' |
+		    sort -n | awk '{ print $2 }'`"
+	fi
+
 	n=0
 	for t in $list; do n=$((n + 1)); done
 	echo "1..$n"
@@ -54,14 +81,21 @@ minixtests_parallel()
 		done
 	done
 
+	# Background jobs of a shell without job control get /dev/null as
+	# standard input; tests want the console there (test3: ttyname(0)).
+	# Hand it over through fd 3, which the tests must not see open.
+	exec 3<&0
 	status=0
+	g=0
 	set -- $list
 	while [ $# -gt 0 ]; do
+		g=$((g + 1))
+		echo "# minixtests: group $g:" `echo "$@" | cut -d' ' -f1-$jobs`
 		k=0
 		while [ $k -lt $jobs ] && [ $# -gt 0 ]; do
 			k=$((k + 1))
 			d=$base.job$k
-			( cd $d && ./run -T -t "$1" > $d/.out 2>&1
+			( cd $d && ./run -T -t "$1" <&3 3<&- > $d/.out 2>&1
 			  echo $? > $d/.status ) &
 			shift
 		done
@@ -74,6 +108,7 @@ minixtests_parallel()
 			[ "`cat $d/.status`" = 0 ] || status=1
 		done
 	done
+	exec 3<&-
 	return $status
 }
 
@@ -84,15 +119,15 @@ minixtests_start()
 	list="`/bin/sysenv testlist 2>/dev/null | tr ',' ' '`"
 	delay="`/bin/sysenv testdelay 2>/dev/null`"
 	jobs="`/bin/sysenv testjobs 2>/dev/null`"
+	times="`/bin/sysenv testtimes 2>/dev/null`"
+	seed="`/bin/sysenv testrandom 2>/dev/null`"
 
 	echo "minixtests: starting in ${delay:-30}s"
 	sleep ${delay:-30}
 
 	echo "REMINIX-TESTS-BEGIN"
-	if [ "${jobs:-1}" -gt 1 ] && [ -z "$list" ]; then
-		echo "minixtests: testjobs needs testlist, running serially"
-	fi
-	if [ "${jobs:-1}" -gt 1 ] && [ -n "$list" ]; then
+	if [ "${jobs:-1}" -gt 1 ] || [ "${times:-1}" -gt 1 ] ||
+	    [ -n "$seed" ]; then
 		minixtests_parallel
 		status=$?
 	elif cd /usr/tests/minix-posix; then

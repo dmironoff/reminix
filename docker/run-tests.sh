@@ -22,6 +22,9 @@
 #             (env KARGS: extra kernel arguments; CPUS>1 adds no_apic=0)
 #             (env TEST_JOBS: run TESTLIST in groups of N concurrent tests,
 #              rc.d/minixtests testjobs=N; default 1)
+#             (env TEST_TIMES: run every test N times, testtimes=N)
+#             (env TEST_RANDOM: yes or a seed: shuffle the list first,
+#              testrandom=SEED; the seed is printed in the summary)
 #             (env SNAPSHOT_AT: seconds; snapshot of the running system)
 #             (env ACCEL: tcg or kvm instead of the automatic choice)
 #             (env TARGET: i386 (default) or earm; earm needs env MACHINE,
@@ -60,6 +63,14 @@ fi
 append="rootdevname=c0d0p0 console=tty00 testrun=1"
 [ -n "$LIST" ] && append="$append testlist=$LIST"
 [ "${TEST_JOBS:-1}" -gt 1 ] && append="$append testjobs=$TEST_JOBS"
+[ "${TEST_TIMES:-1}" -gt 1 ] && append="$append testtimes=$TEST_TIMES"
+case "${TEST_RANDOM:-}" in
+"") seed= ;;
+yes) seed=$(( (RANDOM << 15 | RANDOM) % 999999 + 1 )) ;;
+*[!0-9]*) echo "run-tests: TEST_RANDOM must be yes or a number" >&2; exit 2 ;;
+*) seed=$TEST_RANDOM ;;
+esac
+[ -n "$seed" ] && append="$append testrandom=$seed"
 # The kernel defaults to no_apic=1, which makes an SMP kernel fall back to
 # a single CPU on the 8259 PIC: the other CPUs would never be started.
 # KARGS can override this (KARGS=no_apic=1 tests the single CPU fallback).
@@ -279,7 +290,8 @@ results=$(grep -v '^# ' "$clean" | grep -oE '(not ok|ok) test [[:alnum:]_]+')
 plan=$(grep -oE '^1\.\.[0-9]+' "$clean" | head -1 | cut -d. -f3)
 passed=$(printf '%s\n' "$results" | grep -c '^ok test ' || true)
 failed_list=$(printf '%s\n' "$results" | grep '^not ok test ' | awk '{print $4}' | sort -u)
-failed=$(printf '%s' "$failed_list" | grep -c . || true)
+# results, not names: a test may run several times (TEST_TIMES, TESTS=90,90)
+failed=$(printf '%s\n' "$results" | grep -c '^not ok test ' || true)
 
 known_list=$( [ -f "$KNOWN" ] && sed -e 's/#.*//' -e 's/[[:space:]]//g' "$KNOWN" | grep . | sort -u )
 new_fail=$(comm -23 <(printf '%s\n' "$failed_list" | grep .) <(printf '%s\n' "$known_list" | grep .))
@@ -312,7 +324,7 @@ summary() {
 local verdict=0
 echo
 echo "================ ReMinix test summary ================"
-echo "CPUs: $CPUS   accel: $accel   run time: ${elapsed}s   tests: ${LIST:-all}${TEST_JOBS:+   jobs: $TEST_JOBS}"
+echo "CPUs: $CPUS   accel: $accel   run time: ${elapsed}s   tests: ${LIST:-all}${TEST_JOBS:+   jobs: $TEST_JOBS}${seed:+   random seed: $seed}${TEST_TIMES:+   times: $TEST_TIMES}"
 echo "plan: ${plan:-?}   passed: $passed   failed: $failed"
 if [ -n "$tests_time" ]; then
 	echo "tests time: $tests_time   (per test: $(basename "$durfile"))"
