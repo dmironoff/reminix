@@ -153,7 +153,11 @@ old-releases-зеркало или PPA до следующего раза, ко�
   (`don't know how to make …/tooldir/bin/nbfile`).
 - **SMP-вариант** (`SMP=yes`): `-V CONFIG_SMP=y -V CONFIG_MAX_CPUS=8` попадают в
   `CPPFLAGS` всего дерева (`share/mk/bsd.own.mk`), поэтому отдельный `obj/i386-smp`
-  со своим тулчейном и образ `minix_x86_smp.img`.
+  со своим тулчейном и образы `minix_x86_smp*`.
+- **Рабочие каталоги образов**: `releasetools/x86_*image.sh` стирают
+  `$WORK_DIR` целиком, поэтому у каждой цели свой — `obj/<ARCH>[-smp]/work`
+  (`hdimage`; из него `quick` освежает образ, имя образа — в `work/.image`),
+  `work-cd`, `work-usb`, `work-ram` (в последнем и результат `ramimage`).
 - Из этого следует практическое правило: разные `ARCH` не пересекаются
   (`obj/i386` и `obj/evbearm-el` — разные деревья), а `make -C docker -f build.mk clean-obj
   ARCH=<arch>` даёt чистую пересборку конкретной архитектуры без пересборки
@@ -180,6 +184,13 @@ make -C docker -f build.mk hdimage                  # releasetools/x86_hdimage.s
 make -C docker -f build.mk sdimage BOARD=beaglexm   # releasetools/arm_sdimage.sh → minix_arm_beaglexm.img (BOARD обязателен)
 
 make -C docker -f build.mk hdimage SMP=yes          # то же с CONFIG_SMP -> minix_x86_smp.img
+make -C docker -f build.mk hdimage CONSOLE=serial   # загрузчик и консоль на COM1 -> minix_x86_serial.img
+make -C docker -f build.mk cdimage SMP=yes CONSOLE=serial    # ISO -> minix_x86_smp_serial.iso
+make -C docker -f build.mk cdimage ISO_SETS=live PACK_ONLY=yes   # ISO без установщика, без build.sh
+make -C docker -f build.mk usbimage CONSOLE=serial  # образ с RAM-диском -> minix_x86_serial_usb.img
+make -C docker -f build.mk ramimage                 # ядро и модули с RAM-диском -> obj/i386/work-ram/
+make -C docker -f build.mk boot-test MEDIA=cd SMP=yes CPUS=4   # загрузка, вход, hw.ncpuonline, halt (docs/testing.md §1е)
+make -C docker -f build.mk run-i386 MEDIA=hd        # штатная загрузка загрузчиком образа, консоль в терминале
 make -C docker -f build.mk quick SMP=yes            # быстрая пересборка ядра/серверов/драйверов + освежение образа
 make -C docker -f build.mk quick SMP=yes QUICK_DIRS="minix/kernel minix/net/uds"   # только нужное
 make -C docker -f build.mk test-i386                # автоматический прогон minix/tests (docs/testing.md §1)
@@ -198,6 +209,17 @@ make -C docker -f build.mk clean-obj ARCH=i386      # снести obj/i386 (н�
 make -C docker -f build.mk clean-image              # удалить сам docker-образ
 ```
 
+**Образы i386 (`hdimage`, `cdimage`, `usbimage`, `ramimage`).** Каждая цель —
+вызов своего `releasetools/x86_*image.sh` (логика образов не дублируется)
+с переменными окружения: `IMG`, `WORK_DIR`, `BOOT_CONSOLE=com0` при
+`CONSOLE=serial`, `CREATE_IMAGE_ONLY=1` при `PACK_ONLY=yes`, `SETS`/`BUNDLE_SETS`
+при `ISO_SETS=live`. Имя файла собирается из параметров:
+`minix_x86[_smp][_live][_serial].{img,iso}`, `…_usb.img`. У SMP-образов в меню
+загрузчика есть пункт «one CPU (no_apic=1)» (`BOOT_SMP`, по `CONFIG_SMP=y` в
+`BUILDVARS`). Варианты, меню, переменные — `docs/build-x86.md` §4.5.
+`test-i386` и `run-i386 MEDIA=multiboot` берут hd-образ с текущим `CONSOLE`
+(по умолчанию `vga`, то есть `minix_x86[_smp].img`, как раньше).
+
 **Быстрая пересборка (`quick`, `docker/quick-build.sh`).** Для цикла «правка
 → прогон» без полного `build.sh`: `nbmake dependall install` только в каталогах
 `QUICK_DIRS` (по умолчанию `minix/lib minix/kernel minix/servers minix/fs
@@ -210,7 +232,9 @@ minix/net minix/drivers`), `releasetools do-hdboot` (ядро и загрузо�
 рядом и переименовывается поверх старого: QEMU, у которого открыт прежний
 файл, не пострадает. Время: холостой проход по всем каталогам — ~25 с, один
 сервер — ~10 с (против 5–10 мин у `hdimage`). Нужен предварительный полный
-`hdimage` с тем же `SMP=`. Новые файлы, изменения списков наборов, файлы `/etc`,
+`hdimage` с тем же `SMP=` (освежается образ последнего `hdimage` — его имя
+записано в `obj/<arch>[-smp]/work/.image`; ISO, usb- и ram-образы `quick` не
+трогает, их пересобирают свои цели). Новые файлы, изменения списков наборов, файлы `/etc`,
 которые генерируют скрипты образа, и заголовки, используемые вне `QUICK_DIRS`,
 по-прежнему требуют `hdimage`. Отбор «новее» идёт по времени файла в DESTDIR,
 а `install -p` сохраняет время исходника: программы (их только что
@@ -228,7 +252,7 @@ minix/net minix/drivers`), `releasetools do-hdboot` (ядро и загрузо�
 — но при первом запуске это удобно сделать явно, чтобы увидеть вывод `apt-get`
 отдельно от вывода сборки.
 
-`hdimage`/`quick`/`test-i386`/`run-i386` и `sdimage`/`test-earm`/`run-earm`
+`hdimage`/`cdimage`/`usbimage`/`ramimage`/`quick`/`test-i386`/`run-i386`/`boot-test` и `sdimage`/`test-earm`/`run-earm`
 жёстко фиксируют `ARCH` (i386 и evbearm-el соответственно; для evbearm-el к
 `BUILDVARS` сами добавляются `-V MKGCCCMDS=yes -V MKLLVM=no`) — это те же архитектуры, для которых жёстко написаны сами
 `releasetools/x86_hdimage.sh`/`arm_sdimage.sh` (см. `docs/build-x86.md`,
@@ -298,6 +322,14 @@ bind-mount'ами. На машине с несколькими разработ�
 апстримном QEMU нет (`qemu-sdimage` удалена, см. `docs/build-arm32.md` §5).
 
 Отдельно не прогонялся `qemu-hdimage` после фикса прав KVM.
+
+**Образы i386 проверены 2026-10-05** (`boot-test`, KVM): ISO, usb, ram и hd через
+собственный загрузчик грузятся с `SMP=no` (1 CPU) и `SMP=yes` (4 CPU,
+`hw.ncpuonline=4`); пункт меню «one CPU» SMP-образов (cd — 2, hd — 4) даёт
+`hw.ncpuonline=1`; `ISO_SETS=live` грузится; `quick` после `cdimage`/`usbimage`/
+`ramimage` освежает hd-образ. Упаковка из готовых наборов (`PACK_ONLY=yes`):
+ISO ~7 с, usb ~1 мин. Найдено и исправлено: обрезанные файлы на ISO из-за
+`size=` в спецификации (`docs/build-x86.md` §4.5).
 
 ## 8. Связанные документы
 

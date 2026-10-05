@@ -17,11 +17,14 @@ make -C docker -f build.mk test-i386 SMP=yes CPUS=4      # прогон на 4 C
 make -C docker -f build.mk test-i386 SMP=yes CPUS=4 KARGS=no_apic=1  # SMP-ядро на 1 CPU
 ```
 
-SMP: ядро по умолчанию грузится с `no_apic=1`, и SMP-ядро уходит в
-однопроцессорный режим на 8259 (`smp_single_cpu_fallback`, BKL при этом
-работает). Поэтому при `CPUS>1` `run-tests.sh` сам добавляет `no_apic=0`;
-`KARGS` — дополнительные аргументы ядра (свой `no_apic=` в `KARGS` отменяет
-автоматический). Настоящий SMP узнаётся по строкам `CPU N is up` в журнале.
+SMP: с 2026-10-05 SMP-ядро без параметра `no_apic` само ставит `no_apic=0`
+и включает все CPU (`arch/i386/pre_init.c`, `docs/build-x86.md` §4.5); раньше
+по умолчанию было `no_apic=1`, и `run-tests.sh`/`run-console.sh` при `CPUS>1`
+добавляли `no_apic=0` сами — эта добавка убрана. `KARGS=no_apic=1` — SMP-ядро в
+однопроцессорном режиме на 8259 (`smp_single_cpu_fallback`, BKL при этом
+работает); при `CPUS=1` SMP-ядро теперь работает в режиме APIC на одном CPU.
+Однопроцессорное ядро — `no_apic=1` по умолчанию, как было. `KARGS` —
+дополнительные аргументы ядра. Настоящий SMP узнаётся по строкам `CPU N is up` в журнале.
 В режиме APIC `ramdisk/rc` запускает сервис `acpi` (без него `pci` падает:
 «Cannot use APIC mode without ACPI»).
 
@@ -203,10 +206,26 @@ make -C docker -f build.mk test-stop                       # из другого
 (sleep 90; echo root; sleep 5; echo top) | make -C docker -f build.mk run-i386 SMP=yes CPUS=4
 ```
 
-Загрузка — как у `test-i386` (`-kernel`/`-initrd`, образ с `snapshot=on`, при
-`CPUS>1` — `no_apic=0`), но без `testrun`: система грузится до приглашения
+Загрузка по умолчанию (`MEDIA=multiboot`) — как у `test-i386` (`-kernel`/`-initrd`,
+образ с `snapshot=on`), но без `testrun`: система грузится до приглашения
 `login` на последовательной консоли (`root` без пароля). Сценарий —
-`docker/run-console.sh`:
+`docker/run-console.sh`, команда QEMU по носителю — `docker/qemu-i386.sh`:
+
+| `MEDIA` | как грузится | аргументы ядра |
+|---|---|---|
+| `multiboot` | ядро и модули из DESTDIR напрямую, корень с hd-образа | `rootdevname=c0d0p0 console=tty00 $KARGS` |
+| `hd` | hd-образ, его загрузчик (`-boot c`) | `boot.cfg` образа |
+| `cd` | ISO (`-cdrom`, `-boot d`) | `boot.cfg` образа |
+| `usb` | usb-образ, его загрузчик; 2 ГБ памяти | `boot.cfg` образа |
+| `ram` | `obj/i386[-smp]/work-ram` (`ramimage`), без диска; 2 ГБ | `bootramdisk=1 console=tty00 $KARGS` |
+
+Для `hd`/`cd`/`usb` образ собирается с `CONSOLE=serial` (для этих `MEDIA` он
+выбирается по умолчанию): меню загрузчика тоже в терминале, пункт выбирается
+цифрой (у SMP-образов — «one CPU (no_apic=1)»). `KARGS` там не действует.
+Символы для снимков берутся из ядра в DESTDIR той же сборки. Журнал —
+`i386[-smp][-MEDIA]-cpuN-console-<дата>.log`.
+
+Остальное — одинаково для всех `MEDIA`:
 - консоль — chardev `stdio` с `signal=off`: Ctrl-C уходит в MINIX,
   `Ctrl-A x` — выйти из QEMU сразу (без дампа), `Ctrl-A h` — клавиши QEMU;
 - весь вывод консоли пишется в
@@ -301,6 +320,27 @@ make -C minix/tests/host check                                # без Docker (g
   (ожидаемый провал) или 4 (прошёл).
 - Тесты внутри MINIX (ATF/kyua из NetBSD) — после libpthread (п. 8); этот
   каркас — только для хоста.
+
+## 1е. Проверка загрузки образа (`boot-test`)
+
+```sh
+make -C docker -f build.mk cdimage SMP=yes CONSOLE=serial
+make -C docker -f build.mk boot-test MEDIA=cd SMP=yes CPUS=4
+make -C docker -f build.mk boot-test MEDIA=cd SMP=yes CPUS=4 ENTRY=2 EXPECT_CPUS=1   # пункт «one CPU»
+make -C docker -f build.mk boot-test MEDIA=ram
+```
+
+Неинтерактивная проверка, что система с носителя `MEDIA` (§1в) поднимается:
+`docker/boot-test.py` при `ENTRY=N` выбирает пункт меню загрузчика, ждёт
+`login:`, входит `root`, выполняет `uname -a`, `sysctl -n hw.ncpuonline`,
+`mount` и `halt -p`, ждёт выхода QEMU. Проверяются число CPU (`EXPECT_CPUS`, по
+умолчанию `CPUS` у SMP-сборки и 1 без SMP) и корневая ФС (`c0d0p0` для
+`multiboot`/`hd`, CD с isofs для `cd`, `bootramdisk` (MFS) для `usb`/`ram`). Итог —
+строка `RESULT: PASS` или `RESULT: FAIL (<шаг>: <причина>)` в выводе и в
+`<журнал>.result`; журнал — `obj/test-logs/i386[-smp]-MEDIA-cpuN-boot-<дата>.log`.
+Шаг, не уложившийся в `BOOT_TIMEOUT` (300 с до приглашения shell), и
+`test-stop` — дамп в `<журнал>.postmortem/` (§1б). Контейнер помечен как
+остальные прогоны.
 
 ## 2. Точка отсчёта (2026-09-30)
 

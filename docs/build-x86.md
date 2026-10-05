@@ -195,6 +195,69 @@ qemu-system-i386 --enable-kvm -m 256 -hda minix_x86.img
 `x86_ramimage.sh` просто оставляет файлы в `${WORK_DIR}` для передачи QEMU через
 `-kernel`/`-initrd` без создания образа диска вообще.
 
+### 4.5 Сводка вариантов, консоль и SMP в `boot.cfg` (ReMinix)
+
+Все четыре скрипта — `image.defaults` + `image.functions`: `build_workdir`
+(распаковка наборов), `create_input_spec`/`create_protos`, без
+`CREATE_IMAGE_ONLY=1` — сначала `build.sh … release`.
+
+| | hd | cd | usb | ram |
+|---|---|---|---|---|
+| наборы (`SETS`) | base, comp, games, man, minix-tests, tests | base + все `.tgz` для установщика (`BUNDLE_SETS=1`) | base | base |
+| корень | MFS `c0d0p0`, отдельные `/usr`, `/home` (128 МБ / 1792 МБ / 128 МБ) | ISO9660 (Rock Ridge), только чтение; `cdproberoot` ищет CD (`cdprobe`), `/var`, `/tmp`, `/usr/run`, `/root` — RAM-диски (`/etc/rc.cd`) | MFS `imgrd`, вшит в `mod06_memory`, `bootramdisk=1` | то же, что usb |
+| загрузчик | `bootxx_minixfs3` → boot monitor | `bootxx_cd9660` → boot monitor (`/minixboot`) | `bootxx_minixfs3` → boot monitor, в разделе `kernel`, `mod*` | нет (`-kernel/-initrd`) |
+| ядро | `minix_default` и `minix/<версия>` | `minix_default`, модули — `load=` по одному | `/kernel`, `/mod*` | `$WORK_DIR/kernel`, `mod*` |
+| пункты меню | обычный, latest, single user, ALIX (COM1), ⟨SMP: one CPU⟩ | обычный, ⟨SMP: one CPU⟩, AHCI | обычный, ⟨SMP: one CPU⟩ | — |
+| размер | 2 ГБ | ~540 МБ (base ~290 МБ + наборы ~235 МБ) | ~355 МБ, гостю нужно 2 ГБ | то же |
+
+**Переменные `boot.cfg`** (`image.defaults`, вспомогательные функции —
+`bootcfg_*` в `image.functions`); пустые — `boot.cfg` байт в байт как в MINIX:
+
+- `BOOT_CONSOLE=com0` — `consdev=com0` первой строкой (меню и приглашение
+  загрузчика на COM1, ввод оттуда же) и `console=tty00 consdev=com0` в каждом
+  пункте (консоль MINIX — tty00). Пункт ALIX свою консоль задаёт сам.
+- `BOOT_SMP=yes` — пункт «…, one CPU (no_apic=1)» после основного. По
+  умолчанию `yes`, если в `BUILDVARS` есть `CONFIG_SMP=y`.
+
+**SMP-ядро включает все CPU само**: без параметра `no_apic` оно ставит
+`no_apic=0` (`minix/kernel/arch/i386/pre_init.c`, `get_parameters()`, до
+разбора командной строки). Значение кладётся в параметры загрузки, а не только
+в `config_no_apic`: по `sysenv no_apic` = 0 RAM-диск (`ramdisk/rc`) запускает
+ACPI, без которого PCI в режиме APIC паникует. `no_apic=1` (пункт меню или
+`KARGS`) — один CPU на PIC. Однопроцессорное ядро — по-прежнему `no_apic=1` по
+умолчанию (`main.c`).
+
+**Без `size=` в спецификации** (`create_input_spec`, `nbmtree -R size`,
+2026-10-05). Списки наборов берут размер из `METALOG`, а тот хранит размер
+первой установки файла: после инкрементального `build.sh -u`, поменявшего
+`/etc/system.conf`, в спецификации оставался старый `size=8691` при файле
+в 9898 байт. `nbmakefs -t cd9660` доверяет `size=` и обрезал файл — на ISO
+`system.conf` обрывался («parse error at 'EOF'»), не поднимались RAM-диски и
+службы. `nbtoproto` (образы MFS) этот ключ никогда не использовал, поэтому
+hd-образ ошибки не показывал.
+
+**`WORK_DIR`.** Скрипты стирают `$WORK_DIR` (по умолчанию `$OBJ/work`) целиком.
+Docker-обёртка даёт cd/usb/ram свои `$OBJ/work-cd`, `work-usb`, `work-ram`:
+`$OBJ/work` остаётся за `hdimage`, из него `quick` освежает образ
+(`docs/docker-build.md` §4).
+
+Через Docker (`docs/docker-build.md` §4):
+
+| цель | файл | параметры |
+|---|---|---|
+| `hdimage` | `minix_x86[_smp][_serial].img` | `SMP CONSOLE PACK_ONLY` |
+| `cdimage` | `minix_x86[_smp][_live][_serial].iso` | `SMP CONSOLE ISO_SETS PACK_ONLY` |
+| `usbimage` | `minix_x86[_smp][_serial]_usb.img` | `SMP CONSOLE PACK_ONLY` |
+| `ramimage` | `obj/i386[-smp]/work-ram/{kernel,mod*}` | `SMP PACK_ONLY` |
+
+`CONSOLE=serial` → `BOOT_CONSOLE=com0`; `ISO_SETS=live` → `SETS="minix-base
+minix-comp minix-games minix-man" BUNDLE_SETS=0` (без установщика; тесты на ISO
+не кладутся — корень только для чтения, а `minix/tests` пишут в
+`/usr/tests`); `PACK_ONLY=yes` → `CREATE_IMAGE_ONLY=1` (наборы не обновляются:
+ядро на образ берётся из `minix-kernel.tgz`, `quick` его не пересобирает).
+Запуск и проверка: `run-i386 MEDIA=hd|cd|usb|ram`, `boot-test MEDIA=…`
+(`docs/testing.md` §1в, §1е).
+
 ## 5. Устаревший альтернативный путь — `release.sh`
 
 В каталоге также лежит **более старый** скрипт `release.sh` + `release.functions` —
@@ -226,7 +289,11 @@ qemu-system-i386 --enable-kvm -m 256 -hda minix_x86.img
 
 ```sh
 make -C docker -f build.mk hdimage
-make -C docker -f build.mk qemu-hdimage
+make -C docker -f build.mk qemu-hdimage                        # окно VGA
+make -C docker -f build.mk hdimage CONSOLE=serial PACK_ONLY=yes
+make -C docker -f build.mk run-i386 MEDIA=hd                   # загрузчик и консоль в терминале
+make -C docker -f build.mk cdimage SMP=yes CONSOLE=serial      # ISO, §4.5
+make -C docker -f build.mk boot-test MEDIA=cd SMP=yes CPUS=4
 ```
 
 ## 7. Что переносится "как есть" на новые x86-подобные цели (amd64)

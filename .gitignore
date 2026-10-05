@@ -32,6 +32,7 @@ obj
 # Готовые загрузочные образы (releasetools/*image.sh, docker/build.mk
 # qemu-*), в т.ч. под Docker-окружение — см. docs/docker-build.md.
 *.img
+*.iso
 !/.gitignore
 .gitignore
 .svn

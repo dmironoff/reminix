@@ -7,43 +7,48 @@
 
 ## Дата и контекст
 
-2026-10-05, вечер. Разбор паники `uds` на SMP (бывшая `testing.md` §5.7):
-причина найдена и исправлена — `testing.md` §4.21. Добавлен стресс-режим
-прогона `TEST_JOBS`. Первая проверка системы на **8 CPU**.
+2026-10-05, день. Сборка образов i386 в `docker/build.mk` (задание владельца):
+цели `cdimage`, `usbimage`, `ramimage`, запуск с любого носителя
+(`run-i386 MEDIA=`), проверка загрузки `boot-test`; SMP-ядро включает все CPU
+по умолчанию. **Не закоммичено** — ждёт команды владельца.
 
-## Коммиты сессии
+## Сделано в сессии (не закоммичено)
 
-- `uds`: приём нулевой длины, возобновлённый за другим приёмом, разбирал
-  заголовок пустого буфера (`uds_recv()`, `io.c`); регрессионный подтест
-  `test90aa` (подтест 27, без исправления роняет uds каждый раз);
-  `TEST_JOBS=N` (`build.mk` → `run-tests.sh` → `testjobs=` →
-  `rc.d/minixtests`: тесты группами по N одновременно, каждая копия в своём
-  каталоге `/usr/tests/minix-posix.jobK`); `quick`: метка на 2 с раньше
-  (файл, слинкованный в ту же секунду, не попадал в образ).
+- Ядро (`arch/i386/pre_init.c`): SMP-ядро без `no_apic` ставит `no_apic=0` в
+  параметры загрузки (видно `sysenv`, `ramdisk/rc` запускает ACPI);
+  однопроцессорное — по-прежнему `no_apic=1`. Из `run-tests.sh` и
+  `run-console.sh` убрана добавка `no_apic=0` при `CPUS>1`.
+- releasetools: `BOOT_CONSOLE=com0` (загрузчик `consdev=com0`, ядро
+  `console=tty00`), `BOOT_SMP` (по `CONFIG_SMP=y` в `BUILDVARS`) — пункт меню
+  «one CPU (no_apic=1)» в hd/cd/usb; без них `boot.cfg` байт в байт прежний.
+  `create_input_spec` — без `size=` (`nbmtree -R size`): устаревший размер из
+  `METALOG` обрезал файлы на ISO (`system.conf`, `rc.d/minixtests`).
+- `build.mk`: `cdimage` (`ISO_SETS=install|live`), `usbimage`, `ramimage`,
+  `CONSOLE=vga|serial`, `PACK_ONLY=yes`, свои `WORK_DIR` (`work-cd`,
+  `work-usb`, `work-ram`; `work` — за `hdimage`/`quick`, имя образа в
+  `work/.image`), `run-i386 MEDIA=multiboot|hd|cd|usb|ram`, `boot-test`
+  (`docker/boot-test.py`), общий `docker/qemu-i386.sh`; справка `#>`.
+  `*.iso` — в `.gitignore`.
+- Документация: `build-x86.md` §4.5, `docker-build.md` §3, §4, §7,
+  `testing.md` §1, §1в, §1е, `CLAUDE.md`.
 
-## Итог прогонов (2026-10-05, KVM)
+## Проверка (2026-10-05, KVM; полный набор тестов не гонялся — по заданию)
 
-| набор | результат |
+| что | результат |
 |---|---|
-| 4 CPU, `TESTS=4,43,73,79,90,91 ipcstat=1`, ловушка v1 | паника uds в тесте 90 на 196 с (до ловушки: в окне внутри `uds_recv`) |
-| 8 CPU, `TESTS=90×12 TEST_JOBS=4`, ловушка v3 | поймано за ~30 с: пустой буфер, вызов из `sockevent_process` |
-| 8 CPU, `TESTS=90`, подтест 27, uds **без** исправления | паника каждый раз, `not ok test 90` |
-| 8 CPU, `TESTS=90×12 TEST_JOBS=4`, с исправлением | 1-я группа: 3 ok, 1 not ok (подтесты 6/21 — задержки теста под нагрузкой), паник нет; остановлен |
-| 8 CPU, полный прогон (`7347fd558`, `HANG_IDLE=3000 TEST_TIMEOUT=9000`) | **103/103 PASS**, `tests time` **1563,2 с** (на 4 CPU было 1960,6 с, с `ipcstat=1` и до `idlepoll` по умолчанию) |
+| `test-i386 SMP=yes TESTS=4`, `CPUS=1` и `CPUS=4`, без `no_apic` в аргументах | PASS; режим APIC на 1 CPU, на 4 — CPU 0–3 |
+| `test-i386 TESTS=4` (однопроцессорное ядро) | PASS |
+| `boot-test MEDIA=cd`: SMP 4 CPU / SMP `ENTRY=2` / без SMP / `ISO_SETS=live` | PASS (ncpu 4 / 1 / 1 / 1), корень `/dev/c0d2` isofs, RAM-диски `/var /tmp /usr/run /root` |
+| `boot-test MEDIA=hd` SMP 4 CPU / `ENTRY=4` | PASS (4 / 1) |
+| `boot-test MEDIA=usb` SMP 4 CPU / без SMP | PASS, корень `bootramdisk` |
+| `boot-test MEDIA=ram` SMP 4 CPU / без SMP | PASS |
+| `run-i386 MEDIA=cd SMP=yes CPUS=4`, ввод конвейером | вход, `hw.ncpuonline = 4`, `halt -p` |
+| `quick` после `cdimage`/`usbimage`/`ramimage` (`SMP=no`) | освежил `minix_x86.img`, 29 с |
+| earm `sdimage BOARD=beaglebone` (общие `image.*`) | образ собран (`SDIMAGE-RC=0`), без запуска |
 
-Система на 8 CPU грузится (`CPU 0..7`, APIC id 0–7).
-
-Затем (по заданию владельца): `TEST_RANDOM=yes|SEED` и `TEST_TIMES=N` для
-стресса случайными группами (`testing.md` §1); при этом исправлены stdin
-параллельных копий (тест 3 падал на `ttyname(0)`) и подсчёт `failed` при
-повторах (давал `INCOMPLETE`). Проверка: 4 CPU, `TESTS=1,2,3,4 TEST_JOBS=2
-TEST_RANDOM=782893 TEST_TIMES=2` — PASS 8/8, тот же seed — те же группы.
-Случайный стресс по всему набору (8 CPU, seed 896425, 309 запусков):
-**паник нет** за 66 групп; стенд остановился после нехватки памяти VM —
-`testing.md` §5.9 (открыто). Ошибка стенда: setuid-тесты через ссылки теряли
-бит (тест 33) — каждая копия теперь со своими setuid-файлами, проверено 24/24.
-Владелец: SMP на i386 считаем плюс-минус стабильным; следующая сессия — x86
-образы (ISO и др.) в `build.mk`.
+Сравнить дизассемблирование однопроцессорного ядра «до/после» не вышло:
+прежняя сборка `obj/i386` была от 00:34, до пяти коммитов в ядро; правка для
+него — только код под `#ifdef CONFIG_SMP` и комментарий.
 
 ## Открыто
 
@@ -178,7 +183,7 @@ TEST_RANDOM=782893 TEST_TIMES=2` — PASS 8/8, тот же seed — те же г
 
 ## Следующие шаги
 
-1. Push коммитов сессии (по команде владельца).
+1. Коммит образов i386 и `no_apic` по умолчанию, push (по команде владельца).
 2. Полный прогон на 4 CPU с `idlepoll` по умолчанию (`HANG_IDLE=3000
    TEST_TIMEOUT=9000`, без `ipcstat`) — новая точка отсчёта; полный прогон на
    1 CPU.

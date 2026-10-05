@@ -5,17 +5,25 @@
 # features of the test runner (run-tests.sh). Called by docker/build.mk
 # (target run-i386) inside the build container; see docs/testing.md.
 #
-# Kernel and boot modules are loaded directly by QEMU (multiboot), the root
-# file system comes from the disk image opened with snapshot=on: nothing the
-# session does is written back to the image.
+# By default (MEDIA=multiboot) kernel and boot modules are loaded directly by
+# QEMU, the root file system comes from the disk image; other media boot an
+# image with its own boot loader (docker/qemu-i386.sh). Disk images are
+# opened with snapshot=on: nothing the session does is written back.
 #
 # usage: run-console.sh MODDIR IMAGE CPUS LOG
-#   MODDIR  i386: directory with kernel and modNN_* (destdir/boot/minix/.temp)
+#   MODDIR  i386: directory with kernel and modNN_* (destdir/boot/minix/.temp;
+#           MEDIA=ram: the x86_ramimage.sh work directory); with a boot
+#           loader only the kernel symbols for snapshots are taken from it
 #           earm: directory with the kernel ELF (symbols for snapshots only)
-#   IMAGE   disk image from x86_hdimage.sh / SD image from arm_sdimage.sh
+#   IMAGE   disk image from x86_hdimage.sh / x86_usbimage.sh, ISO from
+#           x86_cdimage.sh, SD image from arm_sdimage.sh; MEDIA=ram: ignored
 #   CPUS    number of virtual CPUs (-smp)
 #   LOG     where to write the full serial console log
-#           (env KARGS: extra kernel arguments; CPUS>1 adds no_apic=0)
+#           (env MEDIA: i386 boot medium, multiboot (default), hd, cd, usb,
+#            ram; see docker/qemu-i386.sh. hd/cd/usb need an image built
+#            with CONSOLE=serial: boot loader and MINIX on the serial line)
+#           (env KARGS: extra kernel arguments, multiboot and ram only; an
+#            SMP kernel defaults to no_apic=0, all CPUs)
 #           (env SNAPSHOT_AT: seconds; one snapshot of the running system)
 #           (env ACCEL: tcg or kvm instead of the automatic choice)
 #           (env TARGET: i386 (default) or earm; earm needs env MACHINE, the
@@ -44,20 +52,13 @@ fi
 MODDIR=$1 IMG=$2 CPUS=$3 LOG=$4
 
 TARGET=${TARGET:-i386}
+MEDIA=${MEDIA:-multiboot}
+[ "$TARGET" = i386 ] || MEDIA=
+here=$(cd "$(dirname "$0")" && pwd)
 [ -f "$MODDIR/kernel" ] || { echo "run-console: no kernel in $MODDIR" >&2; exit 2; }
-[ -f "$IMG" ] || { echo "run-console: no image $IMG" >&2; exit 2; }
-
-if [ "$TARGET" = i386 ]; then
-	mods=$(ls "$MODDIR"/mod[0-9][0-9]_* 2>/dev/null | sort | paste -sd, -)
-	[ -n "$mods" ] || { echo "run-console: no boot modules in $MODDIR" >&2; exit 2; }
+if [ "$MEDIA" != ram ]; then
+	[ -f "$IMG" ] || { echo "run-console: no image $IMG" >&2; exit 2; }
 fi
-
-append="rootdevname=c0d0p0 console=tty00"
-case " ${KARGS:-} " in
-*" no_apic="*) ;;
-*) [ "$CPUS" -gt 1 ] && append="$append no_apic=0" ;;
-esac
-[ -n "${KARGS:-}" ] && append="$append $KARGS"
 
 accel=tcg
 [ "$TARGET" = i386 ] && [ -w /dev/kvm ] && accel=kvm
@@ -65,9 +66,9 @@ accel=tcg
 
 case "$TARGET" in
 i386)
-	qemu_cmd=(qemu-system-i386 -machine pc,accel="$accel" -m 1024 -smp "$CPUS"
-		-drive file="$IMG",format=raw,if=ide,snapshot=on
-		-kernel "$MODDIR/kernel" -initrd "$mods" -append "$append")
+	. "$here/qemu-i386.sh"
+	qemu_i386 "$MEDIA" "$accel" "$CPUS" "$MODDIR" "$IMG" "${KARGS:-}" || exit 2
+	append=$qemu_args
 	;;
 earm)
 	[ -n "${MACHINE:-}" ] || { echo "run-console: TARGET=earm needs MACHINE" >&2; exit 2; }
@@ -87,13 +88,12 @@ PANIC_RE=${PANIC_RE-panic}
 mkdir -p "$(dirname "$LOG")"
 monsock=$(mktemp -u /tmp/reminix-mon.XXXXXX)
 pmdir="${LOG%.log}.postmortem"
-here=$(cd "$(dirname "$0")" && pwd)
 
 # QEMU puts the terminal into raw mode: end our own lines with CR LF.
 say() { printf '\r\n>>> %s\r\n' "$*"; }
 
 say "$("${qemu_cmd[0]}" --version | head -1)"
-say "${TARGET}${MACHINE:+ ($MACHINE)}, ${CPUS} CPU, accel=${accel}, kernel args: $append"
+say "${TARGET}${MACHINE:+ ($MACHINE)}${MEDIA:+, MEDIA=$MEDIA}, ${CPUS} CPU, accel=${accel}, kernel args: $append"
 say "log: $LOG"
 say "Ctrl-A x: quit at once; make -C docker -f build.mk test-snapshot | test-stop from another terminal"
 
@@ -224,7 +224,7 @@ elapsed=$(( $(date +%s) - start ))
 
 {
 	echo "================ ReMinix console session ================"
-	echo "CPUs: $CPUS   accel: $accel   time: ${elapsed}s"
+	echo "CPUs: $CPUS   accel: $accel   time: ${elapsed}s${MEDIA:+   media: $MEDIA}"
 	echo "kernel args: $append"
 	if [ "$stop_reason" = interrupted ]; then
 		echo "END: stopped at ${stopped_at}s (make test-stop)"
