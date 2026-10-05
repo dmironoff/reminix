@@ -79,6 +79,10 @@ init_clock(void)
 	if (value != NULL && atoi(value) > 0)
 		idle_poll_us = atoi(value);
 
+	/* ReMinix debug: IPC pair counters (dbg_ipc_count()) */
+	value = env_get("ipcstat");
+	dbg_ipc_stat = (value != NULL && atoi(value) > 0);
+
 	/* Get clock tick frequency. */
 	value = env_get("hz");
 	if (value != NULL)

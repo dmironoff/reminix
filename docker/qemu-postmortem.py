@@ -50,6 +50,9 @@ REGIONS = [
     # per CPU, 64 bytes each: [kernel_ticks u64, bkl_ticks u64, bkl_tries,
     # bkl_succ] (glo.h); sched IPI requests [flags, data] (smp.c, static)
     "bkl_stats", "sched_ipi_data",
+    # IPC pairs by priv id, kernel booted with ipcstat=1 (proc.c,
+    # minix/tests/host/ipcpairs.py)
+    "dbg_ipc_pairs", "dbg_ipc_xcpu",
     "lapic_addr", "lapic_eoi_addr",
     # [tag, cpu, tsc>>8, cr3, lapic_eoi_addr, ISR 224..255] (arch_clock.c)
     "dbg_boot_ev", "dbg_boot_nev",

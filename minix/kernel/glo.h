@@ -97,6 +97,8 @@ EXTERN struct bkl_stats bkl_stats[CONFIG_MAX_CPUS];
 
 /* ReMinix: idle polling before hlt, microseconds ("idlepoll", 0 -- off) */
 EXTERN unsigned idle_poll_us;
+/* ReMinix debug: count IPC pairs ("ipcstat=1", dbg_ipc_count() in proc.c) */
+EXTERN int dbg_ipc_stat;
 
 /* Feature flags */
 EXTERN int minix_feature_flags;

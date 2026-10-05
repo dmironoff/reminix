@@ -1002,6 +1002,36 @@ void unset_notify_pending(struct proc * caller, int src_p)
 	unset_sys_bit(*map, src_p);
 }
 
+/*
+ * ReMinix debug ("ipcstat=1" boot parameter, off by default): IPC between
+ * pairs of privilege ids, to place system services on cpus by their traffic
+ * (docs/testing.md). Indexed [kind][source][destination] by s_id -- every
+ * system process has its own, all user processes share USER_PRIV_ID. Kinds:
+ * 0 synchronous send (send, sendrec, sendnb: each call once), 1 notify, 2
+ * asynchronous message delivered; dbg_ipc_xcpu counts those of all kinds sent
+ * while the two processes were on different cpus. Read from a dump
+ * (docker/qemu-postmortem.py, minix/tests/host/ipcpairs.py); the priv table
+ * of the same dump maps an id to its process.
+ */
+u32_t dbg_ipc_pairs[3][NR_SYS_PROCS][NR_SYS_PROCS];
+u32_t dbg_ipc_xcpu[NR_SYS_PROCS][NR_SYS_PROCS];
+
+static void dbg_ipc_count(const struct proc *src, const struct proc *dst,
+	int kind)
+{
+	unsigned s, d;
+
+	if (!dbg_ipc_stat || !src->p_priv || !dst->p_priv)
+		return;
+	s = priv(src)->s_id;
+	d = priv(dst)->s_id;
+	if (s >= NR_SYS_PROCS || d >= NR_SYS_PROCS)
+		return;
+	dbg_ipc_pairs[kind][s][d]++;
+	if (src->p_cpu != dst->p_cpu)
+		dbg_ipc_xcpu[s][d]++;
+}
+
 /*===========================================================================*
  *				mini_send				     * 
  *===========================================================================*/
@@ -1026,6 +1056,7 @@ int mini_send(
   {
 	return EDEADSRCDST;
   }
+  dbg_ipc_count(caller_ptr, dst_ptr, 0);
 
   /* Check if 'dst' is blocked waiting for this message. The destination's 
    * RTS_SENDING flag may be set when its SENDREC call blocked while sending.  
@@ -1273,6 +1304,7 @@ int mini_notify(
   }
 
   dst_ptr = proc_addr(dst_p);
+  dbg_ipc_count(caller_ptr, dst_ptr, 1);
 
   /* Check to see if target is blocked waiting for this message. A process 
    * can be both sending and receiving during a SENDREC system call.
@@ -1443,6 +1475,7 @@ int try_deliver_senda(struct proc *caller_ptr,
 	    (vir_bytes)&table[i].msg, NULL) &&
 	    (!(flags&AMF_NOREPLY) || !(dst_ptr->p_misc_flags&MF_REPLY_PEND))) {
 		/* Destination is indeed waiting for this message. */
+		dbg_ipc_count(caller_ptr, dst_ptr, 2);
 		dst_ptr->p_delivermsg = tabent.msg;
 		dst_ptr->p_delivermsg.m_source = caller_ptr->p_endpoint;
 		dst_ptr->p_misc_flags |= MF_DELIVERMSG;
@@ -1631,6 +1664,7 @@ static int try_one(endpoint_t receive_e, struct proc *src_ptr,
 
 	/* Destination is ready to receive the message; deliver it */
 	r = OK;
+	dbg_ipc_count(src_ptr, dst_ptr, 2);
 	dst_ptr->p_delivermsg = tabent.msg;
 	dst_ptr->p_delivermsg.m_source = src_ptr->p_endpoint;
 	dst_ptr->p_misc_flags |= MF_DELIVERMSG;
