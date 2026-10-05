@@ -344,7 +344,8 @@ static int safecopy(
 		 * fail (only) if the affected page belongs to a file mapping.
 		 */
 		r = virtual_copy(&v_src, &v_dst, bytes);
-		if (r == EFAULT_SRC || r == EFAULT_DST) {
+		if ((r == EFAULT_SRC || r == EFAULT_DST) &&
+		    get_cpulocal_var(vminhibit_hit) == NULL) {
 			/*
 			 * Mark the magic grant as having experienced a soft
 			 * fault during its lifetime.  The exact value does not

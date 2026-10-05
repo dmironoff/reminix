@@ -127,6 +127,38 @@ static int kernel_call_dispatch(struct proc * caller, message *msg)
 }
 
 /*===========================================================================*
+ *				kernel_call_vminhibit			     *
+ *===========================================================================*/
+/*
+ * ReMinix: a copy in the call met a process with RTS_VMINHIBIT -- VM, on
+ * another cpu, is changing its page tables (lin_lin_copy()). The call failed
+ * on that copy, so redo it once VM is done: queue an empty memory request to
+ * VM for the caller itself and suspend the call as for a page fault. VM is
+ * single threaded and sets and clears RTS_VMINHIBIT within one pt_writemap(),
+ * so it takes the request only after the process is released; its reply
+ * (VMCTL_MEMREQ_REPLY) restarts the call (MF_KCALL_RESUME). A call that
+ * already went to VM (VMSUSPEND, vmcheck copies) is restarted that way too.
+ * The calls copy before they change any state, or are written to be redone
+ * (sigsend, trace); sys_update clears the mark itself (do_update.c).
+ */
+static int kernel_call_vminhibit(struct proc * caller, int result)
+{
+  struct proc *p = get_cpulocal_var(vminhibit_hit);
+
+  if (p == NULL)
+	return result;
+  get_cpulocal_var(vminhibit_hit) = NULL;
+  if (result == VMSUSPEND)
+	return result;
+  if (caller->p_endpoint == VM_PROC_NR)
+	panic("VM copies from %d, its page tables are being changed",
+		p->p_endpoint);
+
+  vm_suspend(caller, caller, 0, 0, VMSTYPE_KERNELCALL, 0);
+  return VMSUSPEND;
+}
+
+/*===========================================================================*
  *				kernel_call				     *
  *===========================================================================*/
 /*
@@ -146,7 +178,9 @@ void kernel_call(message *m_user, struct proc * caller)
    */
   if (copy_msg_from_user(m_user, &msg) == 0) {
 	  msg.m_source = caller->p_endpoint;
+	  get_cpulocal_var(vminhibit_hit) = NULL;
 	  result = kernel_call_dispatch(caller, &msg);
+	  result = kernel_call_vminhibit(caller, result);
   }
   else {
 	  printf("WARNING wrong user pointer 0x%08x from process %s / %d\n",
@@ -627,12 +661,14 @@ void kernel_call_resume(struct proc *caller)
 	/* re-execute the kernel call, with MF_KCALL_RESUME still set so
 	 * the call knows this is a retry.
 	 */
+	get_cpulocal_var(vminhibit_hit) = NULL;
 	result = kernel_call_dispatch(caller, &caller->p_vmrequest.saved.reqmsg);
 	/*
 	 * we are resuming the kernel call so we have to remove this flag so it
 	 * can be set again
 	 */
 	caller->p_misc_flags &= ~MF_KCALL_RESUME;
+	result = kernel_call_vminhibit(caller, result);
 	kernel_call_finish(caller, &caller->p_vmrequest.saved.reqmsg, result);
 }
 

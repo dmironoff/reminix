@@ -75,6 +75,11 @@ extern struct __cpu_local_vars {
 	char fpu_presence; /* whether the cpu has FPU or not */
 	struct proc * fpu_owner; /* who owns the FPU of the local cpu */
 
+	/* ReMinix: a copy on this cpu met a process whose page tables VM is
+	 * changing (RTS_VMINHIBIT); kernel_call() retries the call through VM
+	 * (lin_lin_copy(), kernel_call_vminhibit()) */
+	struct proc * vminhibit_hit;
+
 } __cpu_local_vars CPULOCAL_ARRAY;
 
 #endif /* __ASSEMBLY__ */

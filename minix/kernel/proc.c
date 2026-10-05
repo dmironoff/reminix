@@ -1263,28 +1263,52 @@ int mini_notify(
 	"(%d/%zu, tab 0x%lx)\n",__FILE__,__LINE__,	\
 field, caller->p_name, entry, priv(caller)->s_asynsize, priv(caller)->s_asyntab)
 
+/*
+ * ReMinix: the sender may run on another cpu while the kernel scans its table,
+ * and asynsend3() (libsys) fills a free entry in the order dst, msg, flags --
+ * and reuses an entry as soon as it sees AMF_DONE in it. So the kernel reads
+ * the flags first and the rest of the entry only for an entry still to be
+ * delivered, and writes back only the result and then the flags, never dst or
+ * msg: written back whole (flags first), an entry reused meanwhile got the old
+ * message over the new one -- VM took a request of VFS to a file server for a
+ * VM_PROCCTL with a transaction id and asserted.
+ */
 #define A_RETR(entry) do {			\
+  tabent.flags = 0;				\
+  tabent.dst = NONE;				\
   if (data_copy(				\
   		caller_ptr->p_endpoint, table_v + (entry)*sizeof(asynmsg_t),\
-  		KERNEL, (vir_bytes) &tabent,	\
-  		sizeof(tabent)) != OK) {	\
+  		KERNEL, (vir_bytes) &tabent.flags,	\
+  		sizeof(tabent.flags)) != OK ||	\
+      ((tabent.flags & (AMF_VALID|AMF_DONE)) == AMF_VALID &&	\
+       data_copy(caller_ptr->p_endpoint,	\
+  		table_v + (entry)*sizeof(asynmsg_t) +	\
+  			offsetof(asynmsg_t, dst),	\
+  		KERNEL, (vir_bytes) &tabent.dst,	\
+  		sizeof(tabent) - offsetof(asynmsg_t, dst)) != OK)) {	\
   			ASCOMPLAIN(caller_ptr, entry, "message entry");	\
   			r = EFAULT;		\
 	                goto asyn_error; \
   }						\
-  else if(tabent.dst == SELF) { \
+  else if((tabent.flags & (AMF_VALID|AMF_DONE)) == AMF_VALID &&	\
+	tabent.dst == SELF) { \
       tabent.dst = caller_ptr->p_endpoint; \
   } \
   			 } while(0)
 
 #define A_INSRT(entry) do {			\
-  if (data_copy(KERNEL, (vir_bytes) &tabent,	\
-  		caller_ptr->p_endpoint, table_v + (entry)*sizeof(asynmsg_t),\
-  		sizeof(tabent)) != OK) {	\
+  if (data_copy(KERNEL, (vir_bytes) &tabent.result,	\
+  		caller_ptr->p_endpoint, table_v + (entry)*sizeof(asynmsg_t) +\
+  			offsetof(asynmsg_t, result),	\
+  		sizeof(tabent.result)) != OK ||	\
+      data_copy(KERNEL, (vir_bytes) &tabent.flags,	\
+  		caller_ptr->p_endpoint, table_v + (entry)*sizeof(asynmsg_t) +\
+  			offsetof(asynmsg_t, flags),	\
+  		sizeof(tabent.flags)) != OK) {	\
   			ASCOMPLAIN(caller_ptr, entry, "message entry");	\
 			/* Do NOT set r or goto asyn_error here! */ \
   }						\
-  			  } while(0)	
+  			  } while(0)
 
 /*===========================================================================*
  *				try_deliver_senda			     *

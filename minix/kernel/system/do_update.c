@@ -120,6 +120,11 @@ int do_update(struct proc * caller, message * m_ptr)
   /* Adjust asyn tables. */
   adjust_asyn_table(priv(src_rp), priv(dst_rp));
   adjust_asyn_table(priv(dst_rp), priv(src_rp));
+  /* ReMinix: the slots are swapped below, the call must not be redone if a
+   * copy above met a process VM is changing (kernel_call_vminhibit()); a
+   * failed transfer only warns, as before.
+   */
+  get_cpulocal_var(vminhibit_hit) = NULL;
 
   /* Abort any pending send() on rollback. */
   if(flags & SYS_UPD_ROLLBACK) {

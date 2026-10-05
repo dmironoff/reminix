@@ -164,8 +164,20 @@ static int lin_lin_copy(struct proc *srcproc, vir_bytes srclinaddr,
 	if(dstproc) assert(!RTS_ISSET(dstproc, RTS_SLOT_FREE));
 	assert(!RTS_ISSET(get_cpulocal_var(ptproc), RTS_SLOT_FREE));
 	assert(get_cpulocal_var(ptproc)->p_seg.p_cr3_v);
-	if(srcproc) assert(!RTS_ISSET(srcproc, RTS_VMINHIBIT));
-	if(dstproc) assert(!RTS_ISSET(dstproc, RTS_VMINHIBIT));
+	/* ReMinix: with servers on several cpus, a server can copy from or to
+	 * a process while VM, on another cpu, changes its page tables (e.g.
+	 * a file server reading the grant table of VFS while VM maps memory
+	 * for VFS). Fail the copy and leave a mark: kernel_call() retries
+	 * the call once VM is done with the process (kernel_call_vminhibit()).
+	 */
+	if(srcproc && RTS_ISSET(srcproc, RTS_VMINHIBIT)) {
+		get_cpulocal_var(vminhibit_hit) = srcproc;
+		return EFAULT_SRC;
+	}
+	if(dstproc && RTS_ISSET(dstproc, RTS_VMINHIBIT)) {
+		get_cpulocal_var(vminhibit_hit) = dstproc;
+		return EFAULT_DST;
+	}
 
 	while(bytes > 0) {
 		phys_bytes srcptr, dstptr;
