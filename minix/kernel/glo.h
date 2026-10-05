@@ -95,7 +95,15 @@ struct bkl_stats {
 } __attribute__((aligned(64)));
 EXTERN struct bkl_stats bkl_stats[CONFIG_MAX_CPUS];
 
-/* ReMinix: idle polling before hlt, microseconds ("idlepoll", 0 -- off) */
+/* ReMinix: idle polling before hlt, microseconds ("idlepoll", 0 -- off).
+ * On by default on SMP: under KVM it cut TESTS=4,43,73,79,90,91 on 4 cpus
+ * from 798 to 539 s (docs/testing.md 5.4); a single cpu never polls.
+ */
+#ifdef CONFIG_SMP
+#define DEFAULT_IDLE_POLL_US	50
+#else
+#define DEFAULT_IDLE_POLL_US	0
+#endif
 EXTERN unsigned idle_poll_us;
 /* ReMinix debug: count IPC pairs ("ipcstat=1", dbg_ipc_count() in proc.c) */
 EXTERN int dbg_ipc_stat;

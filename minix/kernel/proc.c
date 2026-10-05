@@ -178,7 +178,8 @@ static void switch_address_space_idle(void)
 static int idle_poll(void)
 {
 /* ReMinix: before hlt, poll for idle_poll_us microseconds ("idlepoll" boot
- * parameter, 0 -- off, the default: power matters on embedded systems). A
+ * parameter; 50 by default on SMP, 0 -- off, for power on embedded systems;
+ * never with a single cpu: nobody enqueues for it from elsewhere). A
  * process enqueued here by another cpu meanwhile is seen in need_resched
  * without an IPI (smp_kick_idle()) -- under a hypervisor an IPI and the
  * wakeup from hlt cost VM exits. Called without the BKL, interrupts off.
@@ -233,8 +234,8 @@ static void idle(void)
 	/* idle polling (idle_poll()), still under the BKL: an enqueue sees
 	 * either IDLE_POLLING with need_resched clear, or sends an IPI */
 	get_cpulocal_var(need_resched) = 0;
-	get_cpulocal_var(idle_state) = idle_poll_us ? IDLE_POLLING :
-		IDLE_RUNNING;
+	get_cpulocal_var(idle_state) = idle_poll_us && ncpus > 1 ?
+		IDLE_POLLING : IDLE_RUNNING;
 	/*
 	 * APs keep their tick running in idle like the BSP: stopping it here
 	 * re-armed a full tick at every wakeup, so a process on an AP that
@@ -258,7 +259,7 @@ static void idle(void)
 	context_stop(proc_addr(KERNEL));
 #if !SPROFILE
 #ifdef CONFIG_SMP
-	if (!idle_poll_us || !idle_poll())
+	if (!idle_poll_us || ncpus <= 1 || !idle_poll())
 #endif
 		halt_cpu();
 #else

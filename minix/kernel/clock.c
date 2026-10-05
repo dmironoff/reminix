@@ -73,11 +73,12 @@ init_clock(void)
 	if (value != NULL)
 		tick_debug = atoi(value);
 
-	/* ReMinix: idle polling before hlt, microseconds (idle_poll()) */
-	idle_poll_us = 0;
+	/* ReMinix: idle polling before hlt, microseconds (idle_poll()); on by
+	 * default on SMP, "idlepoll=0" turns it off */
+	idle_poll_us = DEFAULT_IDLE_POLL_US;
 	value = env_get("idlepoll");
-	if (value != NULL && atoi(value) > 0)
-		idle_poll_us = atoi(value);
+	if (value != NULL)
+		idle_poll_us = atoi(value) > 0 ? atoi(value) : 0;
 
 	/* ReMinix debug: IPC pair counters (dbg_ipc_count()) */
 	value = env_get("ipcstat");

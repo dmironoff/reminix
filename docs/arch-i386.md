@@ -149,7 +149,7 @@ utility.o arch_reset.o io_inb.o io_outb.o` + куски libc/libminc/libsys)
 | Файл | Функции | Назначение |
 |---|---|---|
 | `i8259.c` | `intr_init`, `irq_8259_mask/unmask`, `irq_8259_eoi`, `i8259_disable` | классический PIC (используется без APIC и до его включения) |
-| `apic.c` | `lapic_enable/disable`, `apic_idt_init`, `apic_calibrate_clocks`, `lapic_set_timer_one_shot/periodic`, `lapic_stop/restart_timer`, `lapic_microsec_sleep`, `detect_ioapics`, `ioapic_enable_all/disable_all`, `ioapic_set_irq/unset_irq`, `ioapic_mask/unmask_irq`, `ioapic_eoi`, `arch_eoi`, `apic_send_ipi`, `apic_send_init_ipi`, `apic_send_startup_ipi`, `apic_single_cpu_init`, `apicid`, `dump_apic_irq_state` | LAPIC (таймер, IPI, EOI), IOAPIC (маршрутизация IRQ, edge/level EOI) |
+| `apic.c` | `lapic_enable/disable`, `apic_idt_init`, `apic_calibrate_clocks`, `lapic_set_timer_one_shot/periodic`, `lapic_stop_timer`, `lapic_microsec_sleep`, `detect_ioapics`, `ioapic_enable_all/disable_all`, `ioapic_set_irq/unset_irq`, `ioapic_mask/unmask_irq`, `ioapic_eoi`, `arch_eoi`, `apic_send_ipi`, `apic_send_init_ipi`, `apic_send_startup_ipi`, `apic_single_cpu_init`, `apicid`, `dump_apic_irq_state` | LAPIC (таймер, IPI, EOI), IOAPIC (маршрутизация IRQ, edge/level EOI) |
 | `apic_asm.S` | `lapic_timer_int_handler`, `apic_spurios_intr`, `apic_error_intr`, `apic_ipi_sched_intr`, `apic_ipi_halt_intr`, `lapic_intr_dummy_handles_*` | входы векторов APIC |
 | `acpi.c` | `acpi_init`, `acpi_get_table_base/length`, `acpi_get_ioapic_next`, `acpi_get_lapic_next`, `acpi_poweroff` | RSDP/RSDT, MADT (список CPU и IOAPIC), выключение через FADT |
 
@@ -184,6 +184,51 @@ utility.o arch_reset.o io_inb.o io_outb.o` + куски libc/libminc/libsys)
 логический CPU 0 (`docs/modernization.md`, п. 4, «Нумерация CPU»):
 `discover_cpus()` берёт его APIC ID из CPUID до разбора MADT, остальные CPU — 1, 2, …
 в порядке MADT; `smp_init()` сверяет с регистром LAPIC ID.
+
+#### Пути IPI, EOI и таймер (2026-10-05, коммит `86103152f`)
+
+Без виртуализации APIC в KVM каждое обращение к xAPIC — выход в гипервизор;
+пробуждение процесса на другом CPU стоило ~11 таких обращений (~16–19 мкс
+времени ядра). Сейчас:
+
+- **Решение и отправка.** `enqueue()` (`proc.c`) для процесса чужого CPU:
+  цель простаивает — `smp_kick_idle()`; цель занята вытесняемым процессом
+  более низкого приоритета — `smp_schedule()`. Обе лишь ставят бит в
+  cpu-local `ipi_pending` (решение — под BKL). `context_stop(KERNEL)`
+  отпускает BKL и вызывает `smp_flush_ipis()`: IPI уходят после замка,
+  несколько на один CPU сливаются. `smp_schedule_sync()` (STOP_PROC,
+  VM_INHIBIT, SAVE_CTX) шлёт свой IPI сразу и ждёт ответа без BKL; слот
+  `sched_ipi_data[cpu]` и `p->p_cpu` перепроверяются после каждого ожидания,
+  если процесс оказался на своём CPU — задача выполняется на месте
+  (`smp_sched_task()`).
+- **`apic_send_ipi()`** — ICR из констант (fixed, physical, level assert),
+  ICR2 = APIC ID << 24: две записи, без чтений. Ожидание Delivery Status —
+  только на железе (под гипервизором, CPUID.1:ECX[31], пропускается).
+  INIT/SIPI — свой код (`apic_send_init_ipi`, `apic_send_startup_ipi`).
+- **Приём.** `apic_ipi_sched_intr` → `lapic_intr` → `context_stop` (BKL,
+  `smp_sched_handler()` — задачи из слота) → `smp_ipi_sched_handler()`:
+  вытесняет текущий процесс, только если он вытесняемый и в очередях CPU есть
+  более приоритетный (`sched_ready_above()`). **EOI один** — в
+  `LAPIC_INTR_HANDLER` (`apic_asm.S`); у IPI останова — в `stop_local_timer()`
+  (обработчик не возвращается).
+- **Тик.** LAPIC-таймер периодический (`lapic_set_timer_periodic(system_hz)`
+  на BSP и AP), `restart_local_timer()` пуст; на тике
+  `sched_starve_check()` вытесняет процесс, если на CPU ждёт более
+  приоритетный (запасной путь для случая без IPI). `lapic_microsec_sleep()`
+  после калибровки ждёт по TSC, чтобы запуск AP не сбил периодический режим.
+- **FPU.** `save_fpu()` для процесса другого CPU шлёт синхронный IPI, только
+  если его FPU-состояние может быть в регистрах того CPU.
+- **Простой.** `idlepoll=<мкс>` (на SMP по умолчанию 50, `idlepoll=0` —
+  выключить; при одном CPU не опрашивает): перед `hlt` CPU с включёнными
+  прерываниями опрашивает cpu-local `need_resched`; `smp_kick_idle()` пишет
+  его и шлёт IPI, только если цель не в состоянии `IDLE_POLLING`
+  (`idle_poll()`, `proc.c`; запись флага / чтение состояния и запись
+  `IDLE_HALTED` / чтение флага разделены полными барьерами — пробуждение не
+  теряется). Под KVM это главный выигрыш: тест 73 на 4 CPU — 79 → 20 с.
+  Цена — сожжённое время CPU в простое; на железе лучше MONITOR/MWAIT (x86),
+  WFE/SEV (ARM).
+- **Кэш-строки.** `sched_ipi_data[]`, `bkl_stats[]` и `__cpu_local_vars`
+  (шаг 0x340) — по строке на CPU.
 
 ### 3.10 Прочее
 
@@ -240,7 +285,7 @@ utility.o arch_reset.o io_inb.o io_outb.o` + куски libc/libminc/libsys)
 | ACPI | ⚠️ | в ядре — только таблицы (RSDP/RSDT/MADT) и poweroff; AML-интерпретатор (ACPICA) — в пользовательском драйвере `minix/drivers/power/acpi` |
 | Системный таймер | ✅ | PIT 8253 или LAPIC-таймер (калибровка) |
 | Счётчик циклов | ✅ | TSC |
-| Tickless-режим | ❌ | LAPIC-таймер работает в one-shot, но перевзводится на фиксированный период 1/HZ (`init_local_timer`) — фактически периодический тик |
+| Tickless-режим | ❌ | LAPIC-таймер периодический, 1/HZ (`init_local_timer`, с 2026-10-05; раньше one-shot с перевзводом на каждом выходе в пользователя), тик идёт и в простое |
 | FPU/SSE | ✅ | ленивое сохранение, FXSAVE/FNSAVE |
 | AVX/XSAVE | ❌ | добавить (актуально для amd64) |
 | SMP | ⚠️ | есть, но только при `CONFIG_SMP`, Big Kernel Lock, миграции нет — **переделка по п. 4 модернизации** |
