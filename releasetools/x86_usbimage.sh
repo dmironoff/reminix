@@ -64,15 +64,20 @@ for i in ${ROOT_DIR}/mod*; do
 	add_file_spec $(basename $i) extra.boot
 done
 
-# add boot.cfg
-cat >${ROOT_DIR}/boot.cfg <<END_BOOT_CFG
-menu=Start MINIX 3:load_mods /mod*; multiboot /kernel bootramdisk=1
+# add boot.cfg (console and SMP entry: BOOT_CONSOLE, BOOT_SMP in image.defaults)
+K="$(bootcfg_kargs)"
+{
+bootcfg_console
+echo "menu=Start MINIX 3:load_mods /mod*; multiboot /kernel bootramdisk=1$K"
+bootcfg_smp_entry "Start MINIX 3, one CPU (no_apic=1)" "load_mods /mod*; multiboot /kernel bootramdisk=1$K"
+cat <<END_BOOT_CFG
 menu=Edit menu option:edit
 menu=Drop to boot prompt:prompt
 clear=1
 timeout=5
 default=1
 END_BOOT_CFG
+} >${ROOT_DIR}/boot.cfg
 add_file_spec "boot.cfg" extra.boot
 
 # add boot monitor

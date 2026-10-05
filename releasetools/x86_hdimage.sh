@@ -43,19 +43,26 @@ add_link_spec "boot/minix_latest" "minix_default" extra.kernel
 workdir_add_kernel minix_default
 workdir_add_kernel minix/$RELEASE_VERSION
 
-# add boot.cfg
-cat >${ROOT_DIR}/boot.cfg <<END_BOOT_CFG
-menu=Start MINIX 3:load_mods /boot/minix_default/mod*; multiboot /boot/minix_default/kernel rootdevname=c0d0p0
-menu=Start latest MINIX 3:load_mods /boot/minix_latest/mod*; multiboot /boot/minix_latest/kernel rootdevname=c0d0p0
-menu=Start latest MINIX 3 in single user mode:load_mods /boot/minix_latest/mod*; multiboot /boot/minix_latest/kernel rootdevname=c0d0p0 bootopts=-s
+# add boot.cfg (console and SMP entry: BOOT_CONSOLE, BOOT_SMP in image.defaults)
+K="$(bootcfg_kargs)"
+{
+bootcfg_console
+cat <<END_BOOT_CFG
+menu=Start MINIX 3:load_mods /boot/minix_default/mod*; multiboot /boot/minix_default/kernel rootdevname=c0d0p0$K
+menu=Start latest MINIX 3:load_mods /boot/minix_latest/mod*; multiboot /boot/minix_latest/kernel rootdevname=c0d0p0$K
+menu=Start latest MINIX 3 in single user mode:load_mods /boot/minix_latest/mod*; multiboot /boot/minix_latest/kernel rootdevname=c0d0p0 bootopts=-s$K
+END_BOOT_CFG
+bootcfg_smp_entry "Start latest MINIX 3, one CPU (no_apic=1)" "load_mods /boot/minix_latest/mod*; multiboot /boot/minix_latest/kernel rootdevname=c0d0p0$K"
+cat <<END_BOOT_CFG
 menu=Start MINIX 3 ALIX:load_mods /boot/minix_default/mod*;multiboot /boot/minix_default/kernel rootdevname=c0d0p0 console=tty00 consdev=com0 ata_no_dma=1
 menu=Edit menu option:edit
 menu=Drop to boot prompt:prompt
 clear=1
 timeout=5
 default=2
-menu=Start MINIX 3 ($RELEASE_VERSION):load_mods /boot/minix/$RELEASE_VERSION/mod*; multiboot /boot/minix/$RELEASE_VERSION/kernel rootdevname=c0d0p0
+menu=Start MINIX 3 ($RELEASE_VERSION):load_mods /boot/minix/$RELEASE_VERSION/mod*; multiboot /boot/minix/$RELEASE_VERSION/kernel rootdevname=c0d0p0$K
 END_BOOT_CFG
+} >${ROOT_DIR}/boot.cfg
 add_file_spec "boot.cfg" extra.boot
 
 echo "Bundling packages..."

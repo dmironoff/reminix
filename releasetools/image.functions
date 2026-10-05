@@ -187,6 +187,47 @@ END_FSTAB
 }
 
 #
+# boot.cfg helpers (BOOT_CONSOLE, BOOT_SMP: see image.defaults)
+#
+
+#
+# Print the boot loader console line for the top of boot.cfg, if any
+#
+bootcfg_console()
+{
+	if [ "${BOOT_CONSOLE}" = com0 ]
+	then
+		echo "consdev=com0"
+	fi
+}
+
+#
+# Print the kernel arguments that put the MINIX console where the boot
+# loader's is (appended to every menu entry), if any
+#
+bootcfg_kargs()
+{
+	if [ "${BOOT_CONSOLE}" = com0 ]
+	then
+		echo " console=tty00 consdev=com0"
+	fi
+}
+
+#
+# SMP kernel only: print a menu entry that boots it on one CPU (the kernel
+# defaults to no_apic=0, all CPUs)
+#
+# $1 : menu title
+# $2 : boot commands of the entry (kernel arguments last)
+bootcfg_smp_entry()
+{
+	if [ "${BOOT_SMP}" = yes ]
+	then
+		echo "menu=$1:$2 no_apic=1"
+	fi
+}
+
+#
 # Extract kernel to designated directory
 #
 # $1: Directory where to extract
@@ -215,11 +256,15 @@ workdir_add_kernel()
 #
 create_input_spec()
 {
+	# No size= (-R size): the sets lists take it from METALOG, which keeps
+	# the size of the first install of a file, not of a later update by an
+	# incremental build.sh -u. nbmakefs (cd9660) trusts it and truncates the
+	# file; nbtoproto (MFS images) never used it.
 	if [ -n "$SETS" ]
 	then
-		cat ${WORK_DIR}/set* ${WORK_DIR}/extra* | ${CROSS_TOOLS}/nbmtree -N ${ROOT_DIR}/etc -C -K device > ${WORK_DIR}/input
+		cat ${WORK_DIR}/set* ${WORK_DIR}/extra* | ${CROSS_TOOLS}/nbmtree -N ${ROOT_DIR}/etc -C -K device -R size > ${WORK_DIR}/input
 	else
-		cat ${WORK_DIR}/extra* | ${CROSS_TOOLS}/nbmtree -C > ${WORK_DIR}/input
+		cat ${WORK_DIR}/extra* | ${CROSS_TOOLS}/nbmtree -C -R size > ${WORK_DIR}/input
 	fi
 
 	if [ ${ASR_HACK} -eq 1 ]

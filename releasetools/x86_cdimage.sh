@@ -34,13 +34,19 @@ workdir_add_cd_files
 # add kernel
 workdir_add_kernel minix_default
 
-# add boot.cfg
-cat >${ROOT_DIR}/boot.cfg <<END_BOOT_CFG
+# add boot.cfg (console and SMP entry: BOOT_CONSOLE, BOOT_SMP in image.defaults)
+K="$(bootcfg_kargs)"
+{
+bootcfg_console
+cat <<END_BOOT_CFG
 banner=Welcome to the MINIX 3 installation CD
 banner================================================================================
 banner=
-menu=Regular MINIX 3:multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1
-menu=Regular MINIX 3 (with AHCI):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 ahci=yes
+menu=Regular MINIX 3:multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1$K
+END_BOOT_CFG
+bootcfg_smp_entry "Regular MINIX 3, one CPU (no_apic=1)" "multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1$K"
+cat <<END_BOOT_CFG
+menu=Regular MINIX 3 (with AHCI):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 ahci=yes$K
 menu=Edit menu option:edit
 menu=Drop to boot prompt:prompt
 clear=1
@@ -59,6 +65,7 @@ load=/boot/minix_default/mod10_pfs
 load=/boot/minix_default/mod11_mfs
 load=/boot/minix_default/mod12_init
 END_BOOT_CFG
+} >${ROOT_DIR}/boot.cfg
 add_file_spec "boot.cfg" extra.cdfiles
 
 # set correct message of the day (log in and install tip)

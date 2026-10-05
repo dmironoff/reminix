@@ -6,6 +6,16 @@
 : ${RELEASEDIR=${OBJ}/releasedir/$ARCH/binary}
 : ${RELEASETOOLSDIR=./releasetools/}
 : ${BUILDVARS=}
+
+# boot.cfg of the x86 images (empty: as in MINIX)
+#   BOOT_CONSOLE=com0  boot loader and MINIX console on the first serial port
+#   BOOT_SMP=yes       SMP kernel: one more menu entry, one CPU (no_apic=1);
+#                      by default yes when BUILDVARS has CONFIG_SMP=y
+: ${BOOT_CONSOLE=}
+case " ${BUILDVARS} " in
+*CONFIG_SMP=y*)	: ${BOOT_SMP=yes} ;;
+esac
+: ${BOOT_SMP=no}
 : ${CREATE_IMAGE_ONLY=0}
 : ${RELEASE_VERSION=$(sh sys/conf/osrelease.sh)}
 
