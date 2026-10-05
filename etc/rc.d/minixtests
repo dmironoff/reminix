@@ -14,7 +14,8 @@
 #   testjobs=N           optional: take the tests of the list
 #                        N at a time and run each group concurrently (stress;
 #                        a test may be listed several times). Each slot runs
-#                        in its own directory of symbolic links to the suite,
+#                        in its own directory of symbolic links to the suite
+#                        (copies of the setuid tests),
 #                        so copies of one test do not share DIR_xx. Results
 #                        of a group are printed when the whole group is done.
 #   testtimes=N          optional: run every test of the list (all tests if
@@ -68,6 +69,12 @@ minixtests_parallel()
 	for t in $list; do n=$((n + 1)); done
 	echo "1..$n"
 
+	# Every "run" does chown+chmod 4755 on the setuid tests when it
+	# starts; chown drops the setuid bit, so through links a copy starting
+	# would make a setuid test running next to it fail ("must be setuid
+	# root"). Set the bits once here and give each slot its own copies of
+	# the setuid files.
+	( cd $base && ./run -l > /dev/null )
 	k=0
 	while [ $k -lt $jobs ]; do
 		k=$((k + 1))
@@ -77,7 +84,11 @@ minixtests_parallel()
 		chown "`stat -f %Su:%Sg $base`" $d
 		chmod "`stat -f %Lp $base`" $d
 		for f in $base/* $base/.[!.]*; do
-			[ -e "$f" ] && ln -s "$f" $d/
+			if [ -f "$f" ] && [ -u "$f" ]; then
+				cp -p "$f" $d/
+			elif [ -e "$f" ]; then
+				ln -s "$f" $d/
+			fi
 		done
 	done
 
