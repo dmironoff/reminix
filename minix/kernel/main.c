@@ -446,7 +446,7 @@ void cstart(void)
   value = env_get("no_apic");
   if(value)
 	config_no_apic = atoi(value);
-  else
+  else	/* uniprocessor kernel; an SMP one gets no_apic=0 from pre_init */
 	config_no_apic = 1;
   value = env_get("apic_timer_x");
   if(value)

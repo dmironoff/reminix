@@ -19,7 +19,8 @@
 #   TESTLIST  "" for the whole suite, or comma separated names ("43,71,sh1")
 #   TIMEOUT   seconds before the whole run is declared hung
 #             (env HANG_IDLE: seconds of console silence, default 600)
-#             (env KARGS: extra kernel arguments; CPUS>1 adds no_apic=0)
+#             (env KARGS: extra kernel arguments; an SMP kernel defaults to
+#              no_apic=0, all CPUs; KARGS=no_apic=1 for the one-CPU fallback)
 #             (env TEST_JOBS: run TESTLIST in groups of N concurrent tests,
 #              rc.d/minixtests testjobs=N; default 1)
 #             (env TEST_TIMES: run every test N times, testtimes=N)
@@ -71,13 +72,6 @@ yes) seed=$(( (RANDOM << 15 | RANDOM) % 999999 + 1 )) ;;
 *) seed=$TEST_RANDOM ;;
 esac
 [ -n "$seed" ] && append="$append testrandom=$seed"
-# The kernel defaults to no_apic=1, which makes an SMP kernel fall back to
-# a single CPU on the 8259 PIC: the other CPUs would never be started.
-# KARGS can override this (KARGS=no_apic=1 tests the single CPU fallback).
-case " ${KARGS:-} " in
-*" no_apic="*) ;;
-*) [ "$CPUS" -gt 1 ] && append="$append no_apic=0" ;;
-esac
 # extra kernel arguments (env KARGS, e.g. "no_smp=1" or "no_apic=1")
 [ -n "${KARGS:-}" ] && append="$append $KARGS"
 

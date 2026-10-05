@@ -123,6 +123,15 @@ void get_parameters(u32_t ebx, kinfo_t *cbi)
 	/* set some configurable defaults */
 	cbi->do_serial_debug = 0;
 	cbi->serial_debug_baud = 115200;
+#ifdef CONFIG_SMP
+	/* An SMP kernel runs in APIC mode on all CPUs unless told otherwise
+	 * (no_apic=1 falls back to one CPU and the PIC). Set as a boot
+	 * parameter, not only as config_no_apic, so that sysenv sees it and
+	 * the ramdisk rc starts ACPI, which PCI needs in APIC mode. A no_apic
+	 * on the command line replaces it (mb_set_param deletes the old one).
+	 */
+	mb_set_param(cbi->param_buf, "no_apic", "0", cbi);
+#endif
 
 	/* parse boot command line */
 	if (mbi->mi_flags & MULTIBOOT_INFO_HAS_CMDLINE) {
