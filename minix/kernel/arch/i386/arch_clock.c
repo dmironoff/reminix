@@ -136,7 +136,12 @@ int init_local_timer(unsigned freq)
 		unsigned cpu = cpuid;
 		tsc_per_ms[cpu] = (unsigned)(cpu_get_freq(cpu) / 1000);
 		tsc_per_tick[cpu] = (unsigned)(cpu_get_freq(cpu) / system_hz);
-		lapic_set_timer_one_shot(1000000 / system_hz);
+		/* ReMinix: periodic, it used to be one-shot and re-armed on
+		 * every return to user mode (restart_local_timer()) -- a read
+		 * of the current count there, and three writes when it had
+		 * expired; each a VM exit under KVM. The tick keeps running
+		 * in idle anyway (idle()). */
+		lapic_set_timer_periodic(system_hz);
 	} else {
 		DEBUGBASIC(("Initiating legacy i8253 timer\n"));
 #else
@@ -167,11 +172,8 @@ void stop_local_timer(void)
 
 void restart_local_timer(void)
 {
-#ifdef USE_APIC
-	if (lapic_addr) {
-		lapic_restart_timer();
-	}
-#endif
+	/* ReMinix: nothing to do, the LAPIC timer is periodic
+	 * (init_local_timer()) and the i8253 always was */
 }
 
 int register_local_timer_handler(const irq_handler_t handler)
@@ -228,7 +230,7 @@ void context_stop(struct proc * p)
 
 		read_tsc_64(&tsc);
 		tmp = tsc - *__tsc_ctr_switch;
-		kernel_ticks[cpu] = kernel_ticks[cpu] + tmp;
+		bkl_stats[cpu].kernel_ticks += tmp;
 		p->p_cycles = p->p_cycles + tmp;
 		must_bkl_unlock = 1;
 	} else {
@@ -243,9 +245,9 @@ void context_stop(struct proc * p)
 		
 		read_tsc_64(&tsc);
 
-		bkl_ticks[cpu] = bkl_ticks[cpu] + tsc - bkl_tsc;
-		bkl_tries[cpu]++;
-		bkl_succ[cpu] += !(!(succ == 0));
+		bkl_stats[cpu].bkl_ticks += tsc - bkl_tsc;
+		bkl_stats[cpu].bkl_tries++;
+		bkl_stats[cpu].bkl_succ += !(!(succ == 0));
 
 		p->p_cycles = p->p_cycles + tsc - *__tsc_ctr_switch;
 
@@ -343,6 +345,8 @@ void context_stop(struct proc * p)
 #ifdef CONFIG_SMP
 	if(must_bkl_unlock) {
 		BKL_UNLOCK();
+		/* ReMinix: the IPIs of this kernel pass (smp_schedule()) */
+		smp_flush_ipis();
 	}
 #endif
 }

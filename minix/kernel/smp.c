@@ -10,11 +10,13 @@ unsigned bsp_cpu_id;
 
 struct cpu cpus[CONFIG_MAX_CPUS];
 
-/* info passed to another cpu along with a sched ipi */
+/* info passed to another cpu along with a sched ipi. ReMinix: one cache line
+ * per cpu -- every cpu reads its own entry on each kernel entry
+ * (smp_sched_handler()), the entries of several cpus shared a line. */
 struct sched_ipi_data {
 	volatile u32_t	flags;
 	volatile u32_t	data;
-};
+} __attribute__((aligned(64)));
 
 static struct sched_ipi_data  sched_ipi_data[CONFIG_MAX_CPUS];
 
@@ -141,6 +143,7 @@ void wait_for_APs_to_finish_booting(void)
 
 	/* we must let the other CPUs to run in kernel mode first */
 	BKL_UNLOCK();
+	smp_flush_ipis();
 	while (ap_cpus_booted != (n - 1))
 		arch_pause();
 	/* now we have to take the lock again as we continue execution */
@@ -168,14 +171,58 @@ void ap_boot_finished(unsigned cpu)
 
 void smp_ipi_halt_handler(void)
 {
-	ipi_ack();
+	/* ReMinix: stop_local_timer() acknowledges the IPI (EOI); the handler
+	 * does not return, so the EOI of the interrupt stub is never reached.
+	 * It used to be acknowledged twice. */
 	stop_local_timer();
 	arch_smp_halt_cpu();
 }
 
+/*
+ * ReMinix: a scheduling IPI is not sent at once but marked in ipi_pending of
+ * this cpu and sent by smp_flush_ipis() after the BKL is released
+ * (context_stop()). Sent under the BKL, the woken cpu only spun on the lock
+ * while we finished the kernel pass; several IPIs to one cpu in one pass are
+ * merged. The decision (is the target idle, does it run something of a lower
+ * priority) is still taken under the BKL: if the target wakes up meanwhile on
+ * its own, the IPI is spurious, but harmless (smp_ipi_sched_handler()
+ * preempts only for a reason); none is lost, an IPI pending in the IRR ends
+ * hlt.
+ */
 void smp_schedule(unsigned cpu)
 {
-	arch_send_smp_schedule_ipi(cpu);
+	get_cpulocal_var(ipi_pending) |= 1U << cpu;
+}
+
+void smp_flush_ipis(void)
+{
+	unsigned cpu, mask;
+
+	mask = get_cpulocal_var(ipi_pending);
+	if (!mask)
+		return;
+	get_cpulocal_var(ipi_pending) = 0;
+	for (cpu = 0; mask; cpu++, mask >>= 1)
+		if (mask & 1)
+			arch_send_smp_schedule_ipi(cpu);
+}
+
+/*
+ * ReMinix: wake up an idle cpu for a process enqueued there (enqueue()).
+ * With idle polling ("idlepoll", idle_poll() in proc.c) a polling cpu sees
+ * need_resched without an IPI: we write need_resched, then read idle_state;
+ * the target writes IDLE_HALTED, then reads need_resched (both with a full
+ * barrier) -- one of us sees the other's write.
+ */
+void smp_kick_idle(unsigned cpu)
+{
+	if (idle_poll_us) {
+		get_cpu_var(cpu, need_resched) = 1;
+		__sync_synchronize();
+		if (get_cpu_var(cpu, idle_state) == IDLE_POLLING)
+			return;
+	}
+	smp_schedule(cpu);
 }
 
 void smp_sched_handler(void);
@@ -185,43 +232,86 @@ void smp_sched_handler(void);
  * the task is finished. Also wait before it finishes task sent by another cpu
  * to the same one.
  */
-static void smp_schedule_sync(struct proc * p, unsigned task)
+/*
+ * Do a task of smp_schedule_sync() for process p on this cpu: on the target
+ * cpu (smp_sched_handler()), or here when the process moved to this cpu
+ * meanwhile. In the kernel p does not run on this cpu.
+ */
+static void smp_sched_task(struct proc * p, unsigned flgs)
 {
-	unsigned cpu = p->p_cpu;
+	if (flgs & SCHED_IPI_STOP_PROC) {
+		RTS_SET(p, RTS_PROC_STOP);
+	}
+	if (flgs & SCHED_IPI_SAVE_CTX) {
+		/* all context has been saved already, FPU remains */
+		if (proc_used_fpu(p) &&
+				get_cpulocal_var(fpu_owner) == p) {
+			disable_fpu_exception();
+			save_local_fpu(p, FALSE /*retain*/);
+			/* we're preparing to migrate somewhere else */
+			release_fpu(p);
+		}
+	}
+	if (flgs & SCHED_IPI_VM_INHIBIT) {
+		RTS_SET(p, RTS_VMINHIBIT);
+	}
+}
+
+/*
+ * Wait without the BKL until the request slot of cpu is free, serving the
+ * requests made to us meanwhile (two cpus waiting on each other).
+ */
+static void smp_sched_wait_slot(unsigned cpu)
+{
 	unsigned mycpu = cpuid;
 
-	assert(cpu != mycpu);
-	/*
-	 * if some other cpu made a request to the same cpu, wait until it is
-	 * done before proceeding
-	 */
-	if (sched_ipi_data[cpu].flags != 0) {
-		BKL_UNLOCK();
-		while (sched_ipi_data[cpu].flags != 0) {
-			if (sched_ipi_data[mycpu].flags) {
-				BKL_LOCK();
-				smp_sched_handler();
-				BKL_UNLOCK();
-			}
-		}
-		BKL_LOCK();
-	}
-
-	sched_ipi_data[cpu].data = (u32_t) p;
-	sched_ipi_data[cpu].flags |= task;
-	__insn_barrier();
-	arch_send_smp_schedule_ipi(cpu);
-
-	/* wait until the destination cpu finishes its job */
+	smp_flush_ipis();
 	BKL_UNLOCK();
 	while (sched_ipi_data[cpu].flags != 0) {
 		if (sched_ipi_data[mycpu].flags) {
 			BKL_LOCK();
 			smp_sched_handler();
+			smp_flush_ipis();
 			BKL_UNLOCK();
 		}
+		arch_pause();
 	}
 	BKL_LOCK();
+}
+
+/*
+ * ReMinix: the request slot is checked again after each wait -- the BKL was
+ * released, another cpu may have taken the slot meanwhile and its request
+ * would have been overwritten (lost STOP_PROC or VM_INHIBIT). For the same
+ * reason p->p_cpu is read again: the process may have been moved
+ * (smp_move_proc()); if it is on this cpu now, the task is done here.
+ */
+static void smp_schedule_sync(struct proc * p, unsigned task)
+{
+	unsigned cpu;
+
+	for (;;) {
+		cpu = p->p_cpu;
+		if (cpu == cpuid) {
+			smp_sched_task(p, task);
+			return;
+		}
+		/*
+		 * if some other cpu made a request to the same cpu, wait until
+		 * it is done before proceeding
+		 */
+		if (sched_ipi_data[cpu].flags == 0)
+			break;
+		smp_sched_wait_slot(cpu);
+	}
+
+	sched_ipi_data[cpu].data = (u32_t) p;
+	sched_ipi_data[cpu].flags = task;
+	__insn_barrier();
+	arch_send_smp_schedule_ipi(cpu);
+
+	/* wait until the destination cpu finishes its job */
+	smp_sched_wait_slot(cpu);
 }
 
 /*
@@ -319,36 +409,26 @@ void smp_sched_handler(void)
 
 	flgs = sched_ipi_data[cpu].flags;
 
+	/* ReMinix: called on every kernel entry; the line is written only when
+	 * there was a request (the requesting cpu spins reading it) */
 	if (flgs) {
-		struct proc * p;
-		p = (struct proc *)sched_ipi_data[cpu].data;
-
-		if (flgs & SCHED_IPI_STOP_PROC) {
-			RTS_SET(p, RTS_PROC_STOP);
-		}
-		if (flgs & SCHED_IPI_SAVE_CTX) {
-			/* all context has been saved already, FPU remains */
-			if (proc_used_fpu(p) &&
-					get_cpulocal_var(fpu_owner) == p) {
-				disable_fpu_exception();
-				save_local_fpu(p, FALSE /*retain*/);
-				/* we're preparing to migrate somewhere else */
-				release_fpu(p);
-			}
-		}
-		if (flgs & SCHED_IPI_VM_INHIBIT) {
-			RTS_SET(p, RTS_VMINHIBIT);
-		}
+		smp_sched_task((struct proc *)sched_ipi_data[cpu].data, flgs);
+		__insn_barrier();
+		sched_ipi_data[cpu].flags = 0;
 	}
-
-	__insn_barrier();
-	sched_ipi_data[cpu].flags = 0;
 }
 
 /*
  * This function gets always called only after smp_sched_handler() has been
- * already called. It only serves the purpose of acknowledging the IPI and
- * preempting the current process if the CPU was not idle.
+ * already called. It only serves the purpose of preempting the current
+ * process if the CPU was not idle.
+ *
+ * ReMinix: the IPI is acknowledged by the interrupt stub (lapic_intr), it
+ * used to be acknowledged here too. The current process is preempted only if
+ * a process of a higher priority is ready here and the current one is
+ * preemptible -- as for a local enqueue(). Before, any process was preempted,
+ * VM too (not PREEMPTIBLE). The tasks of smp_sched_handler() make a process
+ * not runnable themselves.
  */
 void smp_ipi_sched_handler(void)
 {
@@ -356,10 +436,11 @@ void smp_ipi_sched_handler(void)
 	struct proc * curr;
 
 	dbg_cpu_events[cpuid][2]++;
-	ipi_ack();
 
 	curr = get_cpulocal_var(proc_ptr);
-	if (curr->p_endpoint != IDLE) {
+	if (curr->p_endpoint != IDLE && proc_is_runnable(curr) &&
+			(priv(curr)->s_flags & PREEMPTIBLE) &&
+			sched_ready_above(cpuid, curr->p_priority)) {
 		RTS_SET(curr, RTS_PREEMPTED);
 	}
 }

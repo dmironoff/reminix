@@ -185,6 +185,8 @@ void smp_shutdown_aps(void)
 	if (ncpus == 1)
 		goto exit_shutdown_aps;
 
+	/* the cpus are going down, IPIs still marked for them are moot */
+	get_cpulocal_var(ipi_pending) = 0;
 	/* we must let the other cpus enter the kernel mode */
 	BKL_UNLOCK();
 

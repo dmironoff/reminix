@@ -47,6 +47,9 @@ REGIONS = [
     # per CPU [timer_int_handler, context_stop_idle, sched IPI, idle halts,
     #          hardware IRQs taken]
     "dbg_cpu_events",
+    # per CPU, 64 bytes each: [kernel_ticks u64, bkl_ticks u64, bkl_tries,
+    # bkl_succ] (glo.h); sched IPI requests [flags, data] (smp.c, static)
+    "bkl_stats", "sched_ipi_data",
     "lapic_addr", "lapic_eoi_addr",
     # [tag, cpu, tsc>>8, cr3, lapic_eoi_addr, ISR 224..255] (arch_clock.c)
     "dbg_boot_ev", "dbg_boot_nev",

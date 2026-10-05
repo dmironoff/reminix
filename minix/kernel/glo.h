@@ -82,11 +82,21 @@ EXTERN volatile int serial_debug_active;
 
 EXTERN struct cpu_info cpu_info[CONFIG_MAX_CPUS];
 
-/* BKL stats */
-EXTERN u64_t kernel_ticks[CONFIG_MAX_CPUS];
-EXTERN u64_t bkl_ticks[CONFIG_MAX_CPUS];
-EXTERN unsigned bkl_tries[CONFIG_MAX_CPUS];
-EXTERN unsigned bkl_succ[CONFIG_MAX_CPUS];
+/* BKL stats. ReMinix: one cache line per cpu -- every cpu writes its entry
+ * on each kernel entry and exit (context_stop()); as four arrays they shared
+ * lines among the cpus and with ncpus, cpus[] and others read on every IPI.
+ * Dumped as "bkl_stats" (docker/qemu-postmortem.py).
+ */
+struct bkl_stats {
+	u64_t kernel_ticks;	/* cycles in the kernel, BKL held */
+	u64_t bkl_ticks;	/* cycles waiting for the BKL */
+	unsigned bkl_tries;	/* BKL acquisitions */
+	unsigned bkl_succ;	/* ... of them found the lock free */
+} __attribute__((aligned(64)));
+EXTERN struct bkl_stats bkl_stats[CONFIG_MAX_CPUS];
+
+/* ReMinix: idle polling before hlt, microseconds ("idlepoll", 0 -- off) */
+EXTERN unsigned idle_poll_us;
 
 /* Feature flags */
 EXTERN int minix_feature_flags;

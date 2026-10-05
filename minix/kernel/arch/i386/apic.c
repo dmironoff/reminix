@@ -11,6 +11,7 @@
 #include <machine/cmos.h>
 
 #include <minix/u64.h>
+#include <minix/minlib.h>
 
 #include "apic.h"
 #include "apic_asm.h"
@@ -529,15 +530,24 @@ void lapic_stop_timer(void)
 	lapic_write(LAPIC_TIMER_ICR, 0);
 }
 
-void lapic_restart_timer(void)
-{
-	/* restart the timer only if the counter reached zero, i.e. expired */
-	if (lapic_read(LAPIC_TIMER_CCR) == 0)
-		lapic_set_timer_one_shot(1000000/system_hz);
-}
-
 void lapic_microsec_sleep(unsigned count)
 {
+	u64_t tsc, end;
+	u64_t hz = cpu_get_freq(cpuid);
+
+	/* ReMinix: by the TSC once the clocks are calibrated -- the LAPIC
+	 * timer is the periodic tick then (init_local_timer()), a one-shot
+	 * sleep would stop it (AP startup runs on the BSP after its timer is
+	 * set up) */
+	if (hz) {
+		read_tsc_64(&tsc);
+		end = tsc + hz / 1000000 * count;
+		do {
+			arch_pause();
+			read_tsc_64(&tsc);
+		} while (tsc < end);
+		return;
+	}
 	lapic_set_timer_one_shot(count);
 	while (lapic_read(LAPIC_TIMER_CCR))
 		arch_pause();
@@ -925,6 +935,35 @@ int detect_ioapics(void)
 
 #ifdef CONFIG_SMP
 
+/*
+ * ReMinix: whether we run under a hypervisor (CPUID.1:ECX[31]). Its virtual
+ * LAPIC delivers an IPI when ICR is written, Delivery Status is always idle,
+ * and every read of the LAPIC is a VM exit (without APIC virtualization).
+ */
+static int apic_under_hypervisor(void)
+{
+	static int hv = -1;
+	u32_t eax, ebx, ecx, edx;
+
+	if (hv < 0) {
+		eax = 1;
+		_cpuid(&eax, &ebx, &ecx, &edx);
+		hv = (ecx >> 31) & 1;
+	}
+	return hv;
+}
+
+/*
+ * ReMinix: ICR is built from constants -- fixed delivery, physical
+ * destination, edge, level assert (the bits the old code kept from reading
+ * ICR: 0x40f1 for the scheduling IPI); ICR2 holds only the destination. Only
+ * two writes, no reads: ICR and ICR2 were read to keep their other bits, and
+ * ICR in a loop for Delivery Status -- 5 VM exits per IPI under KVM. The
+ * Delivery Status wait is kept on real hardware. The caller has interrupts
+ * disabled (the kernel), the ICR2/ICR pair is not interleaved on this cpu.
+ * INIT and SIPI (apic_send_init_ipi(), apic_send_startup_ipi()) have their
+ * own code.
+ */
 void apic_send_ipi(unsigned vector, unsigned cpu, int type)
 {
 	u32_t icr1, icr2;
@@ -933,35 +972,37 @@ void apic_send_ipi(unsigned vector, unsigned cpu, int type)
 		/* no need of sending an IPI */
 		return;
 
-	while (lapic_read_icr1() & APIC_ICR_DELIVERY_PENDING) 
-		arch_pause();
-
-	icr1 = lapic_read_icr1() & 0xFFF0F800;
-	icr2 = lapic_read_icr2() & 0xFFFFFF;
+	icr1 = APIC_ICR_LEVEL_ASSERT | APIC_ICR_DM_PHYSICAL | APIC_ICR_DM_FIXED |
+		vector;
+	icr2 = 0;
 
 	switch (type) {
 		case APIC_IPI_DEST:
 			if (!cpu_is_ready(cpu))
 				return;
-			lapic_write_icr2(icr2 |	(cpuid2apicid[cpu] << 24));
-			lapic_write_icr1(icr1 |	APIC_ICR_DEST_FIELD | vector);
+			icr2 = cpuid2apicid[cpu] << 24;
+			icr1 |= APIC_ICR_DEST_FIELD;
 			break;
 		case APIC_IPI_SELF:
-			lapic_write_icr2(icr2);
-			lapic_write_icr1(icr1 |	APIC_ICR_DEST_SELF | vector);
+			icr1 |= APIC_ICR_DEST_SELF;
 			break;
 		case APIC_IPI_TO_ALL_BUT_SELF:
-			lapic_write_icr2(icr2);
-			lapic_write_icr1(icr1 |	APIC_ICR_DEST_ALL_BUT_SELF | vector);
+			icr1 |= APIC_ICR_DEST_ALL_BUT_SELF;
 			break;
 		case APIC_IPI_TO_ALL:
-			lapic_write_icr2(icr2);
-			lapic_write_icr1(icr1 |	APIC_ICR_DEST_ALL | vector);
+			icr1 |= APIC_ICR_DEST_ALL;
 			break;
 		default:
 			printf("WARNING : unknown send ipi type request\n");
+			return;
 	}
 
+	if (!apic_under_hypervisor()) {
+		while (lapic_read_icr1() & APIC_ICR_DELIVERY_PENDING)
+			arch_pause();
+	}
+	lapic_write_icr2(icr2);
+	lapic_write_icr1(icr1);
 }
 
 int apic_send_startup_ipi(unsigned cpu, phys_bytes trampoline)

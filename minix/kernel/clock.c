@@ -73,6 +73,12 @@ init_clock(void)
 	if (value != NULL)
 		tick_debug = atoi(value);
 
+	/* ReMinix: idle polling before hlt, microseconds (idle_poll()) */
+	idle_poll_us = 0;
+	value = env_get("idlepoll");
+	if (value != NULL && atoi(value) > 0)
+		idle_poll_us = atoi(value);
+
 	/* Get clock tick frequency. */
 	value = env_get("hz");
 	if (value != NULL)

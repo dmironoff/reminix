@@ -171,6 +171,44 @@ static void switch_address_space_idle(void)
 #endif
 }
 
+#ifdef CONFIG_SMP
+/*===========================================================================*
+ *				idle_poll				     *
+ *===========================================================================*/
+static int idle_poll(void)
+{
+/* ReMinix: before hlt, poll for idle_poll_us microseconds ("idlepoll" boot
+ * parameter, 0 -- off, the default: power matters on embedded systems). A
+ * process enqueued here by another cpu meanwhile is seen in need_resched
+ * without an IPI (smp_kick_idle()) -- under a hypervisor an IPI and the
+ * wakeup from hlt cost VM exits. Called without the BKL, interrupts off.
+ * An interrupt while polling is taken as one in hlt: the stub ends idle
+ * accounting and takes the BKL (context_stop_idle()), cpu_is_idle is 0 then.
+ * Returns 1 if the cpu must not halt.
+ */
+	volatile int *need = get_cpulocal_var_ptr(need_resched);
+	volatile int *is_idle = get_cpulocal_var_ptr(cpu_is_idle);
+	u64_t tsc, end;
+
+	read_tsc_64(&tsc);
+	end = tsc + ms_2_cpu_time(1) * idle_poll_us / 1000;
+	interrupts_enable();
+	while (!*need && *is_idle) {
+		arch_pause();
+		read_tsc_64(&tsc);
+		if (tsc >= end)
+			break;
+	}
+	interrupts_disable();
+	if (!*is_idle)
+		return 1;	/* an interrupt woke us up */
+	/* from now on an enqueue sends an IPI; check what came before it */
+	__sync_lock_test_and_set(&get_cpulocal_var(idle_state), IDLE_HALTED);
+	__sync_synchronize();
+	return *need;
+}
+#endif
+
 /*===========================================================================*
  *				idle					     * 
  *===========================================================================*/
@@ -192,6 +230,11 @@ static void idle(void)
 
 #ifdef CONFIG_SMP
 	get_cpulocal_var(cpu_is_idle) = 1;
+	/* idle polling (idle_poll()), still under the BKL: an enqueue sees
+	 * either IDLE_POLLING with need_resched clear, or sends an IPI */
+	get_cpulocal_var(need_resched) = 0;
+	get_cpulocal_var(idle_state) = idle_poll_us ? IDLE_POLLING :
+		IDLE_RUNNING;
 	/*
 	 * APs keep their tick running in idle like the BSP: stopping it here
 	 * re-armed a full tick at every wakeup, so a process on an AP that
@@ -214,7 +257,10 @@ static void idle(void)
 	}
 	context_stop(proc_addr(KERNEL));
 #if !SPROFILE
-	halt_cpu();
+#ifdef CONFIG_SMP
+	if (!idle_poll_us || !idle_poll())
+#endif
+		halt_cpu();
 #else
 	if (!sprofiling)
 		halt_cpu();
@@ -1761,7 +1807,21 @@ void enqueue(
    * process
    */
   else if (get_cpu_var(rp->p_cpu, cpu_is_idle)) {
-	  smp_schedule(rp->p_cpu);
+	  smp_kick_idle(rp->p_cpu);
+  }
+  else {
+	  /*
+	   * ReMinix: a busy cpu running a process of a lower priority is told
+	   * too, as a local enqueue preempts it (above). Without it the process
+	   * waited for the next tick (sched_starve_check()) or longer
+	   * (docs/testing.md, test 79). proc_ptr of another cpu changes only
+	   * under the BKL we hold.
+	   */
+	  struct proc * p;
+	  p = get_cpu_var(rp->p_cpu, proc_ptr);
+	  if (p->p_endpoint != IDLE && (p->p_priority > rp->p_priority) &&
+			  (priv(p)->s_flags & PREEMPTIBLE))
+		  smp_schedule(rp->p_cpu);
   }
 #endif
 
@@ -2039,6 +2099,25 @@ clock_t max_wait_ticks(int ms)
 }
 
 /*===========================================================================*
+ *				sched_ready_above			     *
+ *===========================================================================*/
+int sched_ready_above(unsigned cpu, int prio)
+{
+/* ReMinix: whether a process of a priority higher than prio is ready on the
+ * given cpu. Called with the BKL held, the queues of another cpu change only
+ * under it.
+ */
+	struct proc **rdy_head;
+	int q;
+
+	rdy_head = get_cpu_var(cpu, run_q_head);
+	for (q = 0; q < prio; q++)
+		if (rdy_head[q])
+			return 1;
+	return 0;
+}
+
+/*===========================================================================*
  *				sched_starve_check			     *
  *===========================================================================*/
 void sched_starve_check(void)
@@ -2069,12 +2148,19 @@ void sched_starve_check(void)
 	if (p->p_misc_flags & MF_STARVE_SLOT) {
 		/* The slot lasts at most a tick. */
 		p->p_misc_flags &= ~MF_STARVE_SLOT;
-		for (q = 0; q < p->p_priority; q++) {
-			if (rdy_head[q]) {
-				RTS_SET(p, RTS_PREEMPTED);
-				break;
-			}
-		}
+		if (sched_ready_above(cpuid, p->p_priority))
+			RTS_SET(p, RTS_PREEMPTED);
+		return;
+	}
+
+	/* A process of a higher priority enqueued here by another cpu does
+	 * not preempt the current one (enqueue() only wakes an idle cpu), so
+	 * it waited until the current one blocked or ran out of its quantum --
+	 * 200 ms for a user process, without a limit for a server scheduled
+	 * by the kernel (docs/testing.md, test 79). Preempt it on the tick.
+	 */
+	if (sched_ready_above(cpuid, p->p_priority)) {
+		RTS_SET(p, RTS_PREEMPTED);
 		return;
 	}
 

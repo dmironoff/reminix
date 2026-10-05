@@ -156,7 +156,6 @@ int apic_single_cpu_init(void);
 void lapic_set_timer_periodic(const unsigned freq);
 void lapic_set_timer_one_shot(const u32_t value);
 void lapic_stop_timer(void);
-void lapic_restart_timer(void);
 
 void ioapic_set_irq(unsigned irq);
 void ioapic_unset_irq(unsigned irq);

@@ -114,6 +114,23 @@ void save_fpu(struct proc *pr)
 	if (cpuid != pr->p_cpu) {
 		int stopped;
 
+		/*
+		 * ReMinix: the round trip to the other cpu is needed only if
+		 * the FPU state of the process may be in the registers there.
+		 * Otherwise it is in the process table already: the process
+		 * did not use the FPU, or the other cpu's FPU belongs to
+		 * another process and the process does not run there (it
+		 * would trap to the kernel on its first FPU instruction, and
+		 * wait for the BKL we hold). fpu_owner and proc_ptr of
+		 * another cpu change only under the BKL. Sending signals
+		 * (test 79) made a synchronous IPI for every signal.
+		 */
+		if (!proc_used_fpu(pr))
+			return;
+		if (get_cpu_var(pr->p_cpu, fpu_owner) != pr &&
+				get_cpu_var(pr->p_cpu, proc_ptr) != pr)
+			return;
+
 		/* remember if the process was already stopped */
 		stopped = RTS_ISSET(pr, RTS_PROC_STOP);
 
@@ -342,20 +359,17 @@ static void dump_bkl_usage(void)
 	printf("--- BKL usage ---\n");
 	for (cpu = 0; cpu < ncpus; cpu++) {
 		printf("cpu %3d kernel ticks 0x%x%08x bkl ticks 0x%x%08x succ %d tries %d\n", cpu,
-				ex64hi(kernel_ticks[cpu]),
-				ex64lo(kernel_ticks[cpu]),
-				ex64hi(bkl_ticks[cpu]),
-				ex64lo(bkl_ticks[cpu]),
-				bkl_succ[cpu], bkl_tries[cpu]);
+				ex64hi(bkl_stats[cpu].kernel_ticks),
+				ex64lo(bkl_stats[cpu].kernel_ticks),
+				ex64hi(bkl_stats[cpu].bkl_ticks),
+				ex64lo(bkl_stats[cpu].bkl_ticks),
+				bkl_stats[cpu].bkl_succ, bkl_stats[cpu].bkl_tries);
 	}
 }
 
 static void reset_bkl_usage(void)
 {
-	memset(kernel_ticks, 0, sizeof(kernel_ticks));
-	memset(bkl_ticks, 0, sizeof(bkl_ticks));
-	memset(bkl_tries, 0, sizeof(bkl_tries));
-	memset(bkl_succ, 0, sizeof(bkl_succ));
+	memset(bkl_stats, 0, sizeof(bkl_stats));
 }
 #endif
 

@@ -85,6 +85,7 @@ int isokendpt_f(endpoint_t e, int *p, int f);
 void proc_no_time(struct proc *p);
 clock_t max_wait_ticks(int ms);
 void sched_starve_check(void);
+int sched_ready_above(unsigned cpu, int prio);
 void reset_proc_accounting(struct proc *p);
 void flag_account(struct proc *p, int flag);
 int try_deliver_senda(struct proc *caller_ptr, asynmsg_t *table, size_t

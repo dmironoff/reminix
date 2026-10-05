@@ -15,8 +15,8 @@
 #define get_cpulocal_var(name)		get_cpu_var(cpuid, name)
 #define get_cpulocal_var_ptr(name)	get_cpu_var_ptr(cpuid, name)
 
-/* FIXME - padd the structure so that items in the array do not share cacheline
- * with other cpus */
+/* ReMinix: struct __cpu_local_vars is aligned to a cache line (below), the
+ * variables of two cpus do not share one */
 
 #else
 
@@ -31,10 +31,18 @@
 
 #endif
 
+/* ReMinix: idle_state, see idle_poll() (proc.c) and smp_kick_idle() */
+#define IDLE_RUNNING	0	/* not in idle(), or polling is off */
+#define IDLE_POLLING	1	/* polling need_resched, no IPI needed */
+#define IDLE_HALTED	2	/* in hlt, or about to be: IPI needed */
+
 /*
- * The global cpu local variables in use
+ * The global cpu local variables in use. ReMinix: aligned (and so sized) to
+ * a cache line -- the stride used to be 0x310, proc_ptr of one cpu shared a
+ * line with fpu_owner of the previous one. New fields go to the end
+ * (minix/tests/host/snapdump.py knows the offsets).
  */
-extern struct __cpu_local_vars {
+extern struct __attribute__((aligned(64))) __cpu_local_vars {
 
 /* Process scheduling information and the kernel reentry count. */
 	struct proc *proc_ptr;/* pointer to currently running process */
@@ -79,6 +87,14 @@ extern struct __cpu_local_vars {
 	 * changing (RTS_VMINHIBIT); kernel_call() retries the call through VM
 	 * (lin_lin_copy(), kernel_call_vminhibit()) */
 	struct proc * vminhibit_hit;
+
+	/* ReMinix: cpus to send a scheduling IPI to once the BKL is released
+	 * (smp_schedule(), smp_flush_ipis()) */
+	unsigned ipi_pending;
+	/* ReMinix: idle polling ("idlepoll"): a process was enqueued here for
+	 * a polling idle cpu, and the state of the idle loop (IDLE_*) */
+	volatile int need_resched;
+	volatile int idle_state;
 
 } __cpu_local_vars CPULOCAL_ARRAY;
 

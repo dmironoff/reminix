@@ -61,6 +61,10 @@ void smp_ipi_halt_handler(void);
 void smp_ipi_sched_handler(void);
 
 void smp_schedule(unsigned cpu);
+/* send the scheduling IPIs marked by smp_schedule() (after BKL_UNLOCK) */
+void smp_flush_ipis(void);
+/* wake up an idle cpu (IPI, or need_resched for a polling one) */
+void smp_kick_idle(unsigned cpu);
 /* stop a processes on a different cpu */
 void smp_schedule_stop_proc(struct proc * p);
 /* stop a process on a different cpu because its address space is being changed */
