@@ -11,6 +11,12 @@
 #   testlist=43,71,sh1   optional: run only these tests (comma separated,
 #                        names as accepted by "run -t")
 #   testdelay=N          optional: seconds to wait before starting (30)
+#   testjobs=N           optional, with testlist: take the tests of the list
+#                        N at a time and run each group concurrently (stress;
+#                        a test may be listed several times). Each slot runs
+#                        in its own directory of symbolic links to the suite,
+#                        so copies of one test do not share DIR_xx. Results
+#                        of a group are printed when the whole group is done.
 #
 # Runs synchronously as the last rc script: getty is started by init only
 # after rc has finished, and getty revokes the console, so output of a
@@ -27,18 +33,69 @@ name="minixtests"
 start_cmd="minixtests_start"
 stop_cmd=":"
 
+# Run "$list" in groups of $jobs concurrent tests (testjobs=N).
+minixtests_parallel()
+{
+	base=/usr/tests/minix-posix
+	n=0
+	for t in $list; do n=$((n + 1)); done
+	echo "1..$n"
+
+	k=0
+	while [ $k -lt $jobs ]; do
+		k=$((k + 1))
+		d=$base.job$k
+		rm -rf $d
+		mkdir $d || return 127
+		chown "`stat -f %Su:%Sg $base`" $d
+		chmod "`stat -f %Lp $base`" $d
+		for f in $base/* $base/.[!.]*; do
+			[ -e "$f" ] && ln -s "$f" $d/
+		done
+	done
+
+	status=0
+	set -- $list
+	while [ $# -gt 0 ]; do
+		k=0
+		while [ $k -lt $jobs ] && [ $# -gt 0 ]; do
+			k=$((k + 1))
+			d=$base.job$k
+			( cd $d && ./run -T -t "$1" > $d/.out 2>&1
+			  echo $? > $d/.status ) &
+			shift
+		done
+		wait
+		i=0
+		while [ $i -lt $k ]; do
+			i=$((i + 1))
+			d=$base.job$i
+			grep -v '^1\.\.' $d/.out
+			[ "`cat $d/.status`" = 0 ] || status=1
+		done
+	done
+	return $status
+}
+
 minixtests_start()
 {
 	[ "`/bin/sysenv testrun 2>/dev/null`" = "1" ] || return 0
 
 	list="`/bin/sysenv testlist 2>/dev/null | tr ',' ' '`"
 	delay="`/bin/sysenv testdelay 2>/dev/null`"
+	jobs="`/bin/sysenv testjobs 2>/dev/null`"
 
 	echo "minixtests: starting in ${delay:-30}s"
 	sleep ${delay:-30}
 
 	echo "REMINIX-TESTS-BEGIN"
-	if cd /usr/tests/minix-posix; then
+	if [ "${jobs:-1}" -gt 1 ] && [ -z "$list" ]; then
+		echo "minixtests: testjobs needs testlist, running serially"
+	fi
+	if [ "${jobs:-1}" -gt 1 ] && [ -n "$list" ]; then
+		minixtests_parallel
+		status=$?
+	elif cd /usr/tests/minix-posix; then
 		if [ -n "$list" ]; then
 			./run -T -t "$list"
 		else

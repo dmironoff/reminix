@@ -42,6 +42,10 @@ done
 
 t0=$(date +%s)
 stamp=$(mktemp)		# files installed from now on are "new"
+# install -p keeps the build time truncated to whole seconds: a file linked in
+# the same second as the stamp would look older than it. Files are compared
+# with cmp below anyway, so an earlier stamp costs nothing.
+touch -d "@$((t0 - 2))" "$stamp"
 
 echo ">>> 1. build and install: $QUICK_DIRS"
 for d in $QUICK_DIRS; do

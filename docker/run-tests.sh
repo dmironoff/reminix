@@ -20,6 +20,8 @@
 #   TIMEOUT   seconds before the whole run is declared hung
 #             (env HANG_IDLE: seconds of console silence, default 600)
 #             (env KARGS: extra kernel arguments; CPUS>1 adds no_apic=0)
+#             (env TEST_JOBS: run TESTLIST in groups of N concurrent tests,
+#              rc.d/minixtests testjobs=N; default 1)
 #             (env SNAPSHOT_AT: seconds; snapshot of the running system)
 #             (env ACCEL: tcg or kvm instead of the automatic choice)
 #             (env TARGET: i386 (default) or earm; earm needs env MACHINE,
@@ -57,6 +59,7 @@ fi
 
 append="rootdevname=c0d0p0 console=tty00 testrun=1"
 [ -n "$LIST" ] && append="$append testlist=$LIST"
+[ "${TEST_JOBS:-1}" -gt 1 ] && append="$append testjobs=$TEST_JOBS"
 # The kernel defaults to no_apic=1, which makes an SMP kernel fall back to
 # a single CPU on the 8259 PIC: the other CPUs would never be started.
 # KARGS can override this (KARGS=no_apic=1 tests the single CPU fallback).
@@ -309,7 +312,7 @@ summary() {
 local verdict=0
 echo
 echo "================ ReMinix test summary ================"
-echo "CPUs: $CPUS   accel: $accel   run time: ${elapsed}s   tests: ${LIST:-all}"
+echo "CPUs: $CPUS   accel: $accel   run time: ${elapsed}s   tests: ${LIST:-all}${TEST_JOBS:+   jobs: $TEST_JOBS}"
 echo "plan: ${plan:-?}   passed: $passed   failed: $failed"
 if [ -n "$tests_time" ]; then
 	echo "tests time: $tests_time   (per test: $(basename "$durfile"))"

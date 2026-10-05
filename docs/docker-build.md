@@ -184,6 +184,7 @@ make -C docker -f build.mk quick SMP=yes            # быстрая перес�
 make -C docker -f build.mk quick SMP=yes QUICK_DIRS="minix/kernel minix/net/uds"   # только нужное
 make -C docker -f build.mk test-i386                # автоматический прогон minix/tests (docs/testing.md §1)
 make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=43,71
+make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=90,90,90,90 TEST_JOBS=4  # стресс: группами по 4 одновременно
 make -C docker -f build.mk test-snapshot            # из другого терминала: снимок идущего прогона
 make -C docker -f build.mk test-stop                # из другого терминала: post-mortem и остановка (как Ctrl-C)
 make -C docker -f build.mk run-i386 SMP=yes CPUS=4  # интерактивная консоль MINIX с журналом и снимками (docs/testing.md §1в)
@@ -210,7 +211,12 @@ minix/net minix/drivers`), `releasetools do-hdboot` (ядро и загрузо�
 сервер — ~10 с (против 5–10 мин у `hdimage`). Нужен предварительный полный
 `hdimage` с тем же `SMP=`. Новые файлы, изменения списков наборов, файлы `/etc`,
 которые генерируют скрипты образа, и заголовки, используемые вне `QUICK_DIRS`,
-по-прежнему требуют `hdimage`.
+по-прежнему требуют `hdimage`. Отбор «новее» идёт по времени файла в DESTDIR,
+а `install -p` сохраняет время исходника: программы (их только что
+слинковали) проходят, а ставящиеся как есть `FILES` (`*.conf` служб) — нет:
+их исходник старше метки начала `quick`. Такой файл — скопировать в
+`obj/<arch>[-smp]/work/fs` вручную и запустить `quick` ещё раз (так же для
+`etc/rc.d/*`, которые `quick` не ставит вовсе).
 
 `JOBS` (по умолчанию — `nproc` хоста), `BUILDVARS` (доп. флаги `-V var=val` для
 `build.sh`, см. пример с `MKGCCCMDS`/`MKLLVM` для ARM в `docs/build-arm32.md` §2) и

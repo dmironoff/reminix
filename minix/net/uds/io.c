@@ -1713,6 +1713,18 @@ uds_recv(struct sock * sock, const struct sockdriver_data * data, size_t len,
 		return r;
 
 	/*
+	 * ReMinix: uds_recv_test() also returns OK for a zero-size receive
+	 * call on a stream socket with an empty buffer, meaning that the call
+	 * ends without receiving anything.  There is no segment to look at
+	 * then: uds_recv_data() would parse a stale header at the tail (assert
+	 * in uds_fetch_hdr).  A first such call never got here with an empty
+	 * buffer, but one resumed behind another receive call did, after that
+	 * call had emptied the buffer (docs/testing.md 5.7).
+	 */
+	if (uds->uds_len == 0)
+		return OK;
+
+	/*
 	 * Copy out regular data, if any.  Do this before copying out control
 	 * data, because the latter is harder to undo on failure.  This data
 	 * copy function returns returns OK (0) if we are to return a result of

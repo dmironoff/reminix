@@ -4137,6 +4137,64 @@ test90z(void)
 }
 
 /*
+ * ReMinix: test that a zero-size receive call, suspended behind another
+ * receive call on the same stream socket, completes with a result of zero
+ * once that other call has taken all data.  The resumed zero-size call used
+ * to parse a stale segment header in the then-empty receive buffer, crashing
+ * the UDS service (docs/testing.md 5.7).
+ */
+static void
+test90aa(void)
+{
+	char buf[3];
+	pid_t pid1, pid2;
+	int fd[2], status;
+
+	subtest = 27;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, fd) != 0) e(0);
+
+	pid1 = fork();
+	switch (pid1) {
+	case 0:
+		errct = 0;
+
+		if (recv(fd[1], buf, sizeof(buf), 0) != sizeof(buf)) e(0);
+
+		exit(errct);
+	case -1:
+		e(0);
+	}
+
+	/* Let the first receive call block before the second one starts. */
+	sleep(1);
+
+	pid2 = fork();
+	switch (pid2) {
+	case 0:
+		errct = 0;
+
+		if (recv(fd[1], buf, 0, 0) != 0) e(0);
+
+		exit(errct);
+	case -1:
+		e(0);
+	}
+
+	sleep(1);
+
+	if (send(fd[0], "ABC", sizeof(buf), 0) != sizeof(buf)) e(0);
+
+	if (waitpid(pid1, &status, 0) != pid1) e(0);
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) e(0);
+	if (waitpid(pid2, &status, 0) != pid2) e(0);
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) e(0);
+
+	if (close(fd[0]) != 0) e(0);
+	if (close(fd[1]) != 0) e(0);
+}
+
+/*
  * Test program for UDS.
  */
 int
@@ -4178,6 +4236,7 @@ main(int argc, char ** argv)
 		if (m & 0x0800000) test90x();
 		if (m & 0x1000000) test90y();
 		if (m & 0x2000000) test90z();
+		if (m & 0x4000000) test90aa();
 	}
 
 	quit();
