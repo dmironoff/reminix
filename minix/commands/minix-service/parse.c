@@ -400,10 +400,46 @@ static void do_max_wait(config_t *cpe, struct rs_start *rs_start)
 	rs_start->rss_max_wait= max_wait;
 }
 
+static void do_cpu_excl(config_t *cpe, struct rs_start *rs_start)
+{
+	int cpu;
+	char *check;
+
+	/* ReMinix: "cpu !N|!bsp [...]" -- cpus RS must not pick */
+	for (; cpe; cpe= cpe->next)
+	{
+		if (cpe->flags & (CFG_SUBLIST|CFG_STRING) || cpe->word[0] != '!')
+		{
+			fatal("do_cpu: only !<cpu> or !bsp may follow at %s:%d",
+				cpe->file, cpe->line);
+		}
+		if (strcmp(cpe->word+1, KW_CPU_BSP) == 0)
+		{
+			rs_start->rss_cpu_excl |= RS_CPU_EXCL_BSP;
+			continue;
+		}
+		cpu= strtol(cpe->word+1, &check, 0);
+		if (cpe->word[1] == '\0' || check[0] != '\0' || cpu < 0 ||
+			cpu >= 31)
+		{
+			fatal("do_cpu: bad value '%s' at %s:%d",
+				cpe->word, cpe->file, cpe->line);
+		}
+		rs_start->rss_cpu_excl |= 1U << cpu;
+	}
+	rs_start->rss_cpu= RS_CPU_AUTO;
+}
+
 static void do_cpu(config_t *cpe, struct rs_start *rs_start)
 {
 	int cpu;
 	char *check;
+
+	if (!(cpe->flags & (CFG_SUBLIST|CFG_STRING)) && cpe->word[0] == '!')
+	{
+		do_cpu_excl(cpe, rs_start);
+		return;
+	}
 
 	/* Process a quantum value */
 	if (cpe->next != NULL)
@@ -476,6 +512,23 @@ static void do_apart(config_t *cpe, struct rs_start *rs_start)
 		rs_start->rss_apart[nr_apart].l_len = strlen(cpe->word);
 		rs_start->rss_nr_apart = ++nr_apart;
 	}
+}
+
+static void do_with(config_t *cpe, struct rs_start *rs_start)
+{
+	/* ReMinix: the label of the service to share the cpu with */
+	if (cpe == NULL || cpe->next != NULL)
+	{
+		fatal("do_with: just one label expected at %s:%d",
+			cpe ? cpe->file : "?", cpe ? cpe->line : 0);
+	}
+	if (cpe->flags & (CFG_SUBLIST|CFG_STRING))
+	{
+		fatal("do_with: unexpected sublist or string at %s:%d",
+			cpe->file, cpe->line);
+	}
+	rs_start->rss_with.l_addr = (char*) cpe->word;
+	rs_start->rss_with.l_len = strlen(cpe->word);
 }
 
 static void do_irq(config_t *cpe, struct rs_start *rs_start)
@@ -1188,6 +1241,11 @@ static void do_service(config_t *cpe, config_t *config, struct rs_config *rs_con
 		if (strcmp(cpe->word, KW_APART) == 0)
 		{
 			do_apart(cpe->next, rs_start);
+			continue;
+		}
+		if (strcmp(cpe->word, KW_WITH) == 0)
+		{
+			do_with(cpe->next, rs_start);
 			continue;
 		}
 		if (strcmp(cpe->word, KW_IRQ) == 0)

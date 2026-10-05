@@ -98,6 +98,10 @@ struct rproc {
 				 * RS_CPU_DEFAULT (keep) */
   int r_nr_apart;		/* ReMinix: system.conf "apart" labels */
   char r_apart[RS_NR_APART][RS_MAX_LABEL_LEN];
+  unsigned int r_cpu_excl;	/* ReMinix: cpus not to pick (system.conf
+				 * "cpu !N|!bsp", RS_CPU_EXCL_BSP) */
+  char r_with[RS_MAX_LABEL_LEN];	/* ReMinix: share the cpu of this
+					 * service ("with"; "" -- none) */
   vir_bytes r_map_prealloc_addr; /* preallocated mmap address */
   size_t r_map_prealloc_len;     /* preallocated mmap len */
 

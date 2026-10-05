@@ -155,22 +155,37 @@ to the normal priority order.  The value is rounded up to clock ticks;
 The default is specified in \fB<minix/priv.h>\fR (see macro \fBDSRV_MAXWAIT\fR).
 .RE
 .PP
-\fBcpu\fR \fBauto\fR | \fBbsp\fR | \fI<cpu_number>\fR\fB;\fR
+\fBcpu\fR \fBauto\fR | \fBbsp\fR | \fI<cpu_number>\fR | \fB!bsp\fR | \fB!\fR\fI<cpu_number>\fR [\fB!\fR... ]\fB;\fR
 .PP
 .RS
 specifies the CPU the service runs on (SMP only).
 With \fBauto\fR, the default, RS picks the CPU with the fewest system
-services, honouring \fBapart\fR; \fBbsp\fR is the boot CPU.
+services, honouring \fBwith\fR and \fBapart\fR; \fBbsp\fR is the boot CPU.
+\fB!bsp\fR and \fB!\fR\fI<cpu_number>\fR (one or more) mean \fBauto\fR
+without the CPUs given.
 Interrupts of a driver are delivered to the CPU the driver runs on.
+.RE
+.PP
+\fBwith\fR \fI<label>\fR\fB;\fR
+.PP
+.RS
+places the service on the CPU of the service \fI<label>\fR (SMP only, with
+\fBcpu auto\fR or \fBcpu !\fR...), e.g. file systems and disk drivers with
+\fBvfs\fR, so that their requests do not cross CPUs.
+If \fI<label>\fR starts later or moves to another CPU, the service follows
+it.
+If that CPU is excluded or runs a service this one must be \fBapart\fR
+from, RS prints a warning and picks a CPU as for \fBauto\fR.
 .RE
 .PP
 \fBapart\fR \fI<label>\fR [\fI<label>\fR ...]\fB;\fR
 .PP
 .RS
 lists services that must not run on the same CPU as this one (SMP only,
-with \fBcpu auto\fR).
+with \fBcpu auto\fR or \fBcpu !\fR...).
 The relation is symmetric: it is enough to give it for one of the two.
-If there are not enough CPUs, RS prints a warning and ignores it.
+If there are not enough CPUs, RS prints a warning and ignores it; if all
+CPUs are excluded, RS ignores the exclusions too.
 .RE
 .PP
 \fBpci device\fR \fI<vid:did[/subvid:subdid]>\fR\fB;\fR

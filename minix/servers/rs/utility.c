@@ -377,27 +377,65 @@ static int apart(const struct rproc *a, const struct rproc *b)
 }
 #endif /* CONFIG_SMP */
 
+#ifdef CONFIG_SMP
+/*===========================================================================*
+ *				find_leader				     *
+ *===========================================================================*/
+static struct rproc *find_leader(const struct rproc *rp)
+{
+/* The running service whose cpu this one shares ("with"), if placed. */
+  struct rproc *orp;
+
+  if (rp->r_with[0] == '\0')
+      return NULL;
+  for (orp = BEG_RPROC_ADDR; orp < END_RPROC_ADDR; orp++) {
+      if (!(orp->r_flags & RS_IN_USE) || orp == rp ||
+          !(orp->r_priv.s_flags & SYS_PROC) || orp->r_scheduler == NONE)
+          continue;
+      /* the active instance, not a replica or an old version */
+      if (orp->r_flags & (RS_UPDATING | RS_TERMINATED) ||
+          strcmp(orp->r_pub->label, rp->r_with) != 0)
+          continue;
+      if (orp->r_cpu < 0 || orp->r_cpu >= machine.processors_count)
+          continue;
+      return orp;
+  }
+  return NULL;
+}
+#endif /* CONFIG_SMP */
+
 /*===========================================================================*
  *				sched_pick_cpu			 	     *
  *===========================================================================*/
 int sched_pick_cpu(struct rproc *rp)
 {
-/* ReMinix: pick the cpu for a system service with "cpu auto" (the default):
- * the cpu with the fewest system services among those that run no service
- * this one must be apart from (system.conf "apart", symmetric); ties go to
- * the lowest cpu number. If "apart" cannot be met, the least loaded cpu.
- * Interrupts follow their driver's cpu (kernel, irq_follow_owner()).
+/* ReMinix: pick the cpu for a system service with "cpu auto" (the default).
+ * - "cpu !N|!bsp": those cpus are never picked;
+ * - "with <label>": the cpu of that service, if it is placed already and its
+ *   cpu is neither excluded nor runs a service this one must be apart from;
+ *   sched_init_proc() moves the followers when the leader is (re)placed;
+ * - otherwise the cpu with the fewest system services among those that run
+ *   no service this one must be apart from (system.conf "apart",
+ *   symmetric); ties go to the lowest cpu number.
+ * A rule that cannot be met is dropped with a warning: first "with", then
+ * "apart", then the exclusions. Interrupts follow their driver's cpu
+ * (kernel, irq_follow_owner()).
  */
 #ifdef CONFIG_SMP
   int load[CONFIG_MAX_CPUS], conflict[CONFIG_MAX_CPUS];
-  int ncpus, c, best, best_any;
-  struct rproc *orp;
+  int ncpus, c, best, best_excl, best_any;
+  unsigned int excl;
+  struct rproc *orp, *leader;
 
   ncpus = machine.processors_count;
   if (ncpus <= 1)
       return machine.bsp_id;
   if (ncpus > CONFIG_MAX_CPUS)
       ncpus = CONFIG_MAX_CPUS;
+
+  excl = rp->r_cpu_excl & ~RS_CPU_EXCL_BSP;
+  if (rp->r_cpu_excl & RS_CPU_EXCL_BSP)
+      excl |= 1U << machine.bsp_id;
 
   memset(load, 0, sizeof(load));
   memset(conflict, 0, sizeof(conflict));
@@ -415,15 +453,37 @@ int sched_pick_cpu(struct rproc *rp)
           conflict[orp->r_cpu] = TRUE;
   }
 
-  best = best_any = -1;
+  if ((leader = find_leader(rp)) != NULL) {
+      c = leader->r_cpu;
+      if (!(excl & (1U << c)) && !conflict[c]) {
+          if (rs_verbose)
+              printf("RS: %s: cpu %d with %s\n", rp->r_pub->label, c,
+                  leader->r_pub->label);
+          return c;
+      }
+      printf("RS: %s: cannot keep \"with %s\" (cpu %d %s), picking\n",
+          rp->r_pub->label, leader->r_pub->label, c,
+          conflict[c] ? "runs a service it is apart from" : "is excluded");
+  }
+
+  best = best_excl = best_any = -1;
   for (c = 0; c < ncpus; c++) {
       if (best_any < 0 || load[c] < load[best_any])
           best_any = c;
+      if (excl & (1U << c))
+          continue;
+      if (best_excl < 0 || load[c] < load[best_excl])
+          best_excl = c;
       if (!conflict[c] && (best < 0 || load[c] < load[best]))
           best = c;
   }
-  if (best < 0) {
+  if (best < 0 && best_excl >= 0) {
       printf("RS: %s: cannot keep \"apart\" on %d cpus, using cpu %d\n",
+          rp->r_pub->label, ncpus, best_excl);
+      best = best_excl;
+  }
+  if (best < 0) {
+      printf("RS: %s: all %d cpus are excluded, using cpu %d\n",
           rp->r_pub->label, ncpus, best_any);
       best = best_any;
   }
@@ -434,6 +494,39 @@ int sched_pick_cpu(struct rproc *rp)
   return machine.bsp_id;
 #endif
 }
+
+#ifdef CONFIG_SMP
+/*===========================================================================*
+ *				sched_move_followers		 	     *
+ *===========================================================================*/
+static void sched_move_followers(const struct rproc *leader)
+{
+/* ReMinix: the services placed "with" the leader follow it to its cpu (they
+ * may have been placed before it, or it moved: "edit", restart). A cycle of
+ * "with" ends as soon as the cpus match.
+ */
+  struct rproc *rp;
+  int r;
+
+  for (rp = BEG_RPROC_ADDR; rp < END_RPROC_ADDR; rp++) {
+      if (!(rp->r_flags & RS_IN_USE) || rp == leader ||
+          !(rp->r_priv.s_flags & SYS_PROC) || rp->r_scheduler == NONE ||
+          rp->r_flags & (RS_UPDATING | RS_TERMINATED))
+          continue;
+      if (rp->r_cpu_req != RS_CPU_AUTO || rp->r_cpu == leader->r_cpu ||
+          strcmp(rp->r_with, leader->r_pub->label) != 0)
+          continue;
+      if ((r = sched_stop(rp->r_scheduler, rp->r_pub->endpoint)) != OK) {
+          printf("RS: %s: cannot move with %s: %d\n", rp->r_pub->label,
+              leader->r_pub->label, r);
+          continue;
+      }
+      if ((r = sched_init_proc(rp)) != OK)
+          printf("RS: %s: cannot move with %s: %d\n", rp->r_pub->label,
+              leader->r_pub->label, r);
+  }
+}
+#endif /* CONFIG_SMP */
 
 /*===========================================================================*
  *				sched_init_proc			 	     *
@@ -460,6 +553,10 @@ int sched_init_proc(struct rproc *rp)
       &rp->r_scheduler)) != OK) {
       return s;
   }
+
+#ifdef CONFIG_SMP
+  sched_move_followers(rp);
+#endif
 
   return s;
 }

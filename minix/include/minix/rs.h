@@ -67,6 +67,12 @@ Interface to the reincarnation server
 
 #define RS_NR_APART		 4 /* ReMinix: max "apart" labels */
 
+/* ReMinix: rss_cpu_excl, cpus a service with "cpu auto" must not run on
+ * (system.conf "cpu !N", "cpu !bsp"): bit N for cpu N, RS_CPU_EXCL_BSP for
+ * the boot cpu, whatever its number.
+ */
+#define RS_CPU_EXCL_BSP		(1U << 31)
+
 /* Labels are copied over separately. */
 struct rss_label
 {
@@ -158,6 +164,12 @@ struct rs_start
 	 */
 	int rss_nr_apart;
 	struct rss_label rss_apart[RS_NR_APART];
+	/* ReMinix: cpus not to run on (RS_CPU_EXCL_BSP, bit N for cpu N) and
+	 * the label of the service to share the cpu with (system.conf "with";
+	 * l_len 0 -- none)
+	 */
+	unsigned int rss_cpu_excl;
+	struct rss_label rss_with;
 };
 
 /* ACL information for access to PCI devices */

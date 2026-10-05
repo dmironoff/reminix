@@ -322,6 +322,8 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
       rp->r_quantum = SRV_OR_USR(rp, SRV_QT, USR_QT);
       rp->r_max_wait = SRV_OR_USR(rp, SRV_MAXWAIT, USR_MAXWAIT);
       rp->r_cpu_req = RS_CPU_DEFAULT;	/* boot cpu until "edit" */
+      rp->r_cpu_excl = 0;
+      rp->r_with[0] = '\0';
 
       /* Get some settings from the boot image table. */
       rpub->endpoint = ip->endpoint;

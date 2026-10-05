@@ -1589,6 +1589,16 @@ endpoint_t source;
   }
   rp->r_nr_apart = rs_start->rss_nr_apart;
 
+  /* ReMinix: cpus not to pick and the service to share the cpu with. */
+  rp->r_cpu_excl = rs_start->rss_cpu_excl;
+  rp->r_with[0] = '\0';
+  if (rs_start->rss_with.l_len > 0) {
+      s = copy_label(source, rs_start->rss_with.l_addr,
+          rs_start->rss_with.l_len, rp->r_with, sizeof(rp->r_with));
+      if(s != OK)
+          return s;
+  }
+
   /* Update command and arguments. */
   if (rs_start->rss_cmdlen > MAX_COMMAND_LEN-1) return(E2BIG);
   s=sys_datacopy(source, (vir_bytes) rs_start->rss_cmd, 

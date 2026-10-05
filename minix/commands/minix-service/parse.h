@@ -8,6 +8,7 @@
 #define KW_CPU		"cpu"
 #define KW_MAX_WAIT	"max_wait"
 #define KW_APART	"apart"
+#define KW_WITH		"with"
 #define KW_CPU_AUTO	"auto"
 #define KW_CPU_BSP	"bsp"
 #define KW_IRQ		"irq"
