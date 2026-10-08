@@ -9,13 +9,17 @@
 ## 1. Автоматический прогон (основной способ)
 
 ```sh
-make -C docker -f build.mk hdimage                       # образ (rc.d/minixtests внутри)
-make -C docker -f build.mk test-i386                     # все тесты, 1 CPU
+make -C docker -f build.mk hdimage                       # образ SMP-ядра (obj/i386-smp; rc.d/minixtests внутри)
+make -C docker -f build.mk test-i386                     # все тесты, SMP-ядро, 4 CPU
 make -C docker -f build.mk test-i386 TESTS=1,2,43        # выбранные
-make -C docker -f build.mk hdimage SMP=yes               # SMP-сборка (obj/i386-smp)
-make -C docker -f build.mk test-i386 SMP=yes CPUS=4      # прогон на 4 CPU
-make -C docker -f build.mk test-i386 SMP=yes CPUS=4 KARGS=no_apic=1  # SMP-ядро на 1 CPU
+make -C docker -f build.mk test-i386 CPUS=1              # SMP-ядро на 1 CPU
+make -C docker -f build.mk test-i386 KARGS=no_apic=1     # SMP-ядро в однопроцессорном режиме на PIC
+make -C docker -f build.mk hdimage SMP=no                # однопроцессорное ядро (obj/i386)
+make -C docker -f build.mk test-i386 SMP=no              # однопроцессорное ядро, 1 CPU
 ```
+
+С 2026-10-08 (А5) `SMP=yes` — умолчание для i386 (`SMP=no` — однопроцессорное
+ядро для старых x86, сохраняется); на earm `SMP=no`.
 
 SMP: с 2026-10-05 SMP-ядро без параметра `no_apic` само ставит `no_apic=0`
 и включает все CPU (`arch/i386/pre_init.c`, `docs/build-x86.md` §4.5); раньше
@@ -391,6 +395,7 @@ make -C docker -f build.mk boot-test MEDIA=ram
 | то же, «два серверных CPU» + `idlepoll=50` | PASS, **538,5 с**; опрос в простое включён на SMP по умолчанию |
 | **8 CPU**, полный прогон (2026-10-05, `7347fd558`: `idlepoll` по умолчанию, исправление `uds` §4.21, размещение «два серверных CPU»), `HANG_IDLE=3000 TEST_TIMEOUT=9000`, без `ipcstat` | **103/103 PASS**, `tests time` **1563,2 с** (прогон 1611 с); дольше всех 91/90/41/88/79 — 221,6/160,2/132,5/87,4/82,2 с. Первый прогон на 8 CPU: все 7 AP поднялись, ошибок нет |
 | контроль: `TESTS=41,43,73,79`, 1 CPU — SMP-ядро с LAPIC, SMP-ядро `no_apic=1`, обычное ядро | PASS ×3; 41/43/73/79 = 100,5/38,4/20,1/67,2, 99,3/38,0/20,1/66,0, 101,5/36,4/16,1/62,4 с |
+| **эталон HEAD и приёмка А5** (2026-10-07, `fc5cf831c`, сборка с нуля), `HANG_IDLE=1800` (4 CPU — 3000), `TEST_TIMEOUT=9000` | **103/103 PASS** все три: однопроцессорное ядро, 1 CPU — `tests time` 1386,0 с (прогон 1431 с); SMP-ядро, 1 CPU (LAPIC) — 1413,4 с (1461 с); SMP-ядро, 4 CPU — 1572,6 с (1616 с). Дольше всех 91/90/41: 217–223/147–153/100–133 с; тишина консоли не дольше ~4 мин |
 
 **Сравнение спинлоков (2026-10-04, по `.durations`, по одному прогону).**
 Итог почти равный (MCS +57 с, +1,4 %), но складывается из трёх больших

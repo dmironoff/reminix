@@ -97,7 +97,8 @@
 #>
 #> ПАРАМЕТРЫ (по умолчанию)
 #>   ARCH=i386          архитектура: i386, evbearm-el, ...
-#>   SMP=no             yes: ядро с CONFIG_SMP; свой obj/<ARCH>-smp и образы *_smp*.
+#>   SMP=yes (i386; no для earm)   yes: ядро с CONFIG_SMP; свой obj/<ARCH>-smp и образы
+#>                      *_smp*; no: однопроцессорное ядро, obj/<ARCH> и образы без _smp.
 #>                      SMP-ядро само включает все CPU (no_apic=0 по умолчанию), no_apic=1 —
 #>                      один CPU на PIC (KARGS или пункт меню «one CPU»)
 #>   MAX_CPUS=8         CONFIG_MAX_CPUS для SMP=yes
@@ -151,7 +152,9 @@
 #>                      пусто — выключить
 #>
 #> ПРИМЕРЫ
-#>   make -C docker -f build.mk hdimage SMP=yes
+#>   make -C docker -f build.mk hdimage                       # SMP-ядро (по умолчанию)
+#>   make -C docker -f build.mk hdimage SMP=no                # однопроцессорное ядро
+#>   make -C docker -f build.mk test-i386 SMP=no              # однопроцессорное ядро, 1 CPU
 #>   make -C docker -f build.mk test-i386 SMP=yes CPUS=2 HANG_IDLE=1800
 #>   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=31,31,31
 #>   make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=90,90,90,90 TEST_JOBS=4
@@ -192,7 +195,10 @@ BUILDVARS    ?=
 
 # SMP=yes: сборка с CONFIG_SMP (флаг идёт в CPPFLAGS всего дерева, см.
 # share/mk/bsd.own.mk), поэтому отдельный объектный каталог и образ.
-SMP          ?= no
+# По умолчанию yes только для i386 (А5, docs/modernization.md); на earm SMP
+# нет. "?=" даёт рекурсивную переменную: ARCH берётся с учётом ARCH цели
+# (sdimage, test-earm, ...), не только глобальный.
+SMP          ?= $(if $(filter i386,$(ARCH)),yes,no)
 MAX_CPUS     ?= 8
 # BKL_DEBUG=yes (только с SMP=yes): отладочная обёртка BKL в ядре
 # (CONFIG_BKL_DEBUG, minix/kernel/spinlock.h, smp.c). Флаг идёт в окружение

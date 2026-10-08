@@ -180,10 +180,10 @@ make -C docker -f build.mk shell ARCH=evbearm-el    # то же, под ARM
 make -C docker -f build.mk build ARCH=amd64 BUILD_TARGET=tools   # прямой вызов build.sh -m amd64 ... tools
 make -C docker -f build.mk build BUILD_TARGET=release            # эквивалент "make -C docker -f build.mk build" (release — дефолт)
 
-make -C docker -f build.mk hdimage                  # releasetools/x86_hdimage.sh → obj/i386/.../minix_x86.img
+make -C docker -f build.mk hdimage                  # releasetools/x86_hdimage.sh, SMP-ядро (по умолчанию) → obj/i386-smp/.../minix_x86_smp.img
 make -C docker -f build.mk sdimage BOARD=beaglexm   # releasetools/arm_sdimage.sh → minix_arm_beaglexm.img (BOARD обязателен)
 
-make -C docker -f build.mk hdimage SMP=yes          # то же с CONFIG_SMP -> minix_x86_smp.img
+make -C docker -f build.mk hdimage SMP=no           # однопроцессорное ядро без CONFIG_SMP -> obj/i386/.../minix_x86.img
 make -C docker -f build.mk hdimage CONSOLE=serial   # загрузчик и консоль на COM1 -> minix_x86_serial.img
 make -C docker -f build.mk cdimage SMP=yes CONSOLE=serial    # ISO -> minix_x86_smp_serial.iso
 make -C docker -f build.mk cdimage ISO_SETS=live PACK_ONLY=yes   # ISO без установщика, без build.sh
@@ -193,7 +193,8 @@ make -C docker -f build.mk boot-test MEDIA=cd SMP=yes CPUS=4   # загрузк�
 make -C docker -f build.mk run-i386 MEDIA=hd        # штатная загрузка загрузчиком образа, консоль в терминале
 make -C docker -f build.mk quick SMP=yes            # быстрая пересборка ядра/серверов/драйверов + освежение образа
 make -C docker -f build.mk quick SMP=yes QUICK_DIRS="minix/kernel minix/net/uds"   # только нужное
-make -C docker -f build.mk test-i386                # автоматический прогон minix/tests (docs/testing.md §1)
+make -C docker -f build.mk test-i386                # автоматический прогон minix/tests, SMP-ядро на 4 CPU (docs/testing.md §1)
+make -C docker -f build.mk test-i386 SMP=no         # однопроцессорное ядро на 1 CPU
 make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=43,71
 make -C docker -f build.mk test-i386 SMP=yes CPUS=4 TESTS=90,90,90,90 TEST_JOBS=4  # стресс: группами по 4 одновременно
 make -C docker -f build.mk test-i386 SMP=yes CPUS=8 TEST_JOBS=4 TEST_RANDOM=yes TEST_TIMES=3  # случайные группы из всех тестов
@@ -260,6 +261,42 @@ minix/net minix/drivers`), `releasetools do-hdboot` (ядро и загрузо�
 портированный (`amd64` и т.д.) — она просто дойдёт до места, где дерево спотыкается
 об отсутствующий `minix/kernel/arch/<arch>/`, и это само по себе полезный дымовой
 тест прогресса конкретного порта.
+
+### 4.1 Сравнение машинного кода (`docker/disasm.sh`)
+
+Для подшагов, которые не должны менять машинный код (синонимы типов,
+переименования, форматы печати — `docs/work-plan.md` §3), — снимок
+дизассемблера собранных деревьев i386 и сравнение снимков. Запускается на
+хосте, без Docker; objdump — из кросс-тулчейна дерева.
+
+```sh
+docker/disasm.sh snapshot fc5cf831c            # оба дерева: obj/i386 и obj/i386-smp
+docker/disasm.sh snapshot A1.0 i386-smp        # только одно
+docker/disasm.sh compare fc5cf831c A1.0        # RESULT: SAME | DIFFERENT, код 0/1
+docker/disasm.sh compare --funcs fc5cf831c A1.0   # + какие функции изменились
+```
+
+В снимок (`obj/disasm/<метка>/<flavor>/`) входят `objdump -d -s` (код и
+содержимое всех секций, отладочных в сборке нет) каждого ELF-файла ядра,
+серверов, драйверов, ФС, сети и команд `minix/` (без тестов) и каждой
+статической `lib*.a` из `minix/lib` и `lib` — 242 файла на вариант, ~100 МБ в
+gzip, ~35 с на оба. Пути в снимке относительные, повторный снимок того же
+дерева совпадает побайтно. Снимок берётся после полной сборки (`hdimage` с
+нужным `SMP=`; `quick` пересобирает не всё). Правка `.c`, меняющая число строк,
+сдвигает `__LINE__` в `assert`/`panic` — такие расхождения разбираются по
+`zdiff` и подшаг от этого содержательным не становится.
+
+`--funcs` для каждого различающегося файла перечисляет функции, чей код
+изменился, пропал или появился. Сравниваются инструкции без адресов и байтов:
+цели переходов и вызовов — по символу (`<sym+off>`), шестнадцатеричные
+константы от `0x1000` заменены на `#`, так что сдвиг раскладки (другой размер
+соседней функции, другие адреса данных) изменением не считается, а сдвиг
+`__LINE__` — считается. «Функции совпадают» — файл различается только данными
+или раскладкой. Нужен, когда в одном пакете смешаны правки с изменением кода и
+без него: какие функции изменились, видно сразу.
+
+Эталон HEAD до А1 — `obj/disasm/fc5cf831c` (2026-10-08, сборка с нуля
+2026-10-07).
 
 ## 5. Добавление новой архитектуры
 

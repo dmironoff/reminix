@@ -15,6 +15,9 @@ amd64, arm32, aarch64, risc-v64, mips64 и развитие как микроя�
   исходники DTS + `dtc`, libfdt в системе и в ядре),
   **план выполнения** (этапы 0–3, направления А/Б) и эталонные платформы: i386 и
   Orange Pi PC Plus (Allwinner H3).
+- `docs/work-plan.md` — **план текущих работ** (2026-10-07): решения владельца,
+  порядок шагов (среда + А5, отложенные исправления, А1 и MSG по подшагам),
+  правила проверки, чек-лист правки документов.
 - `docs/threads.md` — как устроены планировщик, IPC и libmthread; решение по
   многопоточности (LWP 1:1 как в NetBSD 5+, libpthread из NetBSD-8) и состав работ.
 - `docs/memory.md` — управление памятью: как устроено сейчас (ядро, VM) и целевая
@@ -62,13 +65,15 @@ amd64, arm32, aarch64, risc-v64, mips64 и развитие как микроя�
 - `docker/` — Docker-обёртка над сборкой (`Dockerfile` + `build.mk`), готова и
   проверена на i386: `make -C docker -f build.mk hdimage`, быстрая пересборка
   ядра и серверов без `build.sh` — `quick`. См. `docs/docker-build.md`.
-  Тесты в QEMU — `make -C docker -f build.mk test-i386 [SMP=yes CPUS=N]`; дамп
+  i386 по умолчанию собирается с SMP (`SMP=no` — однопроцессорное ядро).
+  Тесты в QEMU — `make -C docker -f build.mk test-i386 [SMP=no] [CPUS=N]`; дамп
   машины в любой момент — Ctrl-C, `test-snapshot`, `test-stop`
   (`docs/testing.md` §1, §1б). Интерактивная консоль с журналом и снимками —
   `run-i386 [MEDIA=multiboot|hd|cd|usb|ram]` (§1в); образы `cdimage`/`usbimage`/
   `ramimage`, проверка загрузки — `boot-test` (§1е, `docs/build-x86.md` §4.5); earm — `sdimage`/`test-earm`/`run-earm` с `BOARD=` (§1г). Журналы и дампы — `obj/test-logs/`. Все цели и параметры —
   `make -C docker -f build.mk help`; справку (`#>` в `build.mk`) обновлять при
-  каждом изменении `build.mk`.
+  каждом изменении `build.mk`. Сравнение машинного кода до/после правки —
+  `docker/disasm.sh snapshot|compare` (`docs/docker-build.md` §4.1).
 
 ## Как мы работаем
 
