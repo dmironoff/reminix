@@ -4009,6 +4009,8 @@ typedef struct asynmsg { unsigned flags; endpoint_t dst; int result; message msg
 | `minix/servers/vfs/request.c` (`req_lookup` и др.) | грант на `PATH_MAX`, а `path_size` = `PATH_MAX + 1`; сообщения не обнуляются (`memset`) | неиспользуемые поля уходят с мусором стека; `req_peek` паникует при позиции ≥ 4 ГБ (`request.c:909`) | по разбору (§8) |
 | `fwd_msg()` (`forward.c`), `RTCDEV_PWR_OFF` в `do_reboot()`, `sched_nice()`, `SIGS_SIGNAL_RECEIVED` в PM | сообщения не обнуляются | мусор в неиспользуемых байтах (утечка содержимого стека другому процессу) | по разбору (§6) |
 | `minix/lib/libsys/sys_umap.c`, `sys_sprof.c` | размер обрезается до `int` уже в libsys | длины > 2 ГБ | по разбору (§5, §6) |
+| `minix/kernel/system/do_memset.c` (`SYS_MEMSET`) | результат `vm_memset()` отбрасывается, всегда `OK` (найдено 2026-10-07) | при страничной ошибке в целевом процессе `vm_memset()` ставит вызывающего в очередь VM и возвращает `VMSUSPEND`, а ядро отвечает `OK` сразу — память не заполнена, состояние вызывающего несогласовано; `ESRCH` тоже теряется | да |
+| `minix/kernel/system/do_umap_remote.c:60-64` (`SYS_UMAP`, `VM_GRANT`) | псевдогрант: номер гранта передаётся в поле адреса `offset` (найдено 2026-10-07; at_wini) | адрес и номер гранта в одном поле — мешает разделению типов (А1.4а) | да |
 
 ## 13. Неиспользуемые типы и поля
 
@@ -4026,7 +4028,10 @@ typedef struct asynmsg { unsigned flags; endpoint_t dst; int result; message msg
   и `val_ptr2`, `mess_fs_vfs_readsuper.con_reqs` (и `device` в том же ответе),
   `mess_lc_vfs_pipe2._unused`/`oflags`, `mess_lsys_fi_ctl.gid`/`size`,
   `mess_vmmcp.flags_ptr`, `mess_vmmcp_reply.flags`.
-- **Код без вызывающих:** ветка `SCHEDCTL_FLAG_KERNEL`, `VMCTL_I386_INVLPG`.
+- **Код без вызывающих:** `VMCTL_I386_INVLPG` (есть только обработчик в
+  `arch_do_vmctl.c`; перепроверено 2026-10-08). Ветка `SCHEDCTL_FLAG_KERNEL`
+  (прежде числилась здесь) — живая: `libsys/sched_start.c:72`, службы со
+  `scheduler KERNEL` в `system.conf` (tty и др.).
 
 ## 14. Выводы для переработки сообщений
 
@@ -4130,7 +4135,9 @@ typedef struct asynmsg { unsigned flags; endpoint_t dst; int result; message msg
     списка типов, не помещающихся на LP64.
 
 **Расчёт** (2026-10-07, по таблицам полей §5–§9: тип и пометки «64»; адрес/физический
-адрес/узкое поле с адресом — 8 байт, 8-байтовые поля выровнены по 8). Из 245
+адрес/узкое поле с адресом — 8 байт, 8-байтовые поля выровнены по 8). Сценарий
+расчёта не сохранён (временный, вне дерева); для повтора — заново по таблицам
+полей, при надобности в MSG.0 — в `minix/tests/host/abi64/`. Из 245
 отдельных типов:
 
 | Вариант | Не помещается в 56 байт |

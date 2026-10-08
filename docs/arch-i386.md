@@ -185,6 +185,15 @@ utility.o arch_reset.o io_inb.o io_outb.o` + куски libc/libminc/libsys)
 `discover_cpus()` берёт его APIC ID из CPUID до разбора MADT, остальные CPU — 1, 2, …
 в порядке MADT; `smp_init()` сверяет с регистром LAPIC ID.
 
+**`lapic_addr` меняет смысл** (`apic.c:148`, тип `vir_bytes`): до включения
+страничной адресации — **физический** адрес LAPIC (`LOCAL_APIC_DEF_ADDR` или из
+MADT, `arch_smp.c:359`); его же отдаёт VM `arch_phys_map()` (`memory.c:831`) для
+отображения. После ответа VM (`arch_enable_paging()`, `memory.c:965`) в него
+пишется **виртуальный** адрес отображения из `lapic_addr_vaddr`, и с этого момента
+`LAPIC_*` (`apic.h`) обращаются через него. Нулевое значение — «LAPIC не
+используется». В А1.3 это разделяется на две переменные: `phys_addr_t` и
+`vir_addr_t` (`work-plan.md` §5).
+
 #### Пути IPI, EOI и таймер (2026-10-05, коммит `86103152f`)
 
 Без виртуализации APIC в KVM каждое обращение к xAPIC — выход в гипервизор;
