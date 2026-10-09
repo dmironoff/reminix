@@ -165,7 +165,7 @@ static int generic_handler(irq_hook_t * hook)
    * sending the notification message, this bit map will be magically set
    * as an argument. 
    */
-  priv(proc_addr(proc_nr))->s_int_pending |= (1 << hook->notify_id);
+  priv(proc_addr(proc_nr))->s_int_pending |= ((irq_id_t) 1 << hook->notify_id);
 
   /* Build notification message and return. */
   mini_notify(proc_addr(HARDWARE), hook->proc_nr_e);
