@@ -56,7 +56,7 @@ make_name(char * name, size_t size, node_t index)
 {
 	ssize_t r;
 
-	if ((r = snprintf(name, sizeof(name), "%u", index)) < 0)
+	if ((r = snprintf(name, size, "%u", index)) < 0)
 		return EINVAL;
 
 	if (r >= size)
