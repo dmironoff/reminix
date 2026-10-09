@@ -108,13 +108,14 @@ int do_mount(void)
   if (!super_user) return(EPERM);
 
   /* Get the label from the caller, and ask DS for the endpoint of the FS. */
-  if (label_len > sizeof(mount_label))
+  if (label_len == 0 || label_len > sizeof(mount_label))
 	return EINVAL;
   r = sys_datacopy_wrapper(who_e, label, SELF, (vir_bytes) mount_label,
-	sizeof(mount_label));
+	label_len);
   if (r != OK) return(r);
 
-  mount_label[sizeof(mount_label)-1] = 0;
+  if (mount_label[label_len-1] != '\0')
+	return EINVAL;
 
   r = ds_retrieve_label_endpt(mount_label, &fs_e);
   if (r != OK) return(r);
