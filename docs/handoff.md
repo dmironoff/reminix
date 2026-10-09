@@ -9,65 +9,62 @@
 
 ## Дата и контекст
 
-2026-10-09. Шаг А1.0 (`work-plan.md` §5) внесён, проверен, закоммичен и
-запушен (`3218bdcf9`; `scan64.py` a16 и документы — следующим коммитом).
-Подготовлен инструмент для А1.1.
-Предыдущая сессия (2026-10-08/09): §4.1, §4.2 (пакет `batch1`), §8 — всё
-закоммичено и запушено, последний коммит `a2abfc479`.
+2026-10-09 (вторая сессия). Шаг А1.1 (`work-plan.md` §5) внесён, проверен,
+закоммичен и запушен: А1.1 — `8c457d929`, `scan64.py` — `6e8238c81`,
+документы — следующим коммитом. Предыдущее: А1.0 — `3218bdcf9`,
+`scan64.py` a16 и документы — `83b9e2f1f` (запушены).
 
 ## Сделано в сессии
 
-- **А1.0** (решения владельца по пп. 1–6 предложения, 2026-10-09):
-  - `minix/include/minix/memtypes.h` (новый): `phys_addr_t` = `phys_bytes`,
-    `vir_addr_t` = `vir_bytes`, `dma_addr_t` = `phys_addr_t`, `pfn_t` =
-    `phys_clicks`; `PRIxPHYS`/`PRIxVIR` = `"lx"`, `PRIxDMA` = `PRIxPHYS`
-    (строками, без `<inttypes.h>`); `static inline phys_to_dma(pa)` —
-    тождество, без аргумента устройства (добавить, когда появится потребитель —
-    `dma-ranges`/IOMMU); `#ifdef CONFIG_PHYS_ADDR_64` → `#error` до А1.8.
-  - Включается из `minix/type.h` сразу после старых typedef (ядро, VM, libsys,
-    серверы, драйверы получают его без новых `#include`); сам включает
-    `<minix/type.h>`, поэтому работает и при прямом включении.
-  - `INCS` в `minix/include/minix/Makefile`, `distrib/sets/lists/minix-comp/mi`.
-  - Проверка (`obj/test-logs/check-A1.0.summary`, сборка с нуля, тулчейн
-    сохранён): `hdimage SMP=no` 603 с, `SMP=yes` 597 с, `sdimage BOARD=beaglebone`
-    388 с; `disasm.sh compare --funcs batch1 A1.0`: 240 из 242 совпадают в обоих
-    вариантах, `memory` (времена файлов RAM-диска) и `usb_hub`
-    (`__DATE__`/`__TIME__`) — «функции совпадают». Снимок `obj/disasm/A1.0` —
-    эталон для А1.1.
-- **`obj/test-logs/check-chain.sh`** (не в git): `BUILD_ONLY=yes` — остановиться
-  после `disasm compare`; `BASE=<метка>` — эталон (по умолчанию `fc5cf831c`),
-  сравнение с `--funcs`.
-- **`scan64.py`**: режим `a16` (определения А1.6 на i386: `vir_bytes`,
-  `phys_bytes` = `unsigned int`, `PRIxVIR`/`PRIxPHYS` = `"x"`), в p64
-  `PRIxPHYS` = `"llx"` (`types-audit.md` §2.1). Прогон `--modes m32,p64,a16
-  --no-layouts` → `obj/abi64-scan-A1.0`: a16 — 60 новых `-Wformat` в 22 файлах
-  (`new-a16.txt`), p64 без изменений (154, 21 `-Wformat`).
-- `work-plan.md` §5 — А1.0 отмечен; `types-audit.md` §2.1 — режим a16 и итог.
-- Срыв первой попытки цепочки (по вине агента): `CLEAN=yes` запущен, когда шла
-  консоль владельца `run-i386 SMP=yes CPUS=4` на `obj/i386-smp`; `clean`
-  удалил её образ. Владелец завершил консоль и остановил осиротевшую сборку;
-  цепочка перезапущена по его команде. Журнал консоли цел
-  (`i386-smp-cpu4-console-20261008-161532.*`).
+- **А1.1** — адреса в форматах печати → `PRIxVIR`/`PRIxPHYS`/`PRIxDMA`, 63
+  строки (список и решения владельца — `work-plan.md` §5). Правки без изменения
+  числа строк (`__LINE__`). Проверено: строки форматов после подстановки
+  макросов совпадают с прежними, кроме согласованных `%lX` → `%lx`.
+- `minix/memtypes.h`: `PRIuPHYS` (`"lu"`).
+- `scan64.py`: атрибут `__format__` у `printf` из `minix/sysutil.h` во всех
+  режимах; `PRIuPHYS` в p64 (`"llu"`) и a16 (`"u"`) (`types-audit.md` §2.1).
+- Проверка: `obj/test-logs/check-A1.1.summary` (сборка с нуля, все rc=0, compare
+  rc=1 — ожидаемо: `memory`, `usb_hub`, `dp8390`, `dpeth` только данные);
+  `do_safecopy.c:241` — после цепочки, `quick` ядра + снимок `obj/disasm/A1.1b`
+  (ядро = `A1.0`), earm `minix/kernel` собран. Скан — `obj/abi64-scan-A1.1`.
+- Коммиты (по команде владельца): А1.1 — исходники + `memtypes.h`; `scan64.py`;
+  документы. Эталон для А1.2а — снимок `A1.1b` (ядро) / `A1.1` (остальное):
+  при следующей проверке взять `BASE=A1.1b` (снимок полный, ядро в нём новое).
 
-## Подготовка А1.1
+## Перенесено в А1.5 (длины и смещения в `vir_bytes`/`phys_bytes`)
 
-Список мест — `obj/abi64-scan-A1.0/new-a16.txt` (`-Wformat`), 60 мест:
-ядро — `proc.c` (7), `arch/i386/memory.c` (5), `apic.c` (2); VM — `region.c`
-(8), `pagefaults.c` (3), `mem_cache.c`, `mmap.c`, `pagetable.c` (по 2),
-`mem_shared.c`; серверы — `is/dmp_vm.c` (2), `rs/exec.c`, `ipc/shm.c`;
-procfs `pid.c` (3); драйверы — `virtio_blk` (5), `amddev` (4), `ahci` (3),
-`at_wini` (2), `dp8390` `3c503.c`/`wdeth.c` (по 2), `dpeth` `3c503.c`/`wd.c`,
-`dec21140A`. Все — `%l*` для `vir_bytes`/`phys_bytes` (или выражений с ними).
-Вне скана (вручную, `grep '%[-#0-9]*l[xXud]'` по каталогу): earm (около 13
-строк `%l*` в `kernel/arch/earm` и драйверах earm), код под `#if SANITYCHECKS`
-и прочими отладочными `#if`. Критерий готовности А1.1: дизассемблер совпадает
-с `A1.0`, в a16 и p64 новых `-Wformat` нет (кроме не-адресных, если найдутся —
-разобрать). `%x` с явным `(unsigned)`/`(u32_t)`-приведением адреса скан не
-видит — это класс «приведения адреса к `u32_t`» (§9а), не форматы; в А1.1
-только отмечать.
+a16 `obj/abi64-scan-A1.1/new-a16.txt` (20 мест): `ahci.c` 1036/1155/1192,
+`at_wini.c:1358`, `virtio_blk.c` 212/321/371, `procfs/pid.c:129`,
+`i386/memory.c` 321/587 (+ earm 294/488), `do_safecopy.c` 210/243–244
+(`offset_in`, `cp_len`/`bytes` с `%d`), `vm/mem_cache.c:225`,
+`vm/pagetable.c:1226`, `vm/region.c` 46/324/333/1077/1530. Вне скана:
+`at_wini.c:1350` (`VERBOSE_DMA`, `%ld`), `amddev.c:186` (`#if 0`),
+`vm/region.c` 157/222 (`SANITYCHECKS`, `pr->offset`), `vm/mmap.c:113` (`#if 0`).
+Тип ≠ смысл (в А1.5): `vm_memset` `pfa`/`ptr` — `phys_bytes`, но адреса в окне
+ядра (печать по типу, `PRIxPHYS`).
 
-На i386 `uintptr_t` — `unsigned int` (`PRIxPTR "x"`), на earm — `unsigned long`
-(`"lx"`): в А1.6 `PRIxVIR` = `PRIxPTR`.
+## Предложение разбиения А1.2а (не обсуждалось с владельцем)
+
+Сейчас физический путь: `SYS_VIRCOPY`/`SYS_PHYSCOPY` — один `do_copy`, `NONE` =
+физический (`virtual_copy_f` → `lin_lin_copy(NULL, …)`); `SYS_MEMSET` с `NONE`.
+Потребители — только VM: `sys_abscopy` (`pb.c:153`, `pagetable.c:1303`,
+`region.c:891`), `sys_physcopy(NONE…)` (`main.c:301,358`, `pagetable.c:122`),
+`sys_vircopy(NONE…)` (`pagetable.c:1266/1269` i386/earm — дыра),
+`sys_memset(NONE…)` (`mem_file.c:76`, `alloc.c:454,470`); в ядре
+`do_readbios.c:23`. Права `PHYSCOPY` у tty и memory в `etc/system.conf` не
+используются (вызовов нет).
+1. **А1.2а-1 ядро внутри:** `copy_phys_vir`/`copy_vir_phys`/`copy_phys_phys`
+   (и `memset_phys`) поверх нынешнего `lin_lin_copy`/`vm_memset`, i386 и earm;
+   `do_readbios` на них. Kernel calls не меняются. Проверка полная.
+2. **А1.2а-2 новые kernel calls:** `SYS_COPY_PHYS` (направление флагом или три
+   номера — решить) и `SYS_MEMSET_PHYS`, сообщения по §14а (адреса и длина —
+   `uint64_t`, проверка помещается ли), права в `minix-service/parse.c` и
+   `etc/system.conf`, статические права VM (`rs/table.c`); libsys
+   `sys_copy_phys_*`, `sys_memset_phys`; `host-test abi64`. Потребителей нет.
+3. **А1.2а-3 VM на новые вызовы** (10 мест выше, i386 и earm); после этого
+   «`NONE` = физический» никто не использует — удаление в А1.2б.
+Вопросы владельцу: один номер с флагом направления или три; оставить ли
+`SYS_PHYSCOPY` номером для нового вызова; убирать ли права tty/memory сразу.
 
 ## Открыто
 
@@ -198,7 +195,6 @@ procfs `pid.c` (3); драйверы — `virtio_blk` (5), `amddev` (4), `ahci` 
 
 ## Следующие шаги
 
-1. А1.1 — предложить владельцу порядок (по каталогам: ядро, VM, libsys,
-   серверы, драйверы; коммит на каталог или один), внести, проверить
-   `disasm.sh compare --funcs A1.0 A1.1` + `scan64.py --modes m32,p64,a16`.
-2. Дальше — `work-plan.md` §5: А1.2а …
+1. А1.2а — обсудить разбиение (выше), затем вносить; проверка полная.
+2. Отдельный шаг (после А1.7): атрибут `__format__` у `printf` в `sysutil.h`
+   и 25 старых несовпадений формата (`types-audit.md` §2.1).

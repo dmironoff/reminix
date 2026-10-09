@@ -180,6 +180,29 @@ SMP-ядро 1 CPU 1417,5 с, 4 CPU 1549,3 с (эталон 1386,0 / 1413,4 / 15
       A1.0` — 240 из 242 совпадают, `memory`/`usb_hub` — только данные (шум
       сборки). В `scan64.py` — режим `a16` (определения А1.6 на i386) и
       `PRIxPHYS` = `"llx"` в p64: их новые `-Wformat` — список работ А1.1.
+- [x] **А1.1 — выполнено 2026-10-09, `8c457d929`** (`scan64.py` — `6e8238c81`):
+      адреса в форматах печати → `PRIxVIR`/`PRIxPHYS`/`PRIxDMA` (63 строки:
+      ядро с earm, VM, libexec, is, rs, ipc, procfs, amddev, dec21140A,
+      dp8390, dpeth, at_wini, virtio_blk), включая код под `SANITYCHECKS`,
+      `LU_DEBUG`, `ELF_DEBUG`, `VERBOSE_DMA` и `#if 0`. Макрос — по объявленному
+      типу аргумента (`vir_bytes`/`phys_bytes`), `PRIxDMA` — где физический
+      адрес пишется в устройство. Решения владельца: длины и смещения в
+      `vir_bytes`/`phys_bytes` (20 мест a16 + отладочные) — в А1.5 вместе с
+      `size_t`/`%zu`; `%lX` → строчные `"%" PRIxPHYS` (dp8390, dpeth); новый
+      `PRIuPHYS` (`"lu"`) для десятичной печати адреса (`vm/pagetable.c:1224`,
+      `ipc/shm.c:237`); `scan64.py` ставит `printf` из `minix/sysutil.h`
+      атрибут `__format__` (иначе в `-fno-builtin`-коде без `<stdio.h>` форматы
+      не проверяются; `types-audit.md` §2.1), 25 найденных так старых
+      несовпадений m32 — отдельным шагом после А1.7. Проверка
+      (`obj/test-logs/check-A1.1.summary`, сборка с нуля): `hdimage SMP=no` 597 с,
+      `SMP=yes` 607 с, `sdimage` 371 с; `disasm.sh compare --funcs A1.0 A1.1` —
+      238 из 242 совпадают, `memory`/`usb_hub` — шум, `dp8390`/`dpeth` — только
+      строки `%lX` → `%lx` («функции совпадают»). Пропущенная строка
+      `do_safecopy.c:241` внесена после цепочки: `quick` ядра обоих вариантов +
+      снимок `A1.1b` — ядро совпадает с `A1.0`; earm — сборка `minix/kernel`.
+      `scan64.py --modes m32,p64,a16` → `obj/abi64-scan-A1.1`: a16 — 20
+      `-Wformat`, все длины (было 60, с атрибутом 68); p64 — 3 `-Wformat`
+      (длины в `phys_bytes`), остальное без изменений.
 - На i386 `uintptr_t` — `unsigned int` (`PRIxPTR "x"`), на earm — `unsigned
   long` (`"lx"`): в А1.6 `PRIxVIR` = `PRIxPTR`.
 - `alloc.c` и `vm/arch` в А1 только переименовываются: их замена — А3 и А7
