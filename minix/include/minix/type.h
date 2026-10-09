@@ -23,6 +23,8 @@ typedef int endpoint_t;			/* process identifier */
 typedef int32_t cp_grant_id_t;		/* A grant ID. */
 typedef long unsigned int vir_bytes;	/* virtual addresses/lengths in bytes */
 
+#include <minix/memtypes.h>	/* phys_addr_t, vir_addr_t, dma_addr_t, pfn_t */
+
 /* Structure for virtual copying by means of a vector with requests. */
 struct vir_addr {
   endpoint_t proc_nr_e; /* NONE for phys, otherwise process endpoint */

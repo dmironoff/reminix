@@ -1222,6 +1222,7 @@
 ./usr/include/minix/keymap.h                            minix-comp
 ./usr/include/minix/libminixfs.h                        minix-comp
 ./usr/include/minix/log.h                               minix-comp
+./usr/include/minix/memtypes.h                          minix-comp
 ./usr/include/minix/minlib.h                            minix-comp
 ./usr/include/minix/mmio.h                              minix-comp
 ./usr/include/minix/mthread.h                           minix-comp
