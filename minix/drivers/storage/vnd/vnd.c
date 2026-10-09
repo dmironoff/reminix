@@ -28,7 +28,7 @@ static unsigned int instance;
 
 static int vnd_open(devminor_t, int);
 static int vnd_close(devminor_t);
-static int vnd_transfer(devminor_t, int, u64_t, endpoint_t, iovec_t *,
+static ssize_t vnd_transfer(devminor_t, int, u64_t, endpoint_t, iovec_t *,
 	unsigned int, int);
 static int vnd_ioctl(devminor_t, unsigned long, endpoint_t, cp_grant_id_t,
 	endpoint_t);
@@ -208,7 +208,7 @@ vnd_advance(iovec_s_t *iov, size_t *iov_offp, size_t bytes)
 /*
  * Perform data transfer on the selected device.
  */
-static int
+static ssize_t
 vnd_transfer(devminor_t minor, int do_write, u64_t position,
 	endpoint_t endpt, iovec_t *iovt, unsigned int nr_req, int flags)
 {

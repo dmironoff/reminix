@@ -542,7 +542,7 @@ int transfer(u64_t pos, char *buffer, size_t *sizep, int flag_rw)
 	phys_pos = SEC2POS(LOG2PHYS(first_sector));
 
 #if DEBUG2
-	printf("Filter: transfer: pos 0x%lx:0x%lx -> phys_pos 0x%lx:0x%lx\n",
+	printf("Filter: transfer: pos 0x%x:0x%x -> phys_pos 0x%x:0x%x\n",
 		ex64hi(pos), ex64lo(pos), ex64hi(phys_pos), ex64lo(phys_pos));
 #endif
 

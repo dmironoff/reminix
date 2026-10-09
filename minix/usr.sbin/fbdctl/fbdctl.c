@@ -35,7 +35,7 @@ usage(void)
 static void
 print_rule(struct fbd_rule * rule)
 {
-	printf("%-2d %04lX%08lX-%04lX%08lX %-4d %-5d %c%c ",
+	printf("%-2d %04X%08X-%04X%08X %-4d %-5d %c%c ",
 	    rule->num, ex64hi(rule->start), ex64lo(rule->start),
 	    ex64hi(rule->end), ex64lo(rule->end), rule->skip,
 	    rule->count, (rule->flags & FBD_FLAG_READ) ? 'r' : ' ',
@@ -70,7 +70,7 @@ print_rule(struct fbd_rule * rule)
 		break;
 
 	case FBD_ACTION_MISDIR:
-		printf("%-7s %04lX%08lX-%04lX%08lX %u",
+		printf("%-7s %04X%08X-%04X%08X %u",
 		    "misdir", ex64hi(rule->params.misdir.start),
 		    ex64lo(rule->params.misdir.start),
 		    ex64hi(rule->params.misdir.end),

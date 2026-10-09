@@ -74,9 +74,9 @@ int tmrs_clrtimer(minix_timer_t **tmrs, minix_timer_t *tp, clock_t *old_head,
 int tmrs_exptimers(minix_timer_t **tmrs, clock_t now, clock_t *new_head);
 
 #define PRINT_STATS(cum_spenttime, cum_instances) {		\
-		if(ex64hi(cum_spenttime)) { util_stacktrace(); printf(" ( ??? %lu %lu)\n",	\
+		if(ex64hi(cum_spenttime)) { util_stacktrace(); printf(" ( ??? %u %u)\n",	\
 			ex64hi(cum_spenttime), ex64lo(cum_spenttime)); } \
-		printf("%s:%d,%lu,%lu\n", \
+		printf("%s:%d,%lu,%u\n", \
 			__FILE__, __LINE__, cum_instances,	\
 			 ex64lo(cum_spenttime)); \
 	}

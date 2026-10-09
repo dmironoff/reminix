@@ -41,7 +41,7 @@ typedef struct kinfo {
         int nr_tasks;           /* number of kernel tasks */
         char release[6];        /* kernel release number */
         char version[6];        /* kernel version number */
-	int vm_allocated_bytes; /* allocated by kernel to load vm */
+	size_t vm_allocated_bytes; /* allocated by kernel to load vm */
 	int kernel_allocated_bytes;		/* used by kernel */
 	int kernel_allocated_bytes_dynamic;	/* used by kernel (runtime) */
 } kinfo_t;

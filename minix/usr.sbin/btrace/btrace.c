@@ -148,7 +148,7 @@ dump_entry(btrace_entry * entry)
 	case BTREQ_WRITE:
 	case BTREQ_GATHER:
 	case BTREQ_SCATTER:
-		printf("- position:\t%08lx%08lx\n",
+		printf("- position:\t%08x%08x\n",
 		    ex64hi(entry->position), ex64lo(entry->position));
 		printf("- size:\t\t%u\n", entry->size);
 		printf("- flags:\t%x\n", entry->flags);

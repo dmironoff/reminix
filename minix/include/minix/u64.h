@@ -7,17 +7,17 @@
 
 #include <sys/types.h>
 
-static inline unsigned long ex64lo(u64_t i)
+static inline uint32_t ex64lo(u64_t i)
 {
-	return (unsigned long)i;
+	return (uint32_t)i;
 }
 
-static inline unsigned long ex64hi(u64_t i)
+static inline uint32_t ex64hi(u64_t i)
 {
-	return (unsigned long)(i>>32);
+	return (uint32_t)(i>>32);
 }
 
-static inline u64_t make64(unsigned long lo, unsigned long hi)
+static inline u64_t make64(uint32_t lo, uint32_t hi)
 {
 	return ((u64_t)hi << 32) | (u64_t)lo;
 }

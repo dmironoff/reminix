@@ -378,7 +378,7 @@ void prot_init(void)
   prot_init_done = 1;
 }
 
-static int alloc_for_vm = 0;
+static size_t alloc_for_vm = 0;
 
 void arch_post_init(void)
 {
