@@ -150,8 +150,8 @@ int mem_cow(struct vir_region *region,
 
 	assert(ph->ph->phys != MAP_NONE);
 
-        if(sys_abscopy(ph->ph->phys, new_page, VM_PAGE_SIZE) != OK) {
-                panic("VM: abscopy failed\n");
+        if(sys_copy_phys_phys(ph->ph->phys, new_page, VM_PAGE_SIZE) != OK) {
+                panic("VM: sys_copy_phys_phys failed\n");
                 return EFAULT;
         }
 

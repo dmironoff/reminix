@@ -203,6 +203,28 @@ SMP-ядро 1 CPU 1417,5 с, 4 CPU 1549,3 с (эталон 1386,0 / 1413,4 / 15
       `scan64.py --modes m32,p64,a16` → `obj/abi64-scan-A1.1`: a16 — 20
       `-Wformat`, все длины (было 60, с атрибутом 68); p64 — 3 `-Wformat`
       (длины в `phys_bytes`), остальное без изменений.
+- [x] **А1.2а — выполнено 2026-10-09** (три коммита по частям ниже). Проверка
+      (`obj/test-logs/check-A1.2a.summary`, сборка с нуля): `hdimage SMP=no` 592 с,
+      `SMP=yes` 596 с, `sdimage` 387 с, `host-test` PASS (16, 6 TODO), полные
+      прогоны 103/103 — однопроцессорное ядро 1 CPU 1387,4 с, SMP-ядро 1 CPU
+      1414,2 с, 4 CPU 1571,9 с (эталон 1386,0 / 1413,4 / 1572,6). Дизассемблер
+      (`compare --funcs A1.1b A1.2a`): ядро, VM, libsys, RS (`NR_SYS_CALLS`),
+      minix-service (имена прав); прочее — сдвиг `__LINE__`.
+      Решения владельца (2026-10-09): три номера kernel calls; `SYS_PHYSCOPY` не
+      трогать; права `PHYSCOPY` tty и memory убрать сразу. Части (коммитами):
+      1. ядро: `copy_phys_vir`/`copy_vir_phys`/`copy_phys_phys`/`memset_phys`
+         (`arch/*/memory.c`, поверх `virtual_copy_f`/`vm_memset` с `NONE` — в
+         А1.2б без `struct vir_addr`); `do_readbios` на `copy_phys_vir`;
+      2. `SYS_COPY_PHYS_VIR`/`SYS_COPY_VIR_PHYS`/`SYS_COPY_PHYS_PHYS`/
+         `SYS_MEMSET_PHYS` (58–61, `NR_SYS_CALLS` 62, маска прав та же — 2 слова),
+         `do_copy_phys.c`, `do_memset_phys`; сообщения `mess_lsys_krn_sys_copy_phys`,
+         `mess_lsys_krn_sys_memset_phys` по §14а (`uint64_t`, проверка, что
+         значение помещается); libsys `sys_copy_phys_*`, `sys_memset_phys`
+         (сообщение обнуляется); имена прав в `minix-service`; `PHYSCOPY` снят у
+         tty и memory в `etc/system.conf` (не вызывали);
+      3. VM: `sys_abscopy`, `sys_physcopy(NONE…)`, `sys_vircopy(NONE…)`
+         (`pagetable.c` i386/earm), `sys_memset(NONE…)` → новые вызовы. Старый
+         путь «`NONE` = физический» больше никем не используется (удаление — А1.2б).
 - На i386 `uintptr_t` — `unsigned int` (`PRIxPTR "x"`), на earm — `unsigned
   long` (`"lx"`): в А1.6 `PRIxVIR` = `PRIxPTR`.
 - `alloc.c` и `vm/arch` в А1 только переименовываются: их замена — А3 и А7

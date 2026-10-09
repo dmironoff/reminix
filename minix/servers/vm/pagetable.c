@@ -119,7 +119,7 @@ void pt_assert(pt_t *pt)
 	if((sys_vmctl(SELF, VMCTL_FLUSHTLB, 0)) != OK) {
 		panic("VMCTL_FLUSHTLB failed");
 	}
-	sys_physcopy(NONE, pt->pt_dir_phys, SELF, (vir_bytes) dir, sizeof(dir), 0);
+	sys_copy_phys_vir(pt->pt_dir_phys, SELF, (vir_bytes) dir, sizeof(dir));
 	assert(!memcmp(dir, pt->pt_dir, sizeof(dir)));
 }
 
@@ -1263,13 +1263,13 @@ void pt_init(void)
 
 		panic("VM: sys_vmctl_get_pdbr failed");
 #if defined(__i386__)
-	if(sys_vircopy(NONE, mypdbr, SELF,
-		(vir_bytes) currentpagedir, VM_PAGE_SIZE, 0) != OK)
+	if(sys_copy_phys_vir(mypdbr, SELF,
+		(vir_bytes) currentpagedir, VM_PAGE_SIZE) != OK)
 #elif defined(__arm__)
-	if(sys_vircopy(NONE, myttbr, SELF,
-		(vir_bytes) currentpagedir, ARCH_PAGEDIR_SIZE, 0) != OK)
+	if(sys_copy_phys_vir(myttbr, SELF,
+		(vir_bytes) currentpagedir, ARCH_PAGEDIR_SIZE) != OK)
 #endif
-		panic("VM: sys_vircopy failed");
+		panic("VM: sys_copy_phys_vir failed");
 
 	/* We have mapped in kernel ourselves; now copy mappings for VM
 	 * that kernel made, including allocations for BSS. Skip identity
@@ -1300,8 +1300,8 @@ void pt_init(void)
 		/* Copy kernel-initialized pagetable contents into our
 		 * normally accessible pagetable.
 		 */
-                if(sys_abscopy(ptaddr_kern, ptaddr_us, VM_PAGE_SIZE) != OK)
-			panic("pt_init: abscopy failed");
+                if(sys_copy_phys_phys(ptaddr_kern, ptaddr_us, VM_PAGE_SIZE) != OK)
+			panic("pt_init: sys_copy_phys_phys failed");
 	}
 
 	/* Inform kernel vm has a newly built page table. */

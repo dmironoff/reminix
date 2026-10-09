@@ -9,27 +9,23 @@
 
 ## Дата и контекст
 
-2026-10-09 (вторая сессия). Шаг А1.1 (`work-plan.md` §5) внесён, проверен,
-закоммичен и запушен: А1.1 — `8c457d929`, `scan64.py` — `6e8238c81`,
-документы — следующим коммитом. Предыдущее: А1.0 — `3218bdcf9`,
-`scan64.py` a16 и документы — `83b9e2f1f` (запушены).
+2026-10-09 (вторая сессия). Закоммичены и запушены А1.1 (`8c457d929`,
+`scan64.py` — `6e8238c81`, документы — `53c4afc51`) и А1.2а (три коммита:
+ядро, новые kernel calls, VM; документы — в третьем). Проверка А1.2а полная,
+всё PASS (`work-plan.md` §5).
 
 ## Сделано в сессии
 
-- **А1.1** — адреса в форматах печати → `PRIxVIR`/`PRIxPHYS`/`PRIxDMA`, 63
-  строки (список и решения владельца — `work-plan.md` §5). Правки без изменения
-  числа строк (`__LINE__`). Проверено: строки форматов после подстановки
-  макросов совпадают с прежними, кроме согласованных `%lX` → `%lx`.
-- `minix/memtypes.h`: `PRIuPHYS` (`"lu"`).
-- `scan64.py`: атрибут `__format__` у `printf` из `minix/sysutil.h` во всех
-  режимах; `PRIuPHYS` в p64 (`"llu"`) и a16 (`"u"`) (`types-audit.md` §2.1).
-- Проверка: `obj/test-logs/check-A1.1.summary` (сборка с нуля, все rc=0, compare
-  rc=1 — ожидаемо: `memory`, `usb_hub`, `dp8390`, `dpeth` только данные);
-  `do_safecopy.c:241` — после цепочки, `quick` ядра + снимок `obj/disasm/A1.1b`
-  (ядро = `A1.0`), earm `minix/kernel` собран. Скан — `obj/abi64-scan-A1.1`.
-- Коммиты (по команде владельца): А1.1 — исходники + `memtypes.h`; `scan64.py`;
-  документы. Эталон для А1.2а — снимок `A1.1b` (ядро) / `A1.1` (остальное):
-  при следующей проверке взять `BASE=A1.1b` (снимок полный, ядро в нём новое).
+- **А1.1** — форматы адресов → `PRI*` (`work-plan.md` §5); `PRIuPHYS`;
+  `scan64.py` с атрибутом `__format__` у `printf` (`types-audit.md` §2.1).
+- **А1.2а** (решения владельца: три номера, `SYS_PHYSCOPY` не трогать, права
+  tty/memory снять сразу): `copy_phys_vir`/`copy_vir_phys`/`copy_phys_phys`/
+  `memset_phys` в ядре; `SYS_COPY_PHYS_VIR` (58), `SYS_COPY_VIR_PHYS` (59),
+  `SYS_COPY_PHYS_PHYS` (60), `SYS_MEMSET_PHYS` (61), сообщения по §14а
+  (`messages.md`); libsys `sys_copy_phys_*`, `sys_memset_phys`; VM переведён;
+  `PHYSCOPY` снят у tty и memory. Путь «`NONE` = физический» в `do_copy`,
+  `do_memset`, `virtual_copy_f` пока остаётся — никем не используется.
+- Снимки дизассемблера: `obj/disasm/A1.1b` (эталон после А1.1), `A1.2a`.
 
 ## Перенесено в А1.5 (длины и смещения в `vir_bytes`/`phys_bytes`)
 
@@ -43,28 +39,17 @@ a16 `obj/abi64-scan-A1.1/new-a16.txt` (20 мест): `ahci.c` 1036/1155/1192,
 Тип ≠ смысл (в А1.5): `vm_memset` `pfa`/`ptr` — `phys_bytes`, но адреса в окне
 ядра (печать по типу, `PRIxPHYS`).
 
-## Предложение разбиения А1.2а (не обсуждалось с владельцем)
+## А1.2б — что осталось удалить
 
-Сейчас физический путь: `SYS_VIRCOPY`/`SYS_PHYSCOPY` — один `do_copy`, `NONE` =
-физический (`virtual_copy_f` → `lin_lin_copy(NULL, …)`); `SYS_MEMSET` с `NONE`.
-Потребители — только VM: `sys_abscopy` (`pb.c:153`, `pagetable.c:1303`,
-`region.c:891`), `sys_physcopy(NONE…)` (`main.c:301,358`, `pagetable.c:122`),
-`sys_vircopy(NONE…)` (`pagetable.c:1266/1269` i386/earm — дыра),
-`sys_memset(NONE…)` (`mem_file.c:76`, `alloc.c:454,470`); в ядре
-`do_readbios.c:23`. Права `PHYSCOPY` у tty и memory в `etc/system.conf` не
-используются (вызовов нет).
-1. **А1.2а-1 ядро внутри:** `copy_phys_vir`/`copy_vir_phys`/`copy_phys_phys`
-   (и `memset_phys`) поверх нынешнего `lin_lin_copy`/`vm_memset`, i386 и earm;
-   `do_readbios` на них. Kernel calls не меняются. Проверка полная.
-2. **А1.2а-2 новые kernel calls:** `SYS_COPY_PHYS` (направление флагом или три
-   номера — решить) и `SYS_MEMSET_PHYS`, сообщения по §14а (адреса и длина —
-   `uint64_t`, проверка помещается ли), права в `minix-service/parse.c` и
-   `etc/system.conf`, статические права VM (`rs/table.c`); libsys
-   `sys_copy_phys_*`, `sys_memset_phys`; `host-test abi64`. Потребителей нет.
-3. **А1.2а-3 VM на новые вызовы** (10 мест выше, i386 и earm); после этого
-   «`NONE` = физический» никто не использует — удаление в А1.2б.
-Вопросы владельцу: один номер с флагом направления или три; оставить ли
-`SYS_PHYSCOPY` номером для нового вызова; убирать ли права tty/memory сразу.
+`struct vir_addr` (`type.h`, ядро: `virtual_copy_f`, `data_copy*`,
+`do_trace.c`, `do_safecopy.c`, `do_readbios` уже без него), `vir_cp_req`/
+`phys_cp_req`, ветка `NONE` в `do_copy.c`/`virtual_copy_f` (i386 и earm),
+`SYS_MEMSET` с `NONE` (`vm_memset` → только процесс; физический — внутри
+`memset_phys`), `sys_physcopy`/`sys_abscopy` в libsys и `syslib.h`.
+`SYS_PHYSCOPY` по решению владельца не трогать (номер и обработчик — решить в
+А1.2б: оставить как синоним `SYS_VIRCOPY` без физического пути или убрать
+обработчик). `mypdbr`/`myttbr` (VM, `u32_t`) — физический адрес корня таблиц;
+тип — в А1.3 (`SVMCTL_PTROOT`).
 
 ## Открыто
 
@@ -195,6 +180,7 @@ a16 `obj/abi64-scan-A1.1/new-a16.txt` (20 мест): `ahci.c` 1036/1155/1192,
 
 ## Следующие шаги
 
-1. А1.2а — обсудить разбиение (выше), затем вносить; проверка полная.
-2. Отдельный шаг (после А1.7): атрибут `__format__` у `printf` в `sysutil.h`
+1. А1.2б (выше), проверка полная.
+2. А1.3 — физические адреса в интерфейсах (`work-plan.md` §5).
+3. Отдельный шаг (после А1.7): атрибут `__format__` у `printf` в `sysutil.h`
    и 25 старых несовпадений формата (`types-audit.md` §2.1).

@@ -298,8 +298,8 @@ static int libexec_copy_physcopy(struct exec_info *execi,
 	struct vm_exec_info *ei = execi->opaque;
 	end = ei->ip->start_addr + ei->ip->len;
 	assert(ei->ip->start_addr + off + len <= end);
-	return sys_physcopy(NONE, ei->ip->start_addr + off,
-		execi->proc_e, vaddr, len, 0);
+	return sys_copy_phys_vir(ei->ip->start_addr + off,
+		execi->proc_e, vaddr, len);
 }
 
 static void boot_alloc(struct exec_info *execi, off_t vaddr,
@@ -355,8 +355,8 @@ static void exec_bootproc(struct vmproc *vmp, struct boot_image *ip)
 	if(pt_bind(&vmp->vm_pt, vmp) != OK)
 		panic("VM: pt_bind failed");
 
-	if(sys_physcopy(NONE, ip->start_addr, SELF,
-		(vir_bytes) hdr, sizeof(hdr), 0) != OK)
+	if(sys_copy_phys_vir(ip->start_addr, SELF,
+		(vir_bytes) hdr, sizeof(hdr)) != OK)
 		panic("can't look at boot proc header");
 
 	execi->stack_high = kernel_boot_info.user_sp;

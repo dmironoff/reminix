@@ -451,9 +451,9 @@ static phys_bytes alloc_pages(int pages, int memflags)
 
 	if(memflags & PAF_CLEAR) {
 		int s;
-		if ((s= sys_memset(NONE, 0, CLICK_SIZE*mem,
+		if ((s= sys_memset_phys(CLICK_SIZE*mem, 0,
 			VM_PAGE_SIZE*pages)) != OK) 
-			panic("alloc_mem: sys_memset failed: %d", s);
+			panic("alloc_mem: sys_memset_phys failed: %d", s);
 	}
 
 	return mem;
@@ -467,9 +467,9 @@ static void free_pages(phys_bytes pageno, int npages)
 	int i, lim = pageno + npages - 1;
 
 #if JUNKFREE
-       if(sys_memset(NONE, 0xa5a5a5a5, VM_PAGE_SIZE * pageno,
+       if(sys_memset_phys(VM_PAGE_SIZE * pageno, 0xa5,
                VM_PAGE_SIZE * npages) != OK)
-                       panic("free_pages: sys_memset failed");
+                       panic("free_pages: sys_memset_phys failed");
 #endif
 
 	for(i = pageno; i <= lim; i++) {

@@ -73,7 +73,7 @@ static int cow_block(struct vmproc *vmp, struct vir_region *region,
 		phys_bytes phaddr = ph->ph->phys, po = VM_PAGE_SIZE-clearend;
 		assert(clearend < VM_PAGE_SIZE);
 		phaddr += po;
-		if(sys_memset(NONE, 0, phaddr, clearend) != OK) {
+		if(sys_memset_phys(phaddr, 0, clearend) != OK) {
 			panic("cow_block: clearend failed\n");
 		}
 	}

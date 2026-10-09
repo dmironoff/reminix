@@ -888,8 +888,8 @@ int copy_abs2region(phys_bytes absaddr, struct vir_region *destregion,
 			return EFAULT;
 		}
 
-		if(sys_abscopy(absaddr, ph->ph->phys + suboffset, sublen) != OK) {
-			printf("VM: copy_abs2region: abscopy failed.\n");
+		if(sys_copy_phys_phys(absaddr, ph->ph->phys + suboffset, sublen) != OK) {
+			printf("VM: copy_abs2region: sys_copy_phys_phys failed.\n");
 			return EFAULT;
 		}
 		absaddr += sublen;
