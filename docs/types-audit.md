@@ -315,7 +315,10 @@ MCS, IPI, `ipcstat`, размещение служб после аудита: п
 Тихие ошибки, которые стоит исправить раньше своего шага, потому что они дешёвые и не
 зависят от решений: `u64.h` (`ex64lo` → `uint32_t`), `libfsdriver/call.c:241`
 (`data.ptr = buf`), `iovec_s_t`/`iovec_t` в libbdev↔libblockdriver, `int`↔`ssize_t` в
-прототипах, `kinfo.vm_allocated_bytes` (`int`).
+прототипах, `kinfo.vm_allocated_bytes` (`int`). **Исправлено 2026-10-08**
+(`work-plan.md` §4.2): `u64.h`, `int`↔`ssize_t` в прототипах (getdents, ipc, ext2,
+libfsdriver, memory/fbd/vnd/mmcblk), `kinfo.vm_allocated_bytes` → `size_t`;
+`call.c:241` и `iovec_s_t`/`iovec_t` — в А1.4.
 
 ## 9. Открытые вопросы
 

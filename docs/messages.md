@@ -3994,6 +3994,10 @@ typedef struct asynmsg { unsigned flags; endpoint_t dst; int result; message msg
 Найдены при разборе протоколов; **код не менялся**. «Проверено» — место перечитано
 при сведении документа; остальное — по разбору групп, со ссылками в разделах выше.
 
+**Исправлено 2026-10-08** (`work-plan.md` §4.2): `do_vsafecopy`, `make_name` (ptyfs),
+`do_mount` (копируется `label_len`), `do_irqctl.c` (`(irq_id_t) 1 <<`), `do_memset`.
+Остальные строки — в своих подшагах А1 и MSG.
+
 | Где | Что | Последствие | Проверено |
 |---|---|---|---|
 | `minix/kernel/system/do_safecopy.c:399-419` (`do_vsafecopy`) | число элементов `els` из `m_lsys_kern_vsafecopy.vec_size` не проверяется ни на `> SCPVEC_NR` (64), ни на `< 0` перед копированием `els * sizeof(struct vscp_vec)` байт в статический `vec[SCPVEC_NR]` | переполнение буфера ядра по запросу любого процесса с правом `SYS_VSAFECOPY` (серверы, драйверы) — **ошибка безопасности** | да |
