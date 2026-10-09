@@ -390,6 +390,22 @@ typedef struct asynmsg { unsigned flags; endpoint_t dst; int result; message msg
 
 Замечания: физический адрес в поле `vir_bytes` — на 32-битной платформе с PAE/LPAE (физ. > 4 ГБ) не уместится; длина как `phys_bytes`, а проверка — на `vir_bytes`.
 
+С А1.2а (2026-10-09) физическую память VM копирует новыми вызовами
+(`mess_lsys_krn_sys_copy_phys`); путь «`NONE` = физический» здесь удаляется в А1.2б.
+
+#### `mess_lsys_krn_sys_copy_phys` — ipc.h (А1.2а, 2026-10-09)
+
+Размер: i386 56, x86_64 56 — раскладка по §14а. Член объединения: `m_lsys_krn_sys_copy_phys`.
+
+Направление: libsys → ядро (kernel call). Вызовы (`m_type`): `SYS_COPY_PHYS_VIR`, `SYS_COPY_VIR_PHYS`, `SYS_COPY_PHYS_PHYS` (один обработчик, у каждого своё право). Отправитель: `sys_copy_phys_vir()`, `sys_copy_vir_phys()`, `sys_copy_phys_phys()` (`minix/lib/libsys/sys_copy_phys.c`; VM). Получатель: `do_copy_phys()` (`minix/kernel/system/do_copy_phys.c`) → `copy_phys_vir()`/`copy_vir_phys()`/`copy_phys_phys()` (`arch/*/memory.c`). Ответ: только код возврата.
+
+| Поле | Тип | Смещ. i386 / x86_64 | Назначение | 64 |
+|---|---|---|---|---|
+| `src_addr` | `uint64_t` | 0 / 0 | Адрес источника: физический или виртуальный в `endpt` — по вызову; ядро проверяет, что помещается в `phys_addr_t`/`vir_addr_t`. |  |
+| `dst_addr` | `uint64_t` | 8 / 8 | Адрес приёмника, так же. |  |
+| `nr_bytes` | `uint64_t` | 16 / 16 | Длина; проверяется, что помещается в `size_t`. |  |
+| `endpt` | `endpoint_t` | 24 / 24 | Процесс виртуальной стороны (`SELF` — вызывающий); для `SYS_COPY_PHYS_PHYS` не используется. |  |
+
 #### `mess_lsys_krn_sys_devio` — ipc.h:1141
 
 Размер: i386 56, x86_64 56. Член объединения: `m_lsys_krn_sys_devio`.
@@ -512,6 +528,18 @@ typedef struct asynmsg { unsigned flags; endpoint_t dst; int result; message msg
 | `count` | `phys_bytes` | 4 / 8 | Длина области в байтах (комментарий в `do_memset.c` «returns physical address» ошибочен). | Р, Ф |
 | `pattern` | `unsigned long` | 8 / 16 | Заполнитель; используется только младший байт (`c &= 0xFF`, `memory.c:543`). | С |
 | `process` | `endpoint_t` | 12 / 24 | `NONE` — физическая адресация, иначе процесс, в чьём пространстве `base` (`memory.c:540`). | В |
+
+#### `mess_lsys_krn_sys_memset_phys` — ipc.h (А1.2а, 2026-10-09)
+
+Размер: i386 56, x86_64 56 — раскладка по §14а. Член объединения: `m_lsys_krn_sys_memset_phys`.
+
+Направление: libsys → ядро (kernel call). Вызовы (`m_type`): `SYS_MEMSET_PHYS` (своё право). Отправитель: `sys_memset_phys()` (`minix/lib/libsys/sys_memset.c`; VM `alloc.c`, `mem_file.c`). Получатель: `do_memset_phys()` (`minix/kernel/system/do_memset.c`) → `memset_phys()` → `vm_memset(…, NONE, …)`. Ответ: только код возврата. `SYS_MEMSET` с `NONE` удаляется в А1.2б.
+
+| Поле | Тип | Смещ. i386 / x86_64 | Назначение | 64 |
+|---|---|---|---|---|
+| `base` | `uint64_t` | 0 / 0 | Физический адрес начала; проверяется, что помещается в `phys_addr_t`. |  |
+| `count` | `uint64_t` | 8 / 8 | Длина; проверяется, что помещается в `size_t`. |  |
+| `pattern` | `uint32_t` | 16 / 16 | Заполнитель, используется младший байт. |  |
 
 Замечания: в `vm_memset()` `pattern` приходит как `int`; достаточно `uint8_t`.
 

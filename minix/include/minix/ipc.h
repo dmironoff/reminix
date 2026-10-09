@@ -1140,6 +1140,19 @@ typedef struct {
 } mess_lsys_krn_sys_copy;
 _ASSERT_MSG_SIZE(mess_lsys_krn_sys_copy);
 
+/* SYS_COPY_PHYS_VIR, SYS_COPY_VIR_PHYS, SYS_COPY_PHYS_PHYS: fixed-width
+ * fields, the same layout on 32 and 64 bits (docs/messages.md 14a).
+ */
+typedef struct {
+	uint64_t src_addr;	/* physical, or virtual in endpt */
+	uint64_t dst_addr;	/* physical, or virtual in endpt */
+	uint64_t nr_bytes;
+	endpoint_t endpt;	/* process of the virtual side */
+
+	uint8_t padding[28];
+} mess_lsys_krn_sys_copy_phys;
+_ASSERT_MSG_SIZE(mess_lsys_krn_sys_copy_phys);
+
 typedef struct {
 	int request;
 	int port;
@@ -1225,6 +1238,16 @@ typedef struct {
 	uint8_t padding[40];
 } mess_lsys_krn_sys_memset;
 _ASSERT_MSG_SIZE(mess_lsys_krn_sys_memset);
+
+/* SYS_MEMSET_PHYS (docs/messages.md 14a). */
+typedef struct {
+	uint64_t base;		/* physical address */
+	uint64_t count;
+	uint32_t pattern;	/* byte to write */
+
+	uint8_t padding[36];
+} mess_lsys_krn_sys_memset_phys;
+_ASSERT_MSG_SIZE(mess_lsys_krn_sys_memset_phys);
 
 typedef struct {
 	int request;
@@ -2538,6 +2561,7 @@ typedef struct noxfer_message {
 		mess_lsys_krn_sys_abort m_lsys_krn_sys_abort;
 		mess_lsys_krn_sys_clear m_lsys_krn_sys_clear;
 		mess_lsys_krn_sys_copy	m_lsys_krn_sys_copy;
+		mess_lsys_krn_sys_copy_phys m_lsys_krn_sys_copy_phys;
 		mess_lsys_krn_sys_devio m_lsys_krn_sys_devio;
 		mess_lsys_krn_sys_diagctl m_lsys_krn_sys_diagctl;
 		mess_lsys_krn_sys_exec	m_lsys_krn_sys_exec;
@@ -2547,6 +2571,7 @@ typedef struct noxfer_message {
 		mess_lsys_krn_sys_iopenable m_lsys_krn_sys_iopenable;
 		mess_lsys_krn_sys_irqctl m_lsys_krn_sys_irqctl;
 		mess_lsys_krn_sys_memset m_lsys_krn_sys_memset;
+		mess_lsys_krn_sys_memset_phys m_lsys_krn_sys_memset_phys;
 		mess_lsys_krn_sys_privctl m_lsys_krn_sys_privctl;
 		mess_lsys_krn_sys_sdevio m_lsys_krn_sys_sdevio;
 		mess_lsys_krn_sys_setalarm m_lsys_krn_sys_setalarm;

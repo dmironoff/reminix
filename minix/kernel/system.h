@@ -93,6 +93,16 @@ int do_memset(struct proc * caller, message *m_ptr);
 #define do_memset NULL
 #endif
 
+int do_copy_phys(struct proc * caller, message *m_ptr);
+#if ! USE_COPY_PHYS
+#define do_copy_phys NULL
+#endif
+
+int do_memset_phys(struct proc * caller, message *m_ptr);
+#if ! USE_MEMSET_PHYS
+#define do_memset_phys NULL
+#endif
+
 int do_abort(struct proc * caller, message *m_ptr);
 #if ! USE_ABORT
 #define do_abort NULL

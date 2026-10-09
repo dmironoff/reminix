@@ -136,6 +136,14 @@ int sys_vircopy(endpoint_t src_proc, vir_bytes src_v,
 int sys_physcopy(endpoint_t src_proc, vir_bytes src_vir,
 	endpoint_t dst_proc, vir_bytes dst_vir, phys_bytes bytes, int flags);
 
+/* Physical memory: each call has its own privilege. */
+int sys_copy_phys_vir(phys_addr_t src, endpoint_t dst_e, vir_addr_t dst,
+	size_t bytes);
+int sys_copy_vir_phys(endpoint_t src_e, vir_addr_t src, phys_addr_t dst,
+	size_t bytes);
+int sys_copy_phys_phys(phys_addr_t src, phys_addr_t dst, size_t bytes);
+int sys_memset_phys(phys_addr_t base, int pattern, size_t bytes);
+
 
 /* Grant-based copy functions. */
 int sys_safecopyfrom(endpoint_t source, cp_grant_id_t grant, vir_bytes

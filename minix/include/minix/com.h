@@ -266,8 +266,14 @@
 
 #  define SYS_PADCONF (KERNEL_CALL + 57)	/* sys_padconf() */
 
+/* Physical memory, each with its own privilege (docs/types-audit.md 9a). */
+#  define SYS_COPY_PHYS_VIR  (KERNEL_CALL + 58)	/* sys_copy_phys_vir() */
+#  define SYS_COPY_VIR_PHYS  (KERNEL_CALL + 59)	/* sys_copy_vir_phys() */
+#  define SYS_COPY_PHYS_PHYS (KERNEL_CALL + 60)	/* sys_copy_phys_phys() */
+#  define SYS_MEMSET_PHYS    (KERNEL_CALL + 61)	/* sys_memset_phys() */
+
 /* Total */
-#define NR_SYS_CALLS	58	/* number of kernel calls */
+#define NR_SYS_CALLS	62	/* number of kernel calls */
 
 #define SYS_CALL_MASK_SIZE BITMAP_CHUNKS(NR_SYS_CALLS)
 

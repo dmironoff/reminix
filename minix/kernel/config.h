@@ -42,6 +42,8 @@
 #define USE_VIRCOPY   	   1	/* copy using virtual addressing */ 
 #define USE_PHYSCOPY  	   1 	/* copy using physical addressing */
 #define USE_MEMSET  	   1	/* write char to a given memory area */
+#define USE_COPY_PHYS	   1	/* copy from or to physical memory */
+#define USE_MEMSET_PHYS	   1	/* write char to physical memory */
 #define USE_RUNCTL         1	/* control stop flags of a process */
 #define USE_STATECTL       1	/* let a process control its state */
 #define USE_MCONTEXT       1	/* enable getting/setting of machine context */

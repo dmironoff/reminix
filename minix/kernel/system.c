@@ -251,6 +251,7 @@ void system_init(void)
 
   /* Memory management. */
   map(SYS_MEMSET, do_memset);		/* write char to memory area */
+  map(SYS_MEMSET_PHYS, do_memset_phys);	/* write char to physical memory */
   map(SYS_VMCTL, do_vmctl);		/* various VM process settings */
 
   /* Copying. */
@@ -259,6 +260,9 @@ void system_init(void)
   map(SYS_VUMAP, do_vumap);		/* vectored virtual to physical map */
   map(SYS_VIRCOPY, do_vircopy); 	/* use pure virtual addressing */
   map(SYS_PHYSCOPY, do_copy);	 	/* use physical addressing */
+  map(SYS_COPY_PHYS_VIR, do_copy_phys);	/* physical to virtual */
+  map(SYS_COPY_VIR_PHYS, do_copy_phys);	/* virtual to physical */
+  map(SYS_COPY_PHYS_PHYS, do_copy_phys);	/* physical to physical */
   map(SYS_SAFECOPYFROM, do_safecopy_from);/* copy with pre-granted permission */
   map(SYS_SAFECOPYTO, do_safecopy_to);	/* copy with pre-granted permission */
   map(SYS_VSAFECOPY, do_vsafecopy);	/* vectored safecopy */

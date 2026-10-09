@@ -17,6 +17,7 @@ SRCS+= 	\
 	do_vtimer.c \
 	do_irqctl.c \
 	do_copy.c \
+	do_copy_phys.c \
 	do_umap.c \
 	do_umap_remote.c \
 	do_vumap.c \
