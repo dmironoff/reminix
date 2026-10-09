@@ -10,6 +10,8 @@ real build (taken from nbmake in the build container) in several modes:
   m64   x86_64 with the i386 headers and an LP64 machine/ shim
         (-D__i386__: the existing i386 code paths, 64-bit long/pointers)
   p64   i586 with phys_bytes = uint64_t             (64-bit physical addresses)
+  a16   i586 with vir_bytes, phys_bytes = unsigned int (the definitions of
+        step A1.6: vir_addr_t = uintptr_t; formats not using PRIx* show up)
 
 each for the uniprocessor and the SMP kernel configuration.  Diagnostics
 that appear in m64/p64 but not in m32 are the raw list of places to look at;
@@ -22,7 +24,7 @@ Needs: a built tree (obj/i386, obj/i386-smp: DESTDIR, tooldir, as after
 "make -C docker -f build.mk hdimage [SMP=yes]"), docker with the reminix-build
 image, clang (clang-18 or newer, -Wshorten-64-to-32) on the host.
 
-  scan64.py [--top TREE] [--obj OBJDIR] [--out DIR] [--modes m32,m64,p64]
+  scan64.py [--top TREE] [--obj OBJDIR] [--out DIR] [--modes m32,m64,p64,a16]
             [--no-layouts] [--jobs N]
 
 Results in --out (default <obj>/abi64-scan): new-<mode>.txt (file:line,
@@ -120,7 +122,9 @@ def collect_vars(args, smp, dirs):
 
 def make_sysroot(args, mode):
     """Copy of the installed headers; the LP64 shim (as mkinc.sh) for m64,
-    64-bit phys_bytes for p64; message size checks off for both."""
+    64-bit phys_bytes for p64, 32-bit unsigned int vir_bytes and phys_bytes
+    for a16, the PRIx* of minix/memtypes.h to match; message size checks off
+    for all three."""
     root = os.path.join(args.out, f"sysroot-{mode}")
     inc = root + "/usr/include"
     if os.path.isdir(root):
@@ -153,7 +157,15 @@ def make_sysroot(args, mode):
     if mode == "p64":
         sub(inc + "/minix/type.h", r"typedef unsigned long phys_bytes;",
             "typedef uint64_t phys_bytes;")
-    if mode in ("m64", "p64"):
+        sub(inc + "/minix/memtypes.h", r'(#define\s+PRIxPHYS\s+)"lx"', r'\1"llx"')
+    if mode == "a16":
+        sub(inc + "/minix/type.h", r"typedef unsigned long phys_bytes;",
+            "typedef unsigned int phys_bytes;")
+        sub(inc + "/minix/type.h", r"typedef long unsigned int vir_bytes;",
+            "typedef unsigned int vir_bytes;")
+        sub(inc + "/minix/memtypes.h", r'(#define\s+PRIxPHYS\s+)"lx"', r'\1"x"')
+        sub(inc + "/minix/memtypes.h", r'(#define\s+PRIxVIR\s+)"lx"', r'\1"x"')
+    if mode in ("m64", "p64", "a16"):
         sub(inc + "/minix/ipcconst.h", r"typedef int _ASSERT_##msg_type\[[^\]]*\]",
             "struct _ASSERT_##msg_type { int dummy; }")
         sub(inc + "/minix/ipc.h", r"typedef int _ASSERT_message\[[^\]]*\];",

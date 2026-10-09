@@ -168,6 +168,20 @@ SMP-ядро 1 CPU 1417,5 с, 4 CPU 1549,3 с (эталон 1386,0 / 1413,4 / 15
 | А1.7 | `reg_t` = `register_t` (меняется знаковость; `stackframe.h`, `sigcontext`, `mcontext`, ptrace) | полный |
 | А1.8 | пробная сборка с `CONFIG_PHYS_ADDR_64`; p64 `scan64.py` чист | сборка |
 
+- [x] **А1.0 — выполнено 2026-10-09, `3218bdcf9`:**
+      `minix/include/minix/memtypes.h`, включается из `minix/type.h` (после
+      `phys_bytes`/`vir_bytes`/`phys_clicks`); `phys_addr_t` = `phys_bytes`,
+      `vir_addr_t` = `vir_bytes`, `dma_addr_t` = `phys_addr_t`, `pfn_t` =
+      `phys_clicks`; `PRIxPHYS`/`PRIxVIR` = `"lx"`, `PRIxDMA` = `PRIxPHYS`;
+      `phys_to_dma(pa)` — тождество (аргумент устройства — когда появится
+      потребитель); `CONFIG_PHYS_ADDR_64` → `#error` до А1.8. Проверка
+      (`obj/test-logs/check-A1.0.summary`, сборка с нуля): `hdimage SMP=no`
+      603 с, `SMP=yes` 597 с, `sdimage` 388 с; `disasm.sh compare --funcs batch1
+      A1.0` — 240 из 242 совпадают, `memory`/`usb_hub` — только данные (шум
+      сборки). В `scan64.py` — режим `a16` (определения А1.6 на i386) и
+      `PRIxPHYS` = `"llx"` в p64: их новые `-Wformat` — список работ А1.1.
+- На i386 `uintptr_t` — `unsigned int` (`PRIxPTR "x"`), на earm — `unsigned
+  long` (`"lx"`): в А1.6 `PRIxVIR` = `PRIxPTR`.
 - `alloc.c` и `vm/arch` в А1 только переименовываются: их замена — А3 и А7
   (`types-audit.md` §8).
 - `AC_LOWER4G` — не в А1, а в А3 (решение 5).

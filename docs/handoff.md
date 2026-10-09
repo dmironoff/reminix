@@ -9,59 +9,65 @@
 
 ## Дата и контекст
 
-2026-10-08. Начата работа по `work-plan.md`: доклад о восстановлении среды
-(сборки и прогоны владельца 2026-10-07), §4.1 (среда и А5), §4.2 (отложенные
-исправления), §8 (правка документов). Закоммичены и запушены §4.1 (`2c879b721`),
-документы §8 (`18086b23e`), исправления §4.2 отдельными коммитами и итоговые
-документы.
+2026-10-09. Шаг А1.0 (`work-plan.md` §5) внесён, проверен, закоммичен и
+запушен (`3218bdcf9`; `scan64.py` a16 и документы — следующим коммитом).
+Подготовлен инструмент для А1.1.
+Предыдущая сессия (2026-10-08/09): §4.1, §4.2 (пакет `batch1`), §8 — всё
+закоммичено и запушено, последний коммит `a2abfc479`.
 
 ## Сделано в сессии
 
-- **Эталон HEAD** (`fc5cf831c`, сборка с нуля 2026-10-07,
-  `obj/test-logs/restore-20261007-1116.summary`): все сборки, `host-test` PASS,
-  три полных прогона 103/103 — однопроцессорное ядро 1 CPU 1386,0 с, SMP-ядро
-  1 CPU 1413,4 с, 4 CPU 1572,6 с (`tests time`; `testing.md` §2). scan64 —
-  эталон в `types-audit.md` §2.1 («Эталон перед А1»; раскладок 814/54 вместо
-  1082/63 в аудите — причина не установлена).
-- **§4.1 выполнен.** `SMP=yes` — умолчание `docker/build.mk` для i386
-  (`$(if $(filter i386,$(ARCH)),yes,no)`; на earm `no`), справка `#>`, примеры
-  в `docker-build.md`, `testing.md` §1, `CLAUDE.md`. А5 отмечен в
-  `modernization.md`. Новый **`docker/disasm.sh snapshot|compare`**
-  (`docker-build.md` §4.1); эталон — `obj/disasm/fc5cf831c/{i386,i386-smp}`.
-- **§4.2 — исправления «сейчас» внесены и проверены** (пакет `batch1`, см. ниже):
+- **А1.0** (решения владельца по пп. 1–6 предложения, 2026-10-09):
+  - `minix/include/minix/memtypes.h` (новый): `phys_addr_t` = `phys_bytes`,
+    `vir_addr_t` = `vir_bytes`, `dma_addr_t` = `phys_addr_t`, `pfn_t` =
+    `phys_clicks`; `PRIxPHYS`/`PRIxVIR` = `"lx"`, `PRIxDMA` = `PRIxPHYS`
+    (строками, без `<inttypes.h>`); `static inline phys_to_dma(pa)` —
+    тождество, без аргумента устройства (добавить, когда появится потребитель —
+    `dma-ranges`/IOMMU); `#ifdef CONFIG_PHYS_ADDR_64` → `#error` до А1.8.
+  - Включается из `minix/type.h` сразу после старых typedef (ядро, VM, libsys,
+    серверы, драйверы получают его без новых `#include`); сам включает
+    `<minix/type.h>`, поэтому работает и при прямом включении.
+  - `INCS` в `minix/include/minix/Makefile`, `distrib/sets/lists/minix-comp/mi`.
+  - Проверка (`obj/test-logs/check-A1.0.summary`, сборка с нуля, тулчейн
+    сохранён): `hdimage SMP=no` 603 с, `SMP=yes` 597 с, `sdimage BOARD=beaglebone`
+    388 с; `disasm.sh compare --funcs batch1 A1.0`: 240 из 242 совпадают в обоих
+    вариантах, `memory` (времена файлов RAM-диска) и `usb_hub`
+    (`__DATE__`/`__TIME__`) — «функции совпадают». Снимок `obj/disasm/A1.0` —
+    эталон для А1.1.
+- **`obj/test-logs/check-chain.sh`** (не в git): `BUILD_ONLY=yes` — остановиться
+  после `disasm compare`; `BASE=<метка>` — эталон (по умолчанию `fc5cf831c`),
+  сравнение с `--funcs`.
+- **`scan64.py`**: режим `a16` (определения А1.6 на i386: `vir_bytes`,
+  `phys_bytes` = `unsigned int`, `PRIxVIR`/`PRIxPHYS` = `"x"`), в p64
+  `PRIxPHYS` = `"llx"` (`types-audit.md` §2.1). Прогон `--modes m32,p64,a16
+  --no-layouts` → `obj/abi64-scan-A1.0`: a16 — 60 новых `-Wformat` в 22 файлах
+  (`new-a16.txt`), p64 без изменений (154, 21 `-Wformat`).
+- `work-plan.md` §5 — А1.0 отмечен; `types-audit.md` §2.1 — режим a16 и итог.
+- Срыв первой попытки цепочки (по вине агента): `CLEAN=yes` запущен, когда шла
+  консоль владельца `run-i386 SMP=yes CPUS=4` на `obj/i386-smp`; `clean`
+  удалил её образ. Владелец завершил консоль и остановил осиротевшую сборку;
+  цепочка перезапущена по его команде. Журнал консоли цел
+  (`i386-smp-cpu4-console-20261008-161532.*`).
 
-  | № | Файлы | Что | Код |
-  |---|---|---|---|
-  | 1 | `kernel/system/do_safecopy.c` | `els < 0 \|\| els > SCPVEC_NR` → `EINVAL` | меняется |
-  | 9 | `kernel/system/do_memset.c` | `return vm_memset(...)` (был всегда `OK`) | меняется |
-  | 3 | `fs/ptyfs/ptyfs.c` | `snprintf(name, size, …)` | меняется |
-  | 4 | `servers/vfs/mount.c` | копируется `label_len`; пустая или без `'\0'` — `EINVAL` (как `do_mapdriver`) | меняется |
-  | 10 | `lib/libmthread/pthread_compat.c` | `pthread_mutex_trylock` → `mthread_mutex_trylock` | меняется |
-  | 8 (часть) | `kernel/system/do_irqctl.c` | `(irq_id_t) 1 << notify_id` | не должен |
-  | 7 (часть) | `include/minix/u64.h`, `timers.h`, `param.h`; `filter/sum.c`, `fbdctl.c`, `btrace.c`, `test53.c`; `libc/sys/getdents.c`, `ipc/inc.h`, `ext2/proto.h`, `libfsdriver/call.c`, `memory.c`, `fbd.c`, `vnd.c`, `mmcblk.c`; `kernel/arch/{i386,earm}/protect.c` | `ex64lo/ex64hi/make64` → `uint32_t` и форматы их аргументов `%l*` → `%*`; `int`↔`ssize_t` в прототипах (getdents → `int` как в `dirent.h`; `fsdriver_bread/bwrite` → `int` как таблица; ipc, ext2 `fs_rdlink`, `bdr_transfer` memory/fbd/vnd/mmcblk → `ssize_t`); `kinfo.vm_allocated_bytes` и `alloc_for_vm` → `size_t` | не должен |
+## Подготовка А1.1
 
-- **§8 (документы) выполнен:** `messages.md` §12 (`do_memset`, псевдогрант
-  `SYS_UMAP`), §13 (`SCHEDCTL_FLAG_KERNEL` живой, `VMCTL_I386_INVLPG` мёртв),
-  §14а (сценарий расчёта не сохранён); `types-audit.md` §8 (`AC_LOWER4G` → А3,
-  подшаги А1), §9а (`-Wformat` и порядок `PRI*`); `arch-i386.md` (`lapic_addr`);
-  `modernization.md` (правило 4 — проверка по виду шага, фактический порядок,
-  строки А1/MSG/А3/А4).
+Список мест — `obj/abi64-scan-A1.0/new-a16.txt` (`-Wformat`), 60 мест:
+ядро — `proc.c` (7), `arch/i386/memory.c` (5), `apic.c` (2); VM — `region.c`
+(8), `pagefaults.c` (3), `mem_cache.c`, `mmap.c`, `pagetable.c` (по 2),
+`mem_shared.c`; серверы — `is/dmp_vm.c` (2), `rs/exec.c`, `ipc/shm.c`;
+procfs `pid.c` (3); драйверы — `virtio_blk` (5), `amddev` (4), `ahci` (3),
+`at_wini` (2), `dp8390` `3c503.c`/`wdeth.c` (по 2), `dpeth` `3c503.c`/`wd.c`,
+`dec21140A`. Все — `%l*` для `vir_bytes`/`phys_bytes` (или выражений с ними).
+Вне скана (вручную, `grep '%[-#0-9]*l[xXud]'` по каталогу): earm (около 13
+строк `%l*` в `kernel/arch/earm` и драйверах earm), код под `#if SANITYCHECKS`
+и прочими отладочными `#if`. Критерий готовности А1.1: дизассемблер совпадает
+с `A1.0`, в a16 и p64 новых `-Wformat` нет (кроме не-адресных, если найдутся —
+разобрать). `%x` с явным `(unsigned)`/`(u32_t)`-приведением адреса скан не
+видит — это класс «приведения адреса к `u32_t`» (§9а), не форматы; в А1.1
+только отмечать.
 
-## Проверка пакета `batch1` — пройдена
-
-Исправления №1, 3, 4, 7, 8, 9, 10 проверены одним пакетом (решение владельца),
-`obj/test-logs/check-batch1.summary`: сборки с нуля (`CLEAN=yes`, тулчейн
-сохранён) `hdimage SMP=no` 574 с, `SMP=yes` 568 с, `sdimage` 392 с;
-`host-test` PASS; полные прогоны 103/103 — однопроцессорное ядро 1 CPU 1385,6 с,
-SMP-ядро 1 CPU 1417,5 с, 4 CPU 1549,3 с (`tests time`; эталон 1386,0 / 1413,4 /
-1572,6). `disasm.sh compare --funcs fc5cf831c batch1`: из 242 файлов различаются
-8; код — только `do_vsafecopy`, `do_memset`, ptyfs `ptyfs_getdents`/`ptyfs_other`
-(встроенный `make_name`), vfs `do_mount`, `pthread_mutex_trylock`; `mount_fs` —
-только `__LINE__`; btrace/fbdctl — строки форматов; usb_hub/memory — шум сборки
-(`__DATE__`, времена файлов RAM-диска). №7 и №8 машинный код не изменили.
-
-Закоммичены и запушены отдельными коммитами (коммиты 2026-10-09: №1 `90fa8921c`, №9 `015f91abb`, №3 `36054437c`, №4 `882741e2f`, №8 `d0895d67c`, №10 `64262cc3a`, №7 `be5ce2e5f`). Снимок `obj/disasm/batch1` — эталон
-машинного кода для А1.0 (собран из того же кода).
+На i386 `uintptr_t` — `unsigned int` (`PRIxPTR "x"`), на earm — `unsigned long`
+(`"lx"`): в А1.6 `PRIxVIR` = `PRIxPTR`.
 
 ## Открыто
 
@@ -112,6 +118,13 @@ SMP-ядро 1 CPU 1417,5 с, 4 CPU 1549,3 с (`tests time`; эталон 1386,0
 - `scan64.py` нужны собранные `obj/i386` и `obj/i386-smp` и clang ≥ 18 на хосте
   (в Docker-образе clang нет); итог — `obj/abi64-scan/summary.txt`.
 - Коммит и push — только по команде владельца; без строк соавторства.
+- **Перед `CLEAN=yes` — `docker ps`:** нет ли `run-*`/`test-*` владельца на тех
+  же деревьях `obj/` (2026-10-09 `clean` удалил образ работающей консоли).
+- Проверка подшага без изменения кода:
+  `CLEAN=yes BUILD_ONLY=yes BASE=<эталон> obj/test-logs/check-chain.sh <метка>`
+  через `setsid nohup`; ~27 мин.
+- Ожидающий цикл не должен искать `pgrep -f` по строке, входящей в его же
+  команду (находит сам себя и не кончается) — ждать по файлу итога.
 - `…/reminix(тупик)` — тупиковая ветка, только чтение.
 - Снимок в конце набора: `run-tests.sh` сам его не делает (гость выключается),
   наблюдатель по `REMINIX-TESTS-END` в журнале шлёт `test-snapshot`.
@@ -185,6 +198,7 @@ SMP-ядро 1 CPU 1417,5 с, 4 CPU 1549,3 с (`tests time`; эталон 1386,0
 
 ## Следующие шаги
 
-1. А1.0 — заголовок с типами §9а синонимами нынешних, `PRIx*`, `phys_to_dma()`;
-   проверка — `disasm.sh compare` с `batch1`.
-2. Дальше — `work-plan.md` §5: А1.1 (форматы по каталогам), А1.2а …
+1. А1.1 — предложить владельцу порядок (по каталогам: ядро, VM, libsys,
+   серверы, драйверы; коммит на каталог или один), внести, проверить
+   `disasm.sh compare --funcs A1.0 A1.1` + `scan64.py --modes m32,p64,a16`.
+2. Дальше — `work-plan.md` §5: А1.2а …
