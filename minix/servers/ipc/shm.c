@@ -234,7 +234,7 @@ do_shmdt(message * m)
 		}
 	}
 	if (i == shm_list_nr)
-		printf("IPC: do_shmdt: ID %lu not found\n", vm_id);
+		printf("IPC: do_shmdt: ID %" PRIuPHYS " not found\n", vm_id);
 
 	update_refcount_and_destroy();
 
@@ -453,7 +453,7 @@ list_shm_ds(void)
 	for (i = 0; i < shm_list_nr; i++) {
 		if (!(shm_list[i].shmid_ds.shm_perm.mode & SHM_ALLOC))
 			continue;
-		printf("%ld\t%d\t%lx\n",
+		printf("%ld\t%d\t%" PRIxVIR "\n",
 		    shm_list[i].shmid_ds.shm_perm._key,
 		    IXSEQ_TO_IPCID(i, shm_list[i].shmid_ds.shm_perm),
 		    shm_list[i].page);

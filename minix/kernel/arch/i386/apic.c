@@ -907,7 +907,7 @@ static int acpi_get_ioapics(struct io_apic * ioa, unsigned * nioa, unsigned max)
 		ioa[n].gsi_base = acpi_ioa->global_int_base;
 		ioa[n].pins = ((ioapic_read(ioa[n].addr,
 				IOAPIC_VERSION) & 0xff0000) >> 16)+1;
-		printf("IO APIC idx %d id %d addr 0x%lx paddr 0x%lx pins %d\n",
+		printf("IO APIC idx %d id %d addr 0x%" PRIxVIR " paddr 0x%" PRIxPHYS " pins %d\n",
 				n, acpi_ioa->id, ioa[n].addr, ioa[n].paddr,
 				ioa[n].pins);
 		n++;

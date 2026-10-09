@@ -217,7 +217,7 @@ pid_map(int slot)
 			break;
 
 		for (i = 0; i < r; i++) {
-			buf_printf("%08lx-%08lx %c%c%c\n",
+			buf_printf("%08" PRIxVIR "-%08" PRIxVIR " %c%c%c\n",
 			    vri[i].vri_addr,
 			    vri[i].vri_addr + vri[i].vri_length,
 			    (vri[i].vri_prot & PROT_READ) ? 'r' : '-',

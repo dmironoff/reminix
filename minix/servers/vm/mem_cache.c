@@ -222,7 +222,7 @@ do_setcache(message *msg)
                 struct cached_page *hb;
 
 		if(!(region = map_lookup(caller, v, &phys_region))) {
-			printf("VM: error: no reasonable memory region given (offset 0x%lx, 0x%lx)\n", offset, v);
+			printf("VM: error: no reasonable memory region given (offset 0x%lx, 0x%" PRIxVIR ")\n", offset, v);
 			return EFAULT;
 		}
 

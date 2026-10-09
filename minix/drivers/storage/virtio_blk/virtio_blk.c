@@ -179,13 +179,13 @@ prepare_bufs(struct vumap_vir *vir, struct vumap_phys *phys, int cnt, int w)
 
 		/* So you gave us a byte aligned buffer? Good job! */
 		if (phys[i].vp_addr & 1) {
-			dprintf(("byte aligned %08lx", phys[i].vp_addr));
+			dprintf(("byte aligned %08" PRIxDMA, phys[i].vp_addr));
 			return EINVAL;
 		}
 
 		/* Check if the buffer is good */
 		if (phys[i].vp_size != vir[i].vv_size) {
-			dprintf(("Non-contig buf %08lx", phys[i].vp_addr));
+			dprintf(("Non-contig buf %08" PRIxDMA, phys[i].vp_addr));
 			return EINVAL;
 		}
 

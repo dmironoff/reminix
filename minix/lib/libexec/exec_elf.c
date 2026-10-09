@@ -242,7 +242,7 @@ int libexec_load_elf(struct exec_info *execi)
 
 		if(try_mmap && execi->memmap(execi, vaddr, fbytes, foffset, clearend, mmap_prot) == OK) {
 #if ELF_DEBUG
-			printf("libexec: mmap 0x%lx-0x%llx done, clearend 0x%x\n",
+			printf("libexec: mmap 0x%" PRIxVIR "-0x%llx done, clearend 0x%x\n",
 				vaddr, vaddr+fbytes, clearend);
 #endif
 
@@ -255,7 +255,7 @@ int libexec_load_elf(struct exec_info *execi)
 					return ENOMEM;
 				}
 #if ELF_DEBUG
-				else printf("libexec: allocated 0x%lx-0x%lx\n",
+				else printf("libexec: allocated 0x%" PRIxVIR "-0x%" PRIxVIR "\n",
 
 					remstart, remstart+rem_mem);
 #endif
@@ -268,7 +268,7 @@ int libexec_load_elf(struct exec_info *execi)
 			}
 
 #if ELF_DEBUG
-			printf("libexec: mmapped 0x%lx-0x%lx\n", vaddr, vaddr+seg_membytes);
+			printf("libexec: mmapped 0x%" PRIxVIR "-0x%" PRIxVIR "\n", vaddr, vaddr+seg_membytes);
 #endif
 
 			/* Copy executable section into it */
@@ -278,21 +278,21 @@ int libexec_load_elf(struct exec_info *execi)
 			}
 
 #if ELF_DEBUG
-			printf("libexec: copied 0x%lx-0x%lx\n", p_vaddr, p_vaddr+ph->p_filesz);
+			printf("libexec: copied 0x%" PRIxVIR "-0x%" PRIxVIR "\n", p_vaddr, p_vaddr+ph->p_filesz);
 #endif
 
 			/* Clear remaining bits */
 			vmemend = vaddr + seg_membytes;
 			if((chunk = p_vaddr - vaddr) > 0) {
 #if ELF_DEBUG
-				printf("libexec: start clearing 0x%lx-0x%lx\n", vaddr, vaddr+chunk);
+				printf("libexec: start clearing 0x%" PRIxVIR "-0x%" PRIxVIR "\n", vaddr, vaddr+chunk);
 #endif
 				execi->clearmem(execi, vaddr, chunk);
 			}
 	
 			if((chunk = vmemend - vfileend) > 0) {
 #if ELF_DEBUG
-				printf("libexec: end clearing 0x%lx-0x%lx\n", vfileend, vfileend+chunk);
+				printf("libexec: end clearing 0x%" PRIxVIR "-0x%" PRIxVIR "\n", vfileend, vfileend+chunk);
 #endif
 				execi->clearmem(execi, vfileend, chunk);
 			}
@@ -306,7 +306,7 @@ int libexec_load_elf(struct exec_info *execi)
 	}
 
 #if ELF_DEBUG
-	printf("libexec: stack mmapped 0x%lx-0x%lx\n", stacklow, stacklow+execi->stack_size);
+	printf("libexec: stack mmapped 0x%" PRIxVIR "-0x%" PRIxVIR "\n", stacklow, stacklow+execi->stack_size);
 #endif
 
 	/* record entry point and lowest load vaddr for caller */

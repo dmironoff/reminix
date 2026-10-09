@@ -347,7 +347,7 @@ static void de_init_buf(dpeth_t *dep)
       if( ((loc_descr->descr->des[DES_BUF1] & 0x3) != 0) ||
 	  ((loc_descr->descr->des[DES_BUF2] & 0x3) != 0) ||
 	  ((temp&0x3)!=0) )
-	panic("alignment error: 0x%lx", temp);
+	panic("alignment error: 0x%" PRIxDMA, temp);
 
       loc_descr++;
     }

@@ -89,7 +89,7 @@ static void el2_init(dpeth_t * dep)
 
   ns_init(dep);			/* Initialize DP controller */
 
-  printf("%s: Etherlink II%s (%s) at %X:%d:%05lX - ",
+  printf("%s: Etherlink II%s (%s) at %X:%d:%05" PRIxPHYS " - ",
 	 netdriver_name(), dep->de_16bit ? "/16" : "", "3c503",
 	 dep->de_base_port, dep->de_irq,
          dep->de_linmem + dep->de_offset_page);

@@ -204,7 +204,7 @@ int verify_grant(
 		    offset_in+bytes > g.cp_u.cp_direct.cp_len) {
 			printf(
 		"verify_grant: direct grant verify failed: bad size or range. "
-		"granted %d bytes @ 0x%lx; wanted %d bytes @ 0x%lx\n",
+		"granted %d bytes @ 0x%" PRIxVIR "; wanted %d bytes @ 0x%lx\n",
 				g.cp_u.cp_direct.cp_len,
 				g.cp_u.cp_direct.cp_start,
 				bytes, offset_in);
@@ -238,7 +238,7 @@ int verify_grant(
 		    offset_in+bytes > g.cp_u.cp_magic.cp_len) {
 			printf(
 		"verify_grant: magic grant verify failed: bad size or range. "
-		"granted %d bytes @ 0x%lx; wanted %d bytes @ 0x%lx\n",
+		"granted %d bytes @ 0x%" PRIxVIR "; wanted %d bytes @ 0x%lx\n",
 				g.cp_u.cp_magic.cp_len,
 				g.cp_u.cp_magic.cp_start,
 				bytes, offset_in);
@@ -361,7 +361,7 @@ static int safecopy(
 			 */
 			if (r != OK)
 				printf("Kernel: writing soft fault marker %d "
-				    "into %d at 0x%lx failed (%d)\n",
+				    "into %d at 0x%" PRIxVIR " failed (%d)\n",
 				    sfinfo.value, sfinfo.endpt, sfinfo.addr,
 				    r);
 

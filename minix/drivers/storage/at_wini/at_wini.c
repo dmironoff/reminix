@@ -1347,7 +1347,7 @@ static int setup_dma(
 	{
 #if VERBOSE_DMA
 		printf(
-	"at_wini: setup_dma: iov[%d]: addr 0x%lx, size %ld offset %d, size %d\n",
+	"at_wini: setup_dma: iov[%d]: addr 0x%" PRIxVIR ", size %ld offset %d, size %d\n",
 			i, iov[i].iov_addr, iov[i].iov_size, offset, size);
 #endif
 			
@@ -1415,7 +1415,7 @@ static int setup_dma(
 #if VERBOSE_DMA
 	printf("dma not bad\n");
 	for (i= 0; i<j; i++) {
-		printf("prdt[%d]: base 0x%lx, size %d, flags 0x%x\n",
+		printf("prdt[%d]: base 0x%" PRIxDMA ", size %d, flags 0x%x\n",
 			i, prdt[i].prdte_base, prdt[i].prdte_count,
 			prdt[i].prdte_flags);
 	}
@@ -1428,7 +1428,7 @@ static int setup_dma(
 		panic("Bus master IDE active");
 
 	if (prdt_phys & 3)
-		panic("prdt not aligned: 0x%lx", prdt_phys);
+		panic("prdt not aligned: 0x%" PRIxDMA, prdt_phys);
 	r= sys_outl(wn->base_dma + DMA_PRDTP, prdt_phys);
 	if (r != 0) panic("setup_dma: sys_outl failed: %d", r);
 

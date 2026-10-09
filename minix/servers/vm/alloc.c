@@ -529,7 +529,7 @@ int usedpages_add_f(phys_bytes addr, phys_bytes len, const char *file, int line)
 		if(pagemap[pagestart].used) {
 			static int warnings = 0;
 			if(warnings++ < 100)
-				printf("%s:%d: usedpages_add: addr 0x%lx reused, first %s:%d\n",
+				printf("%s:%d: usedpages_add: addr 0x%" PRIxPHYS " reused, first %s:%d\n",
 					file, line, thisaddr, pagemap[pagestart].file, pagemap[pagestart].line);
 			util_stacktrace();
 			return EFAULT;

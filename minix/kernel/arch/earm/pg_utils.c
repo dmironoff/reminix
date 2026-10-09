@@ -27,7 +27,7 @@ void print_memmap(kinfo_t *cbi)
 	assert(cbi->mmap_size < MAXMEMMAP);
 	for(m = 0; m < cbi->mmap_size; m++) {
 		phys_bytes addr = cbi->memmap[m].mm_base_addr, endit = cbi->memmap[m].mm_base_addr + cbi->memmap[m].mm_length;
-		printf("%08lx-%08lx ",addr, endit);
+		printf("%08" PRIxPHYS "-%08" PRIxPHYS " ",addr, endit);
 	}
 	printf("\nsize %08lx\n", cbi->mmap_size);
 }

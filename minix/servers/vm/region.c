@@ -42,14 +42,14 @@ static void map_printregion(struct vir_region *vr)
 	unsigned int i;
 	struct phys_region *ph;
 	printf("map_printmap: map_name: %s\n", vr->def_memtype->name);
-	printf("\t%lx (len 0x%lx, %lukB), %p, %s\n",
+	printf("\t%" PRIxVIR " (len 0x%lx, %lukB), %p, %s\n",
 		vr->vaddr, vr->length, vr->length/1024,
 		vr->def_memtype->name,
 		(vr->flags & VR_WRITABLE) ? "writable" : "readonly");
 	printf("\t\tphysblocks:\n");
 	for(i = 0; i < vr->length/VM_PAGE_SIZE; i++) {
 		if(!(ph=vr->physblocks[i])) continue;
-		printf("\t\t@ %lx (refs %d): phys 0x%lx, %s\n",
+		printf("\t\t@ %" PRIxVIR " (refs %d): phys 0x%" PRIxPHYS ", %s\n",
 			(vr->vaddr + ph->offset),
 			ph->ph->refcount, ph->ph->phys,
 		pt_writable(vr->parent, vr->vaddr + ph->offset) ? "W" : "R");
@@ -320,7 +320,7 @@ static vir_bytes region_find_slot_range(struct vmproc *vmp,
 
                 /* Sanity check. */
                 if(maxv <= minv) {
-                        printf("region_find_slot: minv 0x%lx and bytes 0x%lx\n",
+                        printf("region_find_slot: minv 0x%" PRIxVIR " and bytes 0x%lx\n",
                                 minv, length);
                         return SLOT_FAIL;
                 }
@@ -329,7 +329,7 @@ static vir_bytes region_find_slot_range(struct vmproc *vmp,
 	/* Basic input sanity checks. */
 	assert(!(length % VM_PAGE_SIZE));
 	if(minv >= maxv) {
-		printf("VM: 1 minv: 0x%lx maxv: 0x%lx length: 0x%lx\n",
+		printf("VM: 1 minv: 0x%" PRIxVIR " maxv: 0x%" PRIxVIR " length: 0x%lx\n",
 			minv, maxv, length);
 	}
 
@@ -1483,7 +1483,7 @@ int get_region_info(struct vmproc *vmp, struct vm_region_info *vri,
 		}
 
 		if(!ph1 || !ph2) {
-			printf("skipping empty region 0x%lx-0x%lx\n",
+			printf("skipping empty region 0x%" PRIxVIR "-0x%" PRIxVIR "\n",
 				vr->vaddr, vr->vaddr+vr->length);
 			continue;
 		}

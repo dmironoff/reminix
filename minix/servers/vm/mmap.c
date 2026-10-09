@@ -334,7 +334,7 @@ int do_map_phys(message *m)
 	 * help it if we can't map in lower than page granularity.
 	 */
 	if(map_perm_check(m->m_source, target, startaddr, len) != OK) {
-		printf("VM: unauthorized mapping of 0x%lx by %d for %d\n",
+		printf("VM: unauthorized mapping of 0x%" PRIxPHYS " by %d for %d\n",
 			startaddr, m->m_source, target);
 		return EPERM;
 	}
@@ -560,7 +560,7 @@ int do_munmap(message *m)
 	if(m->m_type == VM_UNMAP_PHYS || m->m_type == VM_SHM_UNMAP) {
 		struct vir_region *vr;
 	        if(!(vr = map_lookup(vmp, addr, NULL))) {
-			printf("VM: unmap: address 0x%lx not found in %d\n",
+			printf("VM: unmap: address 0x%" PRIxVIR " not found in %d\n",
 	                       addr, target);
 			sys_diagctl_stacktrace(target);
 	                return EFAULT;

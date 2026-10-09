@@ -301,11 +301,11 @@ phys_bytes umap_virtual(
 	phys_bytes phys = 0;
 
 	if(vm_lookup(rp, vir_addr, &phys, NULL) != OK) {
-		printf("SYSTEM:umap_virtual: vm_lookup of %s: seg 0x%x: 0x%lx failed\n", rp->p_name, seg, vir_addr);
+		printf("SYSTEM:umap_virtual: vm_lookup of %s: seg 0x%x: 0x%" PRIxVIR " failed\n", rp->p_name, seg, vir_addr);
 		phys = 0;
 	} else {
 		if(phys == 0)
-			panic("vm_lookup returned phys: 0x%lx",  phys);
+			panic("vm_lookup returned phys: 0x%" PRIxPHYS,  phys);
 	}
 
 	if(phys == 0) {
@@ -317,7 +317,7 @@ phys_bytes umap_virtual(
 	 * so that the umap makes sense.
 	 */
 	if(bytes > 0 && vm_lookup_range(rp, vir_addr, NULL, bytes) != bytes) {
-		printf("umap_virtual: %s: %lu at 0x%lx (vir 0x%lx) not contiguous\n",
+		printf("umap_virtual: %s: %lu at 0x%" PRIxVIR " (vir 0x%" PRIxVIR ") not contiguous\n",
 			rp->p_name, bytes, vir_addr, vir_addr);
 		return 0;
 	}
@@ -583,7 +583,7 @@ int vm_memset(struct proc* caller, endpoint_t who, phys_bytes ph, int c,
 			}
 
 			/* Pagefault when phys copying ?! */
-			panic("vm_memset: pf %lx addr=%lx len=%lu\n",
+			panic("vm_memset: pf %" PRIxPHYS " addr=%" PRIxPHYS " len=%lu\n",
 						pfa , ptr, chunk);
 		}
 
@@ -839,7 +839,7 @@ int arch_phys_map(const int index,
 		assert(*addr);
 		*len = 4 << 10 /* 4kB */;
 		*flags = VMMF_UNCACHED | VMMF_WRITE;
-		printf("ioapic map: addr 0x%lx\n", *addr);
+		printf("ioapic map: addr 0x%" PRIxPHYS "\n", *addr);
 		return OK;
 	}
 #endif

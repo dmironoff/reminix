@@ -42,7 +42,7 @@ static void print_region(struct vm_region_info *vri, int *n)
   /* NULL indicates the end of a list of mappings, nothing else to do */
   if (!vri) return;
 
-  printf("  %08lx-%08lx %c%c%c (%lu kB)\n", vri->vri_addr,
+  printf("  %08" PRIxVIR "-%08" PRIxVIR " %c%c%c (%lu kB)\n", vri->vri_addr,
 	vri->vri_addr + vri->vri_length,
 	(vri->vri_prot & PROT_READ) ? 'r' : '-',
 	(vri->vri_prot & PROT_WRITE) ? 'w' : '-',

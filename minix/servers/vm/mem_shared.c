@@ -77,7 +77,7 @@ static int getsrc(struct vir_region *region,
 	*vmp = &vmproc[srcproc];
 
 	if(!(*r=map_lookup(*vmp, region->param.shared.vaddr, NULL))) {
-		printf("VM: shared memory with missing vaddr 0x%lx.\n",
+		printf("VM: shared memory with missing vaddr 0x%" PRIxVIR ".\n",
 			region->param.shared.vaddr);
                 return EINVAL;
 	}

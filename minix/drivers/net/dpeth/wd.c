@@ -192,7 +192,7 @@ static void we_init(dpeth_t *dep)
 
   ns_init(dep);			/* Initialize DP controller */
 
-  printf("%s: WD80%d3 (%dkB RAM) at %X:%d:%lX - ",
+  printf("%s: WD80%d3 (%dkB RAM) at %X:%d:%" PRIxPHYS " - ",
          netdriver_name(),
          we_type & WET_BRD_16BIT ? 1 : 0,
          dep->de_ramsize / 1024,

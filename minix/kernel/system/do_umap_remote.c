@@ -110,7 +110,7 @@ int do_umap_remote(struct proc * caller, message * m_ptr)
 
   m_ptr->m_krn_lsys_sys_umap.dst_addr = phys_addr;
   if(phys_addr == 0) {
-	  printf("kernel: umap 0x%x done by %d / %s, pc 0x%lx, 0x%lx -> 0x%lx\n",
+	  printf("kernel: umap 0x%x done by %d / %s, pc 0x%lx, 0x%" PRIxVIR " -> 0x%" PRIxPHYS "\n",
 		seg_type, caller->p_endpoint, caller->p_name,
 		caller->p_reg.pc, offset, phys_addr);
 	printf("caller stack: ");

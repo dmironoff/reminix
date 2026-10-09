@@ -22,6 +22,7 @@ typedef phys_clicks pfn_t;		/* physical page frame number */
 
 /* printf formats: "%" PRIxPHYS and so on. */
 #define PRIxPHYS	"lx"
+#define PRIuPHYS	"lu"
 #define PRIxVIR		"lx"
 #define PRIxDMA		PRIxPHYS
 

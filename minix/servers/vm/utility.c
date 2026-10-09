@@ -254,7 +254,7 @@ transfer_mmap_regions(struct vmproc *src_vmp, struct vmproc *dst_vmp,
 	if (check_vr != NULL) {
 #if LU_DEBUG
 		printf("VM: transfer_mmap_regions: skipping transfer from "
-		    "%d to %d (0x%lx already present)\n",
+		    "%d to %d (0x%" PRIxVIR " already present)\n",
 		    src_vmp->vm_endpoint, dst_vmp->vm_endpoint,
 		    start_vr->vaddr);
 #endif
@@ -267,7 +267,7 @@ transfer_mmap_regions(struct vmproc *src_vmp, struct vmproc *dst_vmp,
 
 #if LU_DEBUG
 	printf("VM: transfer_mmap_regions: transferring memory mapped regions "
-	    "from %d to %d (0x%lx to 0x%lx)\n", src_vmp->vm_endpoint,
+	    "from %d to %d (0x%" PRIxVIR " to 0x%" PRIxVIR ")\n", src_vmp->vm_endpoint,
 	    dst_vmp->vm_endpoint, start_vr->vaddr, end_vr->vaddr);
 #endif
 

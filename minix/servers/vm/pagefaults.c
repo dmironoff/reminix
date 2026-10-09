@@ -91,11 +91,11 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 	/* See if address is valid at all. */
 	if(!(region = map_lookup(vmp, addr, NULL))) {
 		if(PFERR_PROT(err))  {
-			printf("VM: pagefault: SIGSEGV %d protected addr 0x%lx; %s\n",
+			printf("VM: pagefault: SIGSEGV %d protected addr 0x%" PRIxVIR "; %s\n",
 				ep, addr, pf_errstr(err));
 		} else {
 			assert(PFERR_NOPAGE(err));
-			printf("VM: pagefault: SIGSEGV %d bad addr 0x%lx; %s\n",
+			printf("VM: pagefault: SIGSEGV %d bad addr 0x%" PRIxVIR "; %s\n",
 					ep, addr, pf_errstr(err));
 			sys_diagctl_stacktrace(ep);
 		}
@@ -108,7 +108,7 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 
 	/* If process was writing, see if it's writable. */
 	if(!(region->flags & VR_WRITABLE) && wr) {
-		printf("VM: pagefault: SIGSEGV %d ro map 0x%lx %s\n",
+		printf("VM: pagefault: SIGSEGV %d ro map 0x%" PRIxVIR " %s\n",
 				ep, addr, pf_errstr(err));
 		if((s=sys_kill(vmp->vm_endpoint, SIGSEGV)) != OK)
 			panic("sys_kill failed: %d", s);

@@ -212,14 +212,14 @@ dpeth_t *dep;
 
 	if (!debug)
 	{
-		printf("%s: WD80%d3 at %X:%d:%lX\n",
+		printf("%s: WD80%d3 at %X:%d:%" PRIxPHYS "\n",
 			netdriver_name(), we_type & WET_BRD_16BIT ? 1 : 0,
 			dep->de_base_port, dep->de_irq, dep->de_linmem);
 	}
 	else
 	{
 		printf("%s: Western Digital %s%s card %s%s at I/O "
-			"address 0x%X, memory address 0x%lX, "
+			"address 0x%X, memory address 0x%" PRIxPHYS ", "
 			"memory size 0x%X, irq %d\n",
 			netdriver_name(),
 			we_type & WET_BRD_16BIT ? "16-bit " : "", 

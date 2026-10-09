@@ -336,7 +336,7 @@ static void delivermsg(struct proc *rp)
                                 (message *) rp->p_delivermsg_vir)) {
                 if(rp->p_misc_flags & MF_MSGFAILED) {
                         /* 2nd consecutive failure means this won't succeed */
-                        printf("WARNING wrong user pointer 0x%08lx from "
+                        printf("WARNING wrong user pointer 0x%08" PRIxVIR " from "
                                 "process %s / %d\n",
                                 rp->p_delivermsg_vir,
                                 rp->p_name,
@@ -1339,7 +1339,7 @@ int mini_notify(
 
 #define ASCOMPLAIN(caller, entry, field)	\
 	printf("kernel:%s:%d: asyn failed for %s in %s "	\
-	"(%d/%zu, tab 0x%lx)\n",__FILE__,__LINE__,	\
+	"(%d/%zu, tab 0x%" PRIxVIR ")\n",__FILE__,__LINE__,	\
 field, caller->p_name, entry, priv(caller)->s_asynsize, priv(caller)->s_asyntab)
 
 /*

@@ -1221,7 +1221,7 @@ void pt_init(void)
 #endif
 
 			if(addr % VM_PAGE_SIZE)
-                		panic("VM: addr unaligned: %lu", addr);
+                		panic("VM: addr unaligned: %" PRIuPHYS, addr);
 			if(len % VM_PAGE_SIZE)
                 		panic("VM: len unaligned: %lu", len);
 			vir = offset;

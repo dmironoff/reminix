@@ -183,7 +183,7 @@ static void sef_cb_signal_handler(int signo)
 		}
 
 		printf(
-		"amddev: deleting 0x%lx@0x%lx for proc %d\n",
+		"amddev: deleting 0x%lx@0x%" PRIxDMA " for proc %d\n",
 			size, base, proc_e);
 		del_range(base, size);
 		r= vm_deldma(proc_e, base, size);
@@ -302,7 +302,7 @@ static void init_domain(int index)
 		memset(table, 0x00, size);
 	}
 
-printf("init_domain: busaddr = 0x%lx\n", busaddr);
+printf("init_domain: busaddr = 0x%" PRIxDMA "\n", busaddr);
 
 	write_reg(DEVF_BASE_HI, index, 0);
 	write_reg(DEVF_BASE_LO, index, busaddr | 3);
@@ -387,12 +387,12 @@ static int do_add4pci(const message *m)
 	pci_func= m->m1_i3;
 
 	printf(
-"amddev`do_add4pci: got request for 0x%x@0x%lx from %d for pci dev %u.%u.%u\n",
+"amddev`do_add4pci: got request for 0x%x@0x%" PRIxVIR " from %d for pci dev %u.%u.%u\n",
 		size, start, proc, pci_bus, pci_dev, pci_func);
 
 	if (start % PAGE_SIZE)
 	{
-		printf("amddev`do_add4pci: bad start 0x%lx from proc %d\n",
+		printf("amddev`do_add4pci: bad start 0x%" PRIxVIR " from proc %d\n",
 			start, proc);
 		return EINVAL;
 	}
@@ -409,7 +409,7 @@ static int do_add4pci(const message *m)
 	if (r != OK)
 	{
 		printf(
-		"amddev`do_add4pci: umap failed for 0x%x@0x%lx, proc %d: %d\n",
+		"amddev`do_add4pci: umap failed for 0x%x@0x%" PRIxVIR ", proc %d: %d\n",
 			size, start, proc, r);
 		return r;
 	}
@@ -419,7 +419,7 @@ static int do_add4pci(const message *m)
 	if (r != 0)
 	{
 		r= -errno;
-		printf("amddev`do_add4pci: vm_adddma failed for 0x%x@0x%lx, "
+		printf("amddev`do_add4pci: vm_adddma failed for 0x%x@0x%" PRIxVIR ", "
 			"proc %d: %d\n", size, start, proc, r);
 		return r;
 	}
