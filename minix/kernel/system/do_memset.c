@@ -17,11 +17,10 @@
 int do_memset(struct proc * caller, message * m_ptr)
 {
 /* Handle sys_memset(). This writes a pattern into the specified memory. */
-  vm_memset(caller, m_ptr->m_lsys_krn_sys_memset.process,
+  return vm_memset(caller, m_ptr->m_lsys_krn_sys_memset.process,
 	  m_ptr->m_lsys_krn_sys_memset.base,
 	  m_ptr->m_lsys_krn_sys_memset.pattern,
 	  m_ptr->m_lsys_krn_sys_memset.count);
-  return(OK);
 }
 
 #endif /* USE_MEMSET */
