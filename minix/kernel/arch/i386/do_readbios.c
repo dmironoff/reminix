@@ -14,24 +14,20 @@
  *===========================================================================*/
 int do_readbios(struct proc * caller, message * m_ptr)
 {
-  struct vir_addr src, dst;
+  phys_addr_t src = m_ptr->m_lsys_krn_readbios.addr;
+  vir_addr_t dst = m_ptr->m_lsys_krn_readbios.buf;
   size_t len = m_ptr->m_lsys_krn_readbios.size;
-  vir_bytes limit;
+  phys_addr_t limit;
 
-  src.offset = m_ptr->m_lsys_krn_readbios.addr;
-  dst.offset = m_ptr->m_lsys_krn_readbios.buf;
-  src.proc_nr_e = NONE;
-  dst.proc_nr_e = m_ptr->m_source;      
-
-  limit = src.offset + len - 1;
+  limit = src + len - 1;
 
 #define VINRANGE(v, a, b) ((a) <= (v) && (v) <= (b))
 #define SUBRANGE(a,b,c,d) (VINRANGE((a), (c), (d)) && VINRANGE((b),(c),(d)))
-#define USERRANGE(a, b) SUBRANGE(src.offset, limit, (a), (b))
+#define USERRANGE(a, b) SUBRANGE(src, limit, (a), (b))
 
   if(!USERRANGE(BIOS_MEM_BEGIN, BIOS_MEM_END) &&
      !USERRANGE(BASE_MEM_TOP, UPPER_MEM_END))
   	return EPERM;
 
-  return virtual_copy_vmcheck(caller, &src, &dst, m_ptr->m_lsys_krn_readbios.size);
+  return copy_phys_vir(caller, src, m_ptr->m_source, dst, len);
 }

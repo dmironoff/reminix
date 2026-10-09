@@ -618,6 +618,70 @@ int data_copy_vmcheck(struct proc * caller,
   return virtual_copy_vmcheck(caller, &src, &dst, bytes);
 }
 
+/*===========================================================================*
+ *				copy_phys_vir				     *
+ *===========================================================================*/
+int copy_phys_vir(struct proc *caller, phys_addr_t src, endpoint_t dst_e,
+	vir_addr_t dst, size_t bytes)
+{
+/* Copy from physical memory into the address space of dst_e. With a caller,
+ * a page fault suspends it until VM has handled the fault (VMSUSPEND).
+ */
+  struct vir_addr s, d;
+
+  s.offset = src;
+  s.proc_nr_e = NONE;
+  d.offset = dst;
+  d.proc_nr_e = dst_e;
+  assert(dst_e != NONE);
+
+  return virtual_copy_f(caller, &s, &d, bytes, caller != NULL);
+}
+
+/*===========================================================================*
+ *				copy_vir_phys				     *
+ *===========================================================================*/
+int copy_vir_phys(struct proc *caller, endpoint_t src_e, vir_addr_t src,
+	phys_addr_t dst, size_t bytes)
+{
+/* Copy from the address space of src_e into physical memory. */
+  struct vir_addr s, d;
+
+  s.offset = src;
+  s.proc_nr_e = src_e;
+  d.offset = dst;
+  d.proc_nr_e = NONE;
+  assert(src_e != NONE);
+
+  return virtual_copy_f(caller, &s, &d, bytes, caller != NULL);
+}
+
+/*===========================================================================*
+ *				copy_phys_phys				     *
+ *===========================================================================*/
+int copy_phys_phys(phys_addr_t src, phys_addr_t dst, size_t bytes)
+{
+/* Copy from physical memory to physical memory. */
+  struct vir_addr s, d;
+
+  s.offset = src;
+  s.proc_nr_e = NONE;
+  d.offset = dst;
+  d.proc_nr_e = NONE;
+
+  return virtual_copy(&s, &d, bytes);
+}
+
+/*===========================================================================*
+ *				memset_phys				     *
+ *===========================================================================*/
+int memset_phys(struct proc *caller, phys_addr_t dst, int pattern,
+	size_t bytes)
+{
+/* Fill physical memory with a byte pattern. */
+  return vm_memset(caller, NONE, dst, pattern, bytes);
+}
+
 void memory_init(void)
 {
 	assert(nfreepdes == 0);
